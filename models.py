@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
@@ -31,6 +31,22 @@ class GstRegistration(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     company = relationship("Company", back_populates="gst_registrations")
+    contacts = relationship("Contact", back_populates="gst_registration")
+
+class Contact(Base):
+    __tablename__ = "contacts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    gst_registration_id = Column(Integer, ForeignKey("gst_registrations.id"), nullable=False)
+    name = Column(String, nullable=False)
+    email = Column(String, nullable=False)
+    phone = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint('gst_registration_id', 'email', name='uq_contact_email_per_gst'),)
+
+    gst_registration = relationship("GstRegistration", back_populates="contacts")
 
 class UserAccount(Base):
     __tablename__ = "user_accounts"

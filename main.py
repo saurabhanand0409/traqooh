@@ -6,12 +6,16 @@ from typing import Optional, List
 import models
 from database import engine, get_db
 from passlib.context import CryptContext
+import datetime
 
 # Auth setup
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
+
+def hash_password(password):
+    return pwd_context.hash(password)
 
 # Connect DB schema
 models.Base.metadata.create_all(bind=engine)
@@ -43,17 +47,25 @@ class LoginResponse(BaseModel):
     companyId: Optional[int] = None
     token: str
 
-class CompanyResponse(BaseModel):
-    id: int
+class ContactRequest(BaseModel):
     name: str
-    roc_attachment_url: Optional[str] = None
-    created_at: datetime.datetime
-    updated_at: datetime.datetime
+    email: str
+    phone: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
-import datetime
+class CreateMediaOwnerRequest(BaseModel):
+    companyName: str
+    rocAttachmentUrl: Optional[str] = None
+    companyAddress: Optional[str] = None
+    gstNumber: str
+    gstCertificateUrl: Optional[str] = None
+    gstAddress: str
+    directorName: str
+    directorPhone: str
+    primaryEmail: str
+    primaryPhone: Optional[str] = None
+    accountPassword: str
+    role: Optional[str] = "MEDIA_OWNER"
+    contacts: List[ContactRequest]
 
 @app.get("/")
 def read_root():
@@ -63,7 +75,7 @@ def read_root():
 def health_check():
     return {"status": "ok"}
 
-# API Routes with /api prefix
+# API Routes
 @app.post("/api/auth/login", response_model=LoginResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email)).first()
@@ -88,6 +100,67 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         companyId=company_id,
         token="token-placeholder" # Placeholder for JWT
     )
+
+@app.post("/api/media-owners")
+def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
+    # 1. Check if GST already exists
+    existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber).first()
+    if existing_gst:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
+
+    # 2. Check if Email already exists in UserAccounts
+    existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail)).first()
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+
+    # 3. Find or Create Company
+    company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName)).first()
+    if not company:
+        company = models.Company(
+            name=req.companyName,
+            roc_attachment_url=req.rocAttachmentUrl
+        )
+        db.add(company)
+        db.commit()
+        db.refresh(company)
+
+    # 4. Create GST Registration
+    gst = models.GstRegistration(
+        company_id=company.id,
+        gst_number=req.gstNumber,
+        gst_certificate_url=req.gstCertificateUrl,
+        address=req.gstAddress,
+        director_name=req.directorName,
+        director_phone=req.directorPhone,
+        primary_email=req.primaryEmail,
+        primary_phone=req.primaryPhone
+    )
+    db.add(gst)
+    db.commit()
+    db.refresh(gst)
+
+    # 5. Create User Account
+    user_account = models.UserAccount(
+        email=req.primaryEmail.lower().strip(),
+        password_hash=hash_password(req.accountPassword),
+        role=req.role or "MEDIA_OWNER",
+        gst_registration_id=gst.id
+    )
+    db.add(user_account)
+    db.commit()
+
+    # 6. Create Contacts
+    for c in req.contacts:
+        contact = models.Contact(
+            gst_registration_id=gst.id,
+            name=c.name,
+            email=c.email,
+            phone=c.phone
+        )
+        db.add(contact)
+    db.commit()
+
+    return {"message": "Media Owner created successfully", "gst_id": gst.id}
 
 @app.get("/api/companies")
 def get_companies(db: Session = Depends(get_db)):
