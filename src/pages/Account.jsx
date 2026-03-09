@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import UserMenu from "../components/UserMenu";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8080";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
 // Fields that require addendum (cannot be directly edited - legal/compliance)
 const ADDENDUM_FIELDS = ["companyName", "gstNumber", "rocAttachmentUrl", "gstCertificateUrl"];

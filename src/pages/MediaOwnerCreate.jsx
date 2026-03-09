@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8080";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
 const blankGst = () => ({
   gstNumber: "",
@@ -36,9 +36,9 @@ export default function MediaOwnerCreate() {
       prev.map((g, i) =>
         i === gstIdx
           ? {
-              ...g,
-              contacts: g.contacts.map((c, ci) => (ci === contactIdx ? { ...c, ...updater } : c)),
-            }
+            ...g,
+            contacts: g.contacts.map((c, ci) => (ci === contactIdx ? { ...c, ...updater } : c)),
+          }
           : g
       )
     );
