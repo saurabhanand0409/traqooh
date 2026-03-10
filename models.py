@@ -56,3 +56,23 @@ class UserAccount(Base):
     password_hash = Column(String, nullable=False)
     role = Column(String, nullable=False) # MEDIA_OWNER or ADVERTISER
     gst_registration_id = Column(Integer, nullable=True)
+
+class Site(Base):
+    __tablename__ = "sites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True, nullable=False)
+    city = Column(String, index=True, nullable=False)
+    type = Column(String, nullable=False) # Billboard, LED, Hoarding, etc.
+    status = Column(String, default="Active")
+    size = Column(String, nullable=True)
+    facing = Column(String, nullable=True)
+    potential_monthly = Column(Integer, default=0)
+    occupancy = Column(Integer, default=0)
+    image_url = Column(String, nullable=True)
+    owner_company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    owner = relationship("Company", backref="sites")
+

@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
 from typing import Optional, List
 import datetime
@@ -14,11 +14,11 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Auth setup - explicitly allow truncation to avoid the 72 byte error
+# Auth setup
 pwd_context = CryptContext(
     schemes=["bcrypt"], 
     deprecated="auto",
-    bcrypt__truncate_error=False # This tells passlib to just truncate if > 72, not error
+    bcrypt__truncate_error=False
 )
 
 def verify_password(plain_password, hashed_password):
@@ -43,10 +43,9 @@ except Exception as e:
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.4.0"
+    version="1.5.0"
 )
 
-# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -88,15 +87,38 @@ class CreateMediaOwnerRequest(BaseModel):
     role: Optional[str] = "MEDIA_OWNER"
     contacts: List[ContactRequest]
 
+class SiteBase(BaseModel):
+    name: str
+    city: str
+    type: str
+    status: Optional[str] = "Active"
+    size: Optional[str] = None
+    facing: Optional[str] = None
+    potentialMonthly: Optional[float] = 0.0
+    occupancy: Optional[int] = 0
+    imageUrl: Optional[str] = None
+    ownerCompanyId: Optional[int] = None
+
+class SiteCreate(SiteBase):
+    pass
+
+class SiteResponse(SiteBase):
+    id: int
+    created_at: datetime.datetime
+    owner: Optional[dict] = None
+
+    class Config:
+        from_attributes = True
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the TraqOOH Python API!"}
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.4.0"}
+    return {"status": "ok", "version": "1.5.0"}
 
-# API Routes
+# Auth & User Routes
 @app.post("/api/auth/login", response_model=LoginResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     try:
@@ -131,18 +153,14 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
     try:
         logger.info(f"Registering: {req.primaryEmail}")
-        
-        # 1. Check if GST already exists
         existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber).first()
         if existing_gst:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
 
-        # 2. Check if Email already exists
         existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail)).first()
         if existing_user:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-        # 3. Find or Create Company
         company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName)).first()
         if not company:
             company = models.Company(name=req.companyName, roc_attachment_url=req.rocAttachmentUrl)
@@ -150,7 +168,6 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
             db.commit()
             db.refresh(company)
 
-        # 4. Create GST Registration
         gst = models.GstRegistration(
             company_id=company.id,
             gst_number=req.gstNumber,
@@ -165,7 +182,6 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         db.commit()
         db.refresh(gst)
 
-        # 5. Create User Account
         pw_hash = hash_password(req.accountPassword)
         user_account = models.UserAccount(
             email=req.primaryEmail.lower().strip(),
@@ -176,14 +192,8 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         db.add(user_account)
         db.commit()
 
-        # 6. Create Contacts
         for c in req.contacts:
-            contact = models.Contact(
-                gst_registration_id=gst.id,
-                name=c.name,
-                email=c.email,
-                phone=c.phone
-            )
+            contact = models.Contact(gst_registration_id=gst.id, name=c.name, email=c.email, phone=c.phone)
             db.add(contact)
         db.commit()
 
@@ -194,7 +204,96 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         logger.error(f"Registration Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/media-owners/all")
+def get_all_media_owners(db: Session = Depends(get_db)):
+    """Returns a flat list of GST registrations mapped to companies for selection dropdowns."""
+    gsts = db.query(models.GstRegistration).options(joinedload(models.GstRegistration.company)).all()
+    results = []
+    for g in gsts:
+        results.append({
+            "companyId": g.company_id,
+            "companyName": g.company.name if g.company else "Unknown",
+            "gstNumber": g.gst_number,
+            "gstId": g.id
+        })
+    return results
+
+# Inventory / Site Routes
+@app.get("/api/sites")
+def get_sites(ownerId: Optional[int] = None, db: Session = Depends(get_db)):
+    query = db.query(models.Site).options(joinedload(models.Site.owner))
+    if ownerId:
+        query = query.filter(models.Site.owner_company_id == ownerId)
+    sites = query.all()
+    
+    # Map to frontend expected shape
+    results = []
+    for s in sites:
+        results.append({
+            "id": s.id,
+            "name": s.name,
+            "city": s.city,
+            "type": s.type,
+            "status": s.status,
+            "size": s.size,
+            "facing": s.facing,
+            "potentialMonthly": float(s.potential_monthly or 0),
+            "occupancy": s.occupancy,
+            "imageUrl": s.image_url,
+            "owner": {
+                "id": s.owner.id,
+                "name": s.owner.name
+            } if s.owner else None,
+            "created_at": s.created_at
+        })
+    return results
+
+@app.get("/api/mobile/sites")
+def get_mobile_sites(ownerId: Optional[int] = None, db: Session = Depends(get_db)):
+    """Frontend calls this endpoint in some places."""
+    return get_sites(ownerId, db)
+
+@app.post("/api/sites")
+def create_site(req: SiteCreate, db: Session = Depends(get_db)):
+    site = models.Site(
+        name=req.name,
+        city=req.city,
+        type=req.type,
+        status=req.status,
+        size=req.size,
+        facing=req.facing,
+        potential_monthly=int(req.potentialMonthly or 0),
+        occupancy=req.occupancy or 0,
+        image_url=req.imageUrl,
+        owner_company_id=req.ownerCompanyId
+    )
+    db.add(site)
+    db.commit()
+    db.refresh(site)
+    # Join owner for response
+    db.refresh(site, ["owner"])
+    return site
+
+@app.put("/api/sites/{site_id}")
+def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
+    site = db.query(models.Site).filter(models.Site.id == site_id).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    
+    site.name = req.name
+    site.city = req.city
+    site.type = req.type
+    site.status = req.status
+    site.size = req.size
+    site.facing = req.facing
+    site.potential_monthly = int(req.potentialMonthly or 0)
+    site.occupancy = req.occupancy or 0
+    site.image_url = req.imageUrl
+    
+    db.commit()
+    db.refresh(site, ["owner"])
+    return site
+
 @app.get("/api/companies")
 def get_companies(db: Session = Depends(get_db)):
-    companies = db.query(models.Company).all()
-    return companies
+    return db.query(models.Company).all()
