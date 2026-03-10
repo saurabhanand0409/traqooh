@@ -17,16 +17,26 @@ import shutil
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Auth setup
+# Auth setup - Robustly handle the 72 byte bcrypt limit
 pwd_context = CryptContext(
     schemes=["bcrypt"], 
     deprecated="auto",
     bcrypt__truncate_error=False
 )
 
+def safe_truncate_password(password: str) -> str:
+    """Manually truncate to 72 bytes to be 100% sure we never hit the bcrypt limit."""
+    if not password:
+        return ""
+    # Encode to bytes, slice to 72, then decode back (safely)
+    pw_bytes = password.encode('utf-8')[:72]
+    return pw_bytes.decode('utf-8', errors='ignore')
+
 def verify_password(plain_password, hashed_password):
     try:
-        return pwd_context.verify(plain_password, hashed_password)
+        # Truncate input before verification
+        truncated = safe_truncate_password(plain_password)
+        return pwd_context.verify(truncated, hashed_password)
     except Exception as e:
         logger.error(f"Verify error: {e}")
         return False
@@ -34,7 +44,8 @@ def verify_password(plain_password, hashed_password):
 def hash_password(password):
     if not password:
         raise ValueError("Password cannot be empty")
-    return pwd_context.hash(password)
+    truncated = safe_truncate_password(password)
+    return pwd_context.hash(truncated)
 
 # Connect DB schema
 try:
@@ -46,7 +57,7 @@ except Exception as e:
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.7.0"
+    version="1.8.0"
 )
 
 app.add_middleware(
@@ -92,35 +103,20 @@ class CreateMediaOwnerRequest(BaseModel):
     role: Optional[str] = "MEDIA_OWNER"
     contacts: List[ContactRequest]
 
-class SiteBase(BaseModel):
-    name: str
-    city: str
-    type: str
-    status: Optional[str] = "Active"
-    size: Optional[str] = None
-    facing: Optional[str] = None
-    potentialMonthly: Optional[float] = 0.0
-    occupancy: Optional[int] = 0
-    imageUrl: Optional[str] = None
-    ownerCompanyId: Optional[int] = None
-
-class SiteCreate(SiteBase):
-    pass
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "version": "1.8.0", "time": str(datetime.datetime.now())}
 
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the TraqOOH Python API!"}
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok", "version": "1.7.0"}
 
 # Auth & User Routes
 @app.post("/api/auth/login", response_model=LoginResponse)
 @app.post("/api/mobile/login", response_model=LoginResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     try:
-        user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email)).first()
+        user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email.strip())).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
         
@@ -155,37 +151,44 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/media-owners")
 def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
+    """
+    Transactions: We only commit at the VERY END to prevent partial data (zombie GSTs).
+    """
     try:
-        logger.info(f"Registering: {req.primaryEmail}")
-        existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber).first()
-        if existing_gst:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
-
-        existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail)).first()
+        logger.info(f"REGISTRATION ATTEMPT: {req.primaryEmail} with GST {req.gstNumber}")
+        
+        # 1. Check if Email already exists
+        existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail.strip())).first()
         if existing_user:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-        company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName)).first()
-        if not company:
-            company = models.Company(name=req.companyName, roc_attachment_url=req.rocAttachmentUrl)
-            db.add(company)
-            db.commit()
-            db.refresh(company)
+        # 2. Check if GST already exists
+        existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber.strip()).first()
+        if existing_gst:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
 
+        # 3. Find or Create Company
+        company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName.strip())).first()
+        if not company:
+            company = models.Company(name=req.companyName.strip(), roc_attachment_url=req.rocAttachmentUrl)
+            db.add(company)
+            db.flush() # Get company.id without committing
+
+        # 4. Create GST Registration
         gst = models.GstRegistration(
             company_id=company.id,
-            gst_number=req.gstNumber,
+            gst_number=req.gstNumber.strip(),
             gst_certificate_url=req.gstCertificateUrl,
             address=req.gstAddress,
             director_name=req.directorName,
             director_phone=req.directorPhone,
-            primary_email=req.primaryEmail,
+            primary_email=req.primaryEmail.strip(),
             primary_phone=req.primaryPhone
         )
         db.add(gst)
-        db.commit()
-        db.refresh(gst)
+        db.flush() # Get gst.id
 
+        # 5. Create User Account
         pw_hash = hash_password(req.accountPassword)
         user_account = models.UserAccount(
             email=req.primaryEmail.lower().strip(),
@@ -194,17 +197,27 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
             gst_registration_id=gst.id
         )
         db.add(user_account)
-        db.commit()
 
+        # 6. Create Contacts
         for c in req.contacts:
-            contact = models.Contact(gst_registration_id=gst.id, name=c.name, email=c.email, phone=c.phone)
+            contact = models.Contact(
+                gst_registration_id=gst.id,
+                name=c.name,
+                email=c.email.strip(),
+                phone=c.phone
+            )
             db.add(contact)
+        
+        # FINAL COMMIT - All or nothing
         db.commit()
-
+        logger.info(f"REGISTRATION SUCCESS: {req.primaryEmail}")
         return {"message": "Success", "gst_id": gst.id}
+
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
+        db.rollback()
         logger.error(f"Registration Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -323,13 +336,11 @@ def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = De
     total_inventory = query.count()
     active_bookings = query.filter(models.Site.status == "Active").count()
     
-    # Calculate monthly revenue based on potential_monthly
     revenue_sum = db.query(func.sum(models.Site.potential_monthly))
     if ownerCompanyId:
         revenue_sum = revenue_sum.filter(models.Site.owner_company_id == ownerCompanyId)
     monthly_revenue = revenue_sum.scalar() or 0
     
-    # Calculate average occupancy
     occupancy_avg = db.query(func.avg(models.Site.occupancy))
     if ownerCompanyId:
         occupancy_avg = occupancy_avg.filter(models.Site.owner_company_id == ownerCompanyId)
@@ -338,13 +349,12 @@ def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = De
     return {
         "totalInventory": total_inventory,
         "activeBookings": active_bookings,
-        "monthlyRevenue": float(monthly_revenue) * 100000, # Assuming L is 100,000
+        "monthlyRevenue": float(monthly_revenue) * 100000, 
         "averageOccupancy": float(average_occupancy)
     }
 
 @app.get("/api/dashboard/recent-activity")
 def get_recent_activity(db: Session = Depends(get_db)):
-    # Simple mock activity for now
     return [
         {"text": "Portal update: Added new Site model", "time": "Just now"},
         {"text": "System: Database tables verified", "time": "2 mins ago"},
