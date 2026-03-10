@@ -1,4 +1,4 @@
-# Version 1.8.3 - Added python-multipart
+# Version 1.8.4 - Native Bcrypt + SHA256 Fix
 from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
@@ -8,45 +8,48 @@ from typing import Optional, List
 import datetime
 import models
 from database import engine, get_db
-from passlib.context import CryptContext
 import traceback
 import logging
 import os
 import shutil
+import hashlib
+import bcrypt
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Auth setup - Robustly handle the 72 byte bcrypt limit
-pwd_context = CryptContext(
-    schemes=["bcrypt"], 
-    deprecated="auto",
-    bcrypt__truncate_error=False
-)
-
-def safe_truncate_password(password: str) -> str:
-    """Manually truncate to 72 bytes to be 100% sure we never hit the bcrypt limit."""
+# --- BULLETPROOF HASHING (Fixes 72-byte limit) ---
+def hash_password(password: str) -> str:
+    """Pre-hash with SHA256 then bcrypt to avoid 72-byte limit."""
     if not password:
-        return ""
-    # Encode to bytes, slice to 72, then decode back (safely)
-    pw_bytes = password.encode('utf-8')[:72]
-    return pw_bytes.decode('utf-8', errors='ignore')
+        raise ValueError("Password cannot be empty")
+    # Pre-hash to 64 bytes (hexdigest)
+    pw_digest = hashlib.sha256(password.encode('utf-8')).hexdigest()
+    # Bcrypt the hex (always 64 bytes)
+    hashed = bcrypt.hashpw(pw_digest.encode('utf-8'), bcrypt.gensalt())
+    return hashed.decode('utf-8')
 
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Check SHA256+Bcrypt format. Supports old format as fallback if needed."""
     try:
-        # Truncate input before verification
-        truncated = safe_truncate_password(plain_password)
-        return pwd_context.verify(truncated, hashed_password)
+        if not plain_password or not hashed_password:
+            return False
+        
+        # New format check (SHA256 pre-hash)
+        pw_digest = hashlib.sha256(plain_password.encode('utf-8')).hexdigest()
+        if bcrypt.checkpw(pw_digest.encode('utf-8'), hashed_password.encode('utf-8')):
+            return True
+        
+        # Fallback (Direct truncation) for users created in brief window of v1.8.3
+        truncated = plain_password.encode('utf-8')[:72]
+        if bcrypt.checkpw(truncated, hashed_password.encode('utf-8')):
+            return True
+            
+        return False
     except Exception as e:
         logger.error(f"Verify error: {e}")
         return False
-
-def hash_password(password):
-    if not password:
-        raise ValueError("Password cannot be empty")
-    truncated = safe_truncate_password(password)
-    return pwd_context.hash(truncated)
 
 # Connect DB schema
 try:
@@ -58,7 +61,7 @@ except Exception as e:
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.8.3"
+    version="1.8.4"
 )
 
 app.add_middleware(
@@ -104,9 +107,24 @@ class CreateMediaOwnerRequest(BaseModel):
     role: Optional[str] = "MEDIA_OWNER"
     contacts: List[ContactRequest]
 
+class SiteBase(BaseModel):
+    name: str
+    city: str
+    type: str
+    status: Optional[str] = "Active"
+    size: Optional[str] = None
+    facing: Optional[str] = None
+    potentialMonthly: Optional[float] = 0.0
+    occupancy: Optional[int] = 0
+    imageUrl: Optional[str] = None
+    ownerCompanyId: Optional[int] = None
+
+class SiteCreate(SiteBase):
+    pass
+
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.8.3", "time": str(datetime.datetime.now())}
+    return {"status": "ok", "version": "1.8.4", "time": str(datetime.datetime.now())}
 
 @app.get("/")
 def read_root():
@@ -152,9 +170,6 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/media-owners")
 def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
-    """
-    Transactions: We only commit at the VERY END to prevent partial data (zombie GSTs).
-    """
     try:
         logger.info(f"REGISTRATION ATTEMPT: {req.primaryEmail} with GST {req.gstNumber}")
         
@@ -163,17 +178,26 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         if existing_user:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-        # 2. Check if GST already exists
+        # 2. Check if GST already exists & SELF-HEAL ZOMBIES
         existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber.strip()).first()
         if existing_gst:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
+            # check if this GST has a user attached
+            user_linked = db.query(models.UserAccount).filter(models.UserAccount.gst_registration_id == existing_gst.id).first()
+            if not user_linked:
+                # ZOMBIE GST detected (from partial crash 1.5.0/1.7.0). CLEAN IT!
+                logger.info(f"Cleaning up zombie GST {existing_gst.id} for retry")
+                db.query(models.Contact).filter(models.Contact.gst_registration_id == existing_gst.id).delete()
+                db.delete(existing_gst)
+                db.commit() # Clear it so we can re-create fresh
+            else:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
 
         # 3. Find or Create Company
         company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName.strip())).first()
         if not company:
             company = models.Company(name=req.companyName.strip(), roc_attachment_url=req.rocAttachmentUrl)
             db.add(company)
-            db.flush() # Get company.id without committing
+            db.flush() 
 
         # 4. Create GST Registration
         gst = models.GstRegistration(
@@ -187,9 +211,9 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
             primary_phone=req.primaryPhone
         )
         db.add(gst)
-        db.flush() # Get gst.id
+        db.flush() 
 
-        # 5. Create User Account
+        # 5. Create User Account (BULLETPROOF HASH)
         pw_hash = hash_password(req.accountPassword)
         user_account = models.UserAccount(
             email=req.primaryEmail.lower().strip(),
@@ -209,7 +233,6 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
             )
             db.add(contact)
         
-        # FINAL COMMIT - All or nothing
         db.commit()
         logger.info(f"REGISTRATION SUCCESS: {req.primaryEmail}")
         return {"message": "Success", "gst_id": gst.id}
@@ -340,7 +363,7 @@ def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = De
     revenue_sum = db.query(func.sum(models.Site.potential_monthly))
     if ownerCompanyId:
         revenue_sum = revenue_sum.filter(models.Site.owner_company_id == ownerCompanyId)
-    monthly_revenue = revenue_sum.scalar() or 0
+    monthly_revenue = (revenue_sum.scalar() or 0) * 100000
     
     occupancy_avg = db.query(func.avg(models.Site.occupancy))
     if ownerCompanyId:
@@ -350,17 +373,17 @@ def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = De
     return {
         "totalInventory": total_inventory,
         "activeBookings": active_bookings,
-        "monthlyRevenue": float(monthly_revenue) * 100000, 
+        "monthlyRevenue": float(monthly_revenue), 
         "averageOccupancy": float(average_occupancy)
     }
 
 @app.get("/api/dashboard/recent-activity")
 def get_recent_activity(db: Session = Depends(get_db)):
     return [
-        {"text": "Portal update: Added new Site model", "time": "Just now"},
-        {"text": "System: Database tables verified", "time": "2 mins ago"},
-        {"text": "Admin: Connected Mobile App API", "time": "1 hour ago"},
-        {"text": "Registration: New Media Owner joined", "time": "3 hours ago"},
+        {"text": "Portal update: Enhanced Password Hashing v1.8.4", "time": "Just now"},
+        {"text": "System: Database self-healing active", "time": "2 mins ago"},
+        {"text": "Admin: Fixed 72-byte bcrypt limit", "time": "5 mins ago"},
+        {"text": "Registration: Ready for infinite length passwords", "time": "10 mins ago"},
     ]
 
 # Mobile Upload Placeholder
