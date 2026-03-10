@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 from pydantic import BaseModel
 from typing import Optional, List
 import datetime
@@ -45,7 +46,7 @@ except Exception as e:
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.6.0"
+    version="1.7.0"
 )
 
 app.add_middleware(
@@ -112,7 +113,7 @@ def read_root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.6.0"}
+    return {"status": "ok", "version": "1.7.0"}
 
 # Auth & User Routes
 @app.post("/api/auth/login", response_model=LoginResponse)
@@ -312,7 +313,46 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     db.refresh(site, ["owner"])
     return site
 
-# Mobile Upload Placeholder (Using local for now, but in production should be S3/Cloudinary)
+# Dashboard Routes
+@app.get("/api/dashboard/summary")
+def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = Depends(get_db)):
+    query = db.query(models.Site)
+    if ownerCompanyId:
+        query = query.filter(models.Site.owner_company_id == ownerCompanyId)
+    
+    total_inventory = query.count()
+    active_bookings = query.filter(models.Site.status == "Active").count()
+    
+    # Calculate monthly revenue based on potential_monthly
+    revenue_sum = db.query(func.sum(models.Site.potential_monthly))
+    if ownerCompanyId:
+        revenue_sum = revenue_sum.filter(models.Site.owner_company_id == ownerCompanyId)
+    monthly_revenue = revenue_sum.scalar() or 0
+    
+    # Calculate average occupancy
+    occupancy_avg = db.query(func.avg(models.Site.occupancy))
+    if ownerCompanyId:
+        occupancy_avg = occupancy_avg.filter(models.Site.owner_company_id == ownerCompanyId)
+    average_occupancy = occupancy_avg.scalar() or 0
+    
+    return {
+        "totalInventory": total_inventory,
+        "activeBookings": active_bookings,
+        "monthlyRevenue": float(monthly_revenue) * 100000, # Assuming L is 100,000
+        "averageOccupancy": float(average_occupancy)
+    }
+
+@app.get("/api/dashboard/recent-activity")
+def get_recent_activity(db: Session = Depends(get_db)):
+    # Simple mock activity for now
+    return [
+        {"text": "Portal update: Added new Site model", "time": "Just now"},
+        {"text": "System: Database tables verified", "time": "2 mins ago"},
+        {"text": "Admin: Connected Mobile App API", "time": "1 hour ago"},
+        {"text": "Registration: New Media Owner joined", "time": "3 hours ago"},
+    ]
+
+# Mobile Upload Placeholder
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -322,8 +362,6 @@ async def upload_file(file: UploadFile = File(...), siteId: Optional[int] = None
         file_path = os.path.join(UPLOAD_DIR, file.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
-        # In a real app, you'd serve this URL. For local/demo, we'll return a placeholder.
         return {"imageUrl": f"https://traqooh-backend-python.onrender.com/uploads/{file.filename}", "success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
