@@ -3,10 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
+import datetime
 import models
 from database import engine, get_db
 from passlib.context import CryptContext
-import datetime
 
 # Auth setup
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -26,12 +26,23 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# CORS configuration
+# Using a more explicit origin list and allowing credentials
+origins = [
+    "https://traqooh.brandsculpt.com",
+    "http://traqooh.brandsculpt.com",
+    "https://traqooh.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Pydantic Schemas
@@ -160,7 +171,7 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         db.add(contact)
     db.commit()
 
-    return {"message": "Media Owner created successfully", "gst_id": gst.id}
+    return {"message": "Success", "gst_id": gst.id}
 
 @app.get("/api/companies")
 def get_companies(db: Session = Depends(get_db)):
