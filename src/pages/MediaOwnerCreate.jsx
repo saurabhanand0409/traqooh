@@ -118,7 +118,8 @@ export default function MediaOwnerCreate() {
       setMessage("Media Owner account created successfully.");
       setTimeout(() => navigate("/media-owner"), 1000);
     } catch (err) {
-      setError(err.message || "Failed to create media owner");
+      console.error("Registration error:", err);
+      setError(err.message || "Failed to create account. Please check your connection or CORS settings.");
     } finally {
       setSubmitting(false);
     }

@@ -119,7 +119,8 @@ export default function AdvertiserCreate() {
       setMessage("Advertiser account created successfully.");
       setTimeout(() => navigate("/advertiser"), 1000);
     } catch (err) {
-      setError(err.message || "Failed to create advertiser account");
+      console.error("Registration error:", err);
+      setError(err.message || "Failed to create account. Please check your connection or CORS settings.");
     } finally {
       setSubmitting(false);
     }
