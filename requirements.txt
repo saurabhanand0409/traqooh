@@ -5,4 +5,5 @@ sqlalchemy
 psycopg[binary]
 requests
 python-dotenv
-passlib[bcrypt]
+passlib
+bcrypt
