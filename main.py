@@ -1,4 +1,4 @@
-# Version 1.8.1 - Force Redeploy
+# Version 1.8.2 - Build Compatibility Check
 from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
@@ -58,7 +58,7 @@ except Exception as e:
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.8.0"
+    version="1.8.2"
 )
 
 app.add_middleware(
@@ -106,7 +106,7 @@ class CreateMediaOwnerRequest(BaseModel):
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.8.0", "time": str(datetime.datetime.now())}
+    return {"status": "ok", "version": "1.8.2", "time": str(datetime.datetime.now())}
 
 @app.get("/")
 def read_root():
