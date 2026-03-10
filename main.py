@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -7,6 +7,7 @@ import datetime
 import models
 from database import engine, get_db
 from passlib.context import CryptContext
+import traceback
 
 # Auth setup
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -18,7 +19,10 @@ def hash_password(password):
     return pwd_context.hash(password)
 
 # Connect DB schema
-models.Base.metadata.create_all(bind=engine)
+try:
+    models.Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"DB Error on startup: {e}")
 
 app = FastAPI(
     title="TraqOOH API",
@@ -26,23 +30,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration
-# Using a more explicit origin list and allowing credentials
-origins = [
-    "https://traqooh.brandsculpt.com",
-    "http://traqooh.brandsculpt.com",
-    "https://traqooh.vercel.app",
-    "http://localhost:5173",
-    "http://localhost:3000",
-]
-
+# CORS configuration - Max permissive for debugging
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False, # Set to False when using allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
 )
 
 # Pydantic Schemas
@@ -89,89 +83,100 @@ def health_check():
 # API Routes
 @app.post("/api/auth/login", response_model=LoginResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email)).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    
-    if not verify_password(req.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    
-    # Get companyId if gstRegistrationId exists
-    company_id = None
-    if user.gst_registration_id:
-        gst = db.query(models.GstRegistration).filter(models.GstRegistration.id == user.gst_registration_id).first()
-        if gst:
-            company_id = gst.company_id
-            
-    return LoginResponse(
-        userId=user.id,
-        email=user.email,
-        role=user.role,
-        gstRegistrationId=user.gst_registration_id,
-        companyId=company_id,
-        token="token-placeholder" # Placeholder for JWT
-    )
+    try:
+        user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email)).first()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        
+        if not verify_password(req.password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        
+        # Get companyId if gstRegistrationId exists
+        company_id = None
+        if user.gst_registration_id:
+            gst = db.query(models.GstRegistration).filter(models.GstRegistration.id == user.gst_registration_id).first()
+            if gst:
+                company_id = gst.company_id
+                
+        return LoginResponse(
+            userId=user.id,
+            email=user.email,
+            role=user.role,
+            gstRegistrationId=user.gst_registration_id,
+            companyId=company_id,
+            token="token-placeholder" # Placeholder for JWT
+        )
+    except Exception as e:
+        print(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/media-owners")
 def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
-    # 1. Check if GST already exists
-    existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber).first()
-    if existing_gst:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
+    try:
+        print(f"Received registration request for: {req.primaryEmail}")
+        # 1. Check if GST already exists
+        existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber).first()
+        if existing_gst:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
 
-    # 2. Check if Email already exists in UserAccounts
-    existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail)).first()
-    if existing_user:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+        # 2. Check if Email already exists in UserAccounts
+        existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail)).first()
+        if existing_user:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    # 3. Find or Create Company
-    company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName)).first()
-    if not company:
-        company = models.Company(
-            name=req.companyName,
-            roc_attachment_url=req.rocAttachmentUrl
+        # 3. Find or Create Company
+        company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName)).first()
+        if not company:
+            company = models.Company(
+                name=req.companyName,
+                roc_attachment_url=req.rocAttachmentUrl
+            )
+            db.add(company)
+            db.commit()
+            db.refresh(company)
+
+        # 4. Create GST Registration
+        gst = models.GstRegistration(
+            company_id=company.id,
+            gst_number=req.gstNumber,
+            gst_certificate_url=req.gstCertificateUrl,
+            address=req.gstAddress,
+            director_name=req.directorName,
+            director_phone=req.directorPhone,
+            primary_email=req.primaryEmail,
+            primary_phone=req.primaryPhone
         )
-        db.add(company)
+        db.add(gst)
         db.commit()
-        db.refresh(company)
+        db.refresh(gst)
 
-    # 4. Create GST Registration
-    gst = models.GstRegistration(
-        company_id=company.id,
-        gst_number=req.gstNumber,
-        gst_certificate_url=req.gstCertificateUrl,
-        address=req.gstAddress,
-        director_name=req.directorName,
-        director_phone=req.directorPhone,
-        primary_email=req.primaryEmail,
-        primary_phone=req.primaryPhone
-    )
-    db.add(gst)
-    db.commit()
-    db.refresh(gst)
-
-    # 5. Create User Account
-    user_account = models.UserAccount(
-        email=req.primaryEmail.lower().strip(),
-        password_hash=hash_password(req.accountPassword),
-        role=req.role or "MEDIA_OWNER",
-        gst_registration_id=gst.id
-    )
-    db.add(user_account)
-    db.commit()
-
-    # 6. Create Contacts
-    for c in req.contacts:
-        contact = models.Contact(
-            gst_registration_id=gst.id,
-            name=c.name,
-            email=c.email,
-            phone=c.phone
+        # 5. Create User Account
+        user_account = models.UserAccount(
+            email=req.primaryEmail.lower().strip(),
+            password_hash=hash_password(req.accountPassword),
+            role=req.role or "MEDIA_OWNER",
+            gst_registration_id=gst.id
         )
-        db.add(contact)
-    db.commit()
+        db.add(user_account)
+        db.commit()
 
-    return {"message": "Success", "gst_id": gst.id}
+        # 6. Create Contacts
+        for c in req.contacts:
+            contact = models.Contact(
+                gst_registration_id=gst.id,
+                name=c.name,
+                email=c.email,
+                phone=c.phone
+            )
+            db.add(contact)
+        db.commit()
+
+        return {"message": "Success", "gst_id": gst.id}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Registration Error Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
 
 @app.get("/api/companies")
 def get_companies(db: Session = Depends(get_db)):
