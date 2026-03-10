@@ -6,7 +6,7 @@ from typing import Optional, List
 import datetime
 import models
 from database import engine, get_db
-from passlib.context import CryptContext
+import bcrypt
 import traceback
 import logging
 
@@ -14,27 +14,23 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Auth setup
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def verify_password(plain_password, hashed_password):
-    try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except Exception as e:
-        logger.error(f"Password verification error: {e}")
-        return False
-
-def hash_password(password):
+# Password hashing using bcrypt directly
+def hash_password(password: str):
     if not password:
         raise ValueError("Password cannot be empty")
-    # Bcrypt has a 72-byte limit. We'll ensure it's a string and within limits.
-    # If it's somehow massive, it will trigger the 72-byte error.
-    pw_str = str(password)
-    if len(pw_str.encode('utf-8')) > 72:
-        # Many systems truncate or hash-before-hash to handle > 72 chars. 
-        # But for regular passwords, we just log it.
-        logger.warning(f"Password length ({len(pw_str)}) exceeds 72 bytes")
-    return pwd_context.hash(pw_str)
+    # Bcrypt limit is 72 bytes. We'll truncate to 72 to prevent the error.
+    # Most systems do this or use a pre-hash (like SHA256) before bcrypt.
+    # For now, let's truncate to be safe and see if it works.
+    pw_bytes = password.encode('utf-8')[:72]
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pw_bytes, salt).decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str):
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8')[:72], hashed_password.encode('utf-8'))
+    except Exception as e:
+        logger.error(f"Verify failed: {e}")
+        return False
 
 # Connect DB schema
 try:
@@ -46,7 +42,7 @@ except Exception as e:
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.1.1"
+    version="1.2.0"
 )
 
 # CORS configuration
@@ -103,9 +99,7 @@ def read_root():
 
 @app.get("/health")
 def health_check():
-    # Diagnostic hash
-    test_hash = hash_password("test123")
-    return {"status": "ok", "diag": "hc"}
+    return {"status": "ok", "version": "1.2.0"}
 
 # API Routes
 @app.post("/api/auth/login", response_model=LoginResponse)
@@ -142,7 +136,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 @app.post("/api/media-owners")
 def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
     try:
-        logger.info(f"Registering: {req.primaryEmail}, Password Length in chars: {len(req.accountPassword)}")
+        logger.info(f"Registering: {req.primaryEmail}")
         
         # 1. Check if GST already exists
         existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber).first()
@@ -181,12 +175,7 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         db.refresh(gst)
 
         # 5. Create User Account
-        try:
-            pw_hash = hash_password(req.accountPassword)
-        except Exception as hash_err:
-            logger.error(f"Hashing failed for password of length {len(req.accountPassword)}: {hash_err}")
-            raise HTTPException(status_code=500, detail=f"Hashing failed: {str(hash_err)}")
-
+        pw_hash = hash_password(req.accountPassword)
         user_account = models.UserAccount(
             email=req.primaryEmail.lower().strip(),
             password_hash=pw_hash,
