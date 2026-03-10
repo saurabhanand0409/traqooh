@@ -105,7 +105,8 @@ export default function MediaOwnerCreate() {
           role: "MEDIA_OWNER",
           contacts: gst.contacts,
         };
-        const res = await fetch(`${API_BASE}/api/media-owners`, {
+        const cleanBase = API_BASE.endsWith("/") ? API_BASE.slice(0, -1) : API_BASE;
+        const res = await fetch(`${cleanBase}/api/media-owners`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),

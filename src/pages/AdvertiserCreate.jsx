@@ -106,7 +106,8 @@ export default function AdvertiserCreate() {
           contacts: gst.contacts,
         };
         // Reuse media-owners endpoint for advertiser accounts with identical shape.
-        const res = await fetch(`${API_BASE}/api/media-owners`, {
+        const cleanBase = API_BASE.endsWith("/") ? API_BASE.slice(0, -1) : API_BASE;
+        const res = await fetch(`${cleanBase}/api/media-owners`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
