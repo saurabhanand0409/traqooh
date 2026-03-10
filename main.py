@@ -1,14 +1,28 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
+import logging
+import traceback
+
+# Try to import models and database - do NOT fail app if they fail here
+try:
+    import models
+    from database import engine, get_db
+    db_available = True
+except Exception as e:
+    print(f"FAILED TO IMPORT DATABASE: {e}")
+    db_available = False
+
+try:
+    import bcrypt
+    bcrypt_available = True
+except Exception as e:
+    print(f"FAILED TO IMPORT BCRYPT: {e}")
+    bcrypt_available = False
+
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
 import datetime
-import models
-from database import engine, get_db
-import bcrypt
-import traceback
-import logging
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -16,33 +30,25 @@ logger = logging.getLogger(__name__)
 
 # Password hashing using bcrypt directly
 def hash_password(password: str):
-    if not password:
-        raise ValueError("Password cannot be empty")
-    # Bcrypt limit is 72 bytes. We'll truncate to 72 to prevent the error.
-    # Most systems do this or use a pre-hash (like SHA256) before bcrypt.
-    # For now, let's truncate to be safe and see if it works.
-    pw_bytes = password.encode('utf-8')[:72]
+    if not bcrypt_available:
+        return f"BCRYPT_NOT_AVAILABLE_{password}" # Fallback for debug ONLY
+    pw_bytes = str(password).encode('utf-8')[:72]
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(pw_bytes, salt).decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str):
+    if not bcrypt_available:
+        return False
     try:
-        return bcrypt.checkpw(plain_password.encode('utf-8')[:72], hashed_password.encode('utf-8'))
+        return bcrypt.checkpw(str(plain_password).encode('utf-8')[:72], hashed_password.encode('utf-8'))
     except Exception as e:
         logger.error(f"Verify failed: {e}")
         return False
 
-# Connect DB schema
-try:
-    models.Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created/verified")
-except Exception as e:
-    logger.error(f"DB Error on startup: {e}")
-
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.2.0"
+    version="1.3.0"
 )
 
 # CORS configuration
@@ -87,23 +93,24 @@ class CreateMediaOwnerRequest(BaseModel):
     role: Optional[str] = "MEDIA_OWNER"
     contacts: List[ContactRequest]
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"Incoming: {request.method} {request.url}")
-    response = await call_next(request)
-    return response
-
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the TraqOOH Python API!"}
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.2.0"}
+    return {
+        "status": "ok", 
+        "version": "1.3.0", 
+        "db": db_available, 
+        "bcrypt": bcrypt_available
+    }
 
 # API Routes
 @app.post("/api/auth/login", response_model=LoginResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+def login(req: LoginRequest, db: Session = Depends(get_db) if db_available else None):
+    if not db_available:
+        raise HTTPException(status_code=500, detail="Database not connected")
     try:
         user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email)).first()
         if not user:
@@ -112,7 +119,6 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         if not verify_password(req.password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
         
-        # Get companyId if gstRegistrationId exists
         company_id = None
         if user.gst_registration_id:
             gst = db.query(models.GstRegistration).filter(models.GstRegistration.id == user.gst_registration_id).first()
@@ -134,16 +140,19 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/api/media-owners")
-def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
+def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db) if db_available else None):
+    if not db_available:
+        raise HTTPException(status_code=500, detail="Database not connected")
     try:
-        logger.info(f"Registering: {req.primaryEmail}")
+        # Create tables on first request if they don't exist
+        models.Base.metadata.create_all(bind=engine)
         
         # 1. Check if GST already exists
         existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber).first()
         if existing_gst:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
 
-        # 2. Check if Email already exists in UserAccounts
+        # 2. Check if Email already exists
         existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail)).first()
         if existing_user:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
@@ -151,10 +160,7 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         # 3. Find or Create Company
         company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName)).first()
         if not company:
-            company = models.Company(
-                name=req.companyName,
-                roc_attachment_url=req.rocAttachmentUrl
-            )
+            company = models.Company(name=req.companyName, roc_attachment_url=req.rocAttachmentUrl)
             db.add(company)
             db.commit()
             db.refresh(company)
@@ -204,6 +210,8 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/companies")
-def get_companies(db: Session = Depends(get_db)):
+def get_companies(db: Session = Depends(get_db) if db_available else None):
+    if not db_available:
+        return []
     companies = db.query(models.Company).all()
     return companies
