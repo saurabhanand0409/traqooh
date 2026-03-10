@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
@@ -9,6 +9,8 @@ from database import engine, get_db
 from passlib.context import CryptContext
 import traceback
 import logging
+import os
+import shutil
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -43,7 +45,7 @@ except Exception as e:
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.5.0"
+    version="1.6.0"
 )
 
 app.add_middleware(
@@ -65,7 +67,9 @@ class LoginResponse(BaseModel):
     role: str
     gstRegistrationId: Optional[int] = None
     companyId: Optional[int] = None
+    companyName: Optional[str] = None
     token: str
+    success: bool = True
 
 class ContactRequest(BaseModel):
     name: str
@@ -102,24 +106,17 @@ class SiteBase(BaseModel):
 class SiteCreate(SiteBase):
     pass
 
-class SiteResponse(SiteBase):
-    id: int
-    created_at: datetime.datetime
-    owner: Optional[dict] = None
-
-    class Config:
-        from_attributes = True
-
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the TraqOOH Python API!"}
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.5.0"}
+    return {"status": "ok", "version": "1.6.0"}
 
 # Auth & User Routes
 @app.post("/api/auth/login", response_model=LoginResponse)
+@app.post("/api/mobile/login", response_model=LoginResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     try:
         user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email)).first()
@@ -130,10 +127,14 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
         
         company_id = None
+        company_name = None
         if user.gst_registration_id:
             gst = db.query(models.GstRegistration).filter(models.GstRegistration.id == user.gst_registration_id).first()
             if gst:
                 company_id = gst.company_id
+                company = db.query(models.Company).filter(models.Company.id == gst.company_id).first()
+                if company:
+                    company_name = company.name
                 
         return LoginResponse(
             userId=user.id,
@@ -141,7 +142,9 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             role=user.role,
             gstRegistrationId=user.gst_registration_id,
             companyId=company_id,
-            token="token-placeholder"
+            companyName=company_name,
+            token="token-placeholder",
+            success=True
         )
     except HTTPException:
         raise
@@ -206,7 +209,6 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
 
 @app.get("/api/media-owners/all")
 def get_all_media_owners(db: Session = Depends(get_db)):
-    """Returns a flat list of GST registrations mapped to companies for selection dropdowns."""
     gsts = db.query(models.GstRegistration).options(joinedload(models.GstRegistration.company)).all()
     results = []
     for g in gsts:
@@ -220,13 +222,13 @@ def get_all_media_owners(db: Session = Depends(get_db)):
 
 # Inventory / Site Routes
 @app.get("/api/sites")
+@app.get("/api/mobile/sites")
 def get_sites(ownerId: Optional[int] = None, db: Session = Depends(get_db)):
     query = db.query(models.Site).options(joinedload(models.Site.owner))
     if ownerId:
         query = query.filter(models.Site.owner_company_id == ownerId)
     sites = query.all()
     
-    # Map to frontend expected shape
     results = []
     for s in sites:
         results.append({
@@ -248,10 +250,27 @@ def get_sites(ownerId: Optional[int] = None, db: Session = Depends(get_db)):
         })
     return results
 
-@app.get("/api/mobile/sites")
-def get_mobile_sites(ownerId: Optional[int] = None, db: Session = Depends(get_db)):
-    """Frontend calls this endpoint in some places."""
-    return get_sites(ownerId, db)
+@app.get("/api/mobile/sites/{site_id}")
+def get_site_details(site_id: int, db: Session = Depends(get_db)):
+    site = db.query(models.Site).filter(models.Site.id == site_id).options(joinedload(models.Site.owner)).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    return {
+        "id": site.id,
+        "name": site.name,
+        "city": site.city,
+        "type": site.type,
+        "status": site.status,
+        "size": site.size,
+        "facing": site.facing,
+        "potentialMonthly": float(site.potential_monthly or 0),
+        "occupancy": site.occupancy,
+        "imageUrl": site.image_url,
+        "owner": {
+            "id": site.owner.id,
+            "name": site.owner.name
+        } if site.owner else None
+    }
 
 @app.post("/api/sites")
 def create_site(req: SiteCreate, db: Session = Depends(get_db)):
@@ -270,7 +289,6 @@ def create_site(req: SiteCreate, db: Session = Depends(get_db)):
     db.add(site)
     db.commit()
     db.refresh(site)
-    # Join owner for response
     db.refresh(site, ["owner"])
     return site
 
@@ -293,6 +311,22 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(site, ["owner"])
     return site
+
+# Mobile Upload Placeholder (Using local for now, but in production should be S3/Cloudinary)
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.post("/api/mobile/upload")
+async def upload_file(file: UploadFile = File(...), siteId: Optional[int] = None):
+    try:
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # In a real app, you'd serve this URL. For local/demo, we'll return a placeholder.
+        return {"imageUrl": f"https://traqooh-backend-python.onrender.com/uploads/{file.filename}", "success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @app.get("/api/companies")
 def get_companies(db: Session = Depends(get_db)):
