@@ -44,6 +44,38 @@ export default function Inventory() {
     ownerCompanyId: "",
   });
 
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileUpload = async (e, isEdit = false) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      setUploading(true);
+      setError("");
+      const res = await fetch(`${API_BASE}/api/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      if (data.success) {
+        if (isEdit) {
+          setEditSite({ ...editSite, imageUrl: data.imageUrl });
+        } else {
+          setForm({ ...form, imageUrl: data.imageUrl });
+        }
+      }
+    } catch (err) {
+      setError(err.message || "Unable to upload image");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   useEffect(() => {
     const fetchSites = async () => {
       try {
@@ -506,15 +538,29 @@ export default function Inventory() {
                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </label>
-                <label className="text-sm font-medium text-gray-700">
-                  Image URL (optional)
-                  <input
-                    value={form.imageUrl}
-                    onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="https://..."
-                  />
-                </label>
+                <div className="md:col-span-2">
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Site Photo (optional)
+                  </label>
+                  <div className="flex items-center gap-4">
+                    <div className="h-16 w-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
+                      {form.imageUrl ? (
+                        <img src={form.imageUrl} alt="Preview" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center text-gray-400 text-xs">No Image</div>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleFileUpload(e)}
+                        className="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      />
+                      {uploading && <p className="text-xs text-blue-600 mt-1">Uploading...</p>}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <label className="text-sm font-medium text-gray-700 block">
@@ -665,15 +711,29 @@ export default function Inventory() {
                 </label>
               </div>
 
-              <label className="text-sm font-medium text-gray-700 block">
-                Image URL
-                <input
-                  value={editSite.imageUrl}
-                  onChange={(e) => setEditSite({ ...editSite, imageUrl: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="https://example.com/image.jpg"
-                />
-              </label>
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium text-gray-700 block mb-1">
+                  Site Photo
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="h-16 w-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
+                    {editSite.imageUrl ? (
+                      <img src={editSite.imageUrl} alt="Site" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center text-gray-400 text-xs">No Photo</div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleFileUpload(e, true)}
+                      className="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    {uploading && <p className="text-xs text-blue-600 mt-1">Uploading...</p>}
+                  </div>
+                </div>
+              </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button
