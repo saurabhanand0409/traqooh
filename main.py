@@ -1,5 +1,6 @@
 # Version 1.8.4 - Native Bcrypt + SHA256 Fix
 from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
@@ -61,7 +62,7 @@ except Exception as e:
 app = FastAPI(
     title="TraqOOH API",
     description="Backend API for TraqOOH SaaS Platform",
-    version="1.8.4"
+    version="1.8.5"
 )
 
 app.add_middleware(
@@ -71,6 +72,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve Uploads
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Pydantic Schemas
 class LoginRequest(BaseModel):
@@ -124,7 +130,7 @@ class SiteCreate(SiteBase):
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.8.4", "time": str(datetime.datetime.now())}
+    return {"status": "ok", "version": "1.8.5", "time": str(datetime.datetime.now())}
 
 @app.get("/")
 def read_root():
@@ -387,17 +393,25 @@ def get_recent_activity(db: Session = Depends(get_db)):
     ]
 
 # Mobile Upload Placeholder
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
+# --- API Routes ---
+@app.post("/api/upload")
 @app.post("/api/mobile/upload")
 async def upload_file(file: UploadFile = File(...), siteId: Optional[int] = None):
     try:
-        file_path = os.path.join(UPLOAD_DIR, file.filename)
+        # Generate unique filename to avoid collisions
+        ext = os.path.splitext(file.filename)[1]
+        unique_filename = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}{ext}"
+        file_path = os.path.join(UPLOAD_DIR, unique_filename)
+        
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        return {"imageUrl": f"https://traqooh-backend-python.onrender.com/uploads/{file.filename}", "success": True}
+            
+        return {
+            "imageUrl": f"https://traqooh-backend-python.onrender.com/uploads/{unique_filename}", 
+            "success": True
+        }
     except Exception as e:
+        logger.error(f"Upload error: {e}")
         return {"success": False, "error": str(e)}
 
 @app.get("/api/companies")
