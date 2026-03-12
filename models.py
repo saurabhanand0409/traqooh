@@ -66,6 +66,9 @@ class Site(Base):
     type = Column(String, nullable=False) # Billboard, LED, Hoarding, etc.
     status = Column(String, default="Active")
     size = Column(String, nullable=True)
+    width = Column(Integer, default=0)
+    length = Column(Integer, default=0)
+    total_area = Column(Integer, default=0)
     facing = Column(String, nullable=True)
     potential_monthly = Column(Integer, default=0)
     occupancy = Column(Integer, default=0)

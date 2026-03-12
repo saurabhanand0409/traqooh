@@ -15,6 +15,8 @@ import os
 import shutil
 import hashlib
 import bcrypt
+import boto3
+from botocore.config import Config
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -73,7 +75,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve Uploads
+# --- CLOUDFLARE R2 CONFIGURATION ---
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
+R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
+R2_PUBLIC_DOMAIN = os.getenv("R2_PUBLIC_DOMAIN") # e.g. https://pub-xxx.r2.dev
+
+r2_client = None
+if R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_ENDPOINT_URL:
+    r2_client = boto3.client(
+        service_name='s3',
+        endpoint_url=R2_ENDPOINT_URL,
+        aws_access_key_id=R2_ACCESS_KEY_ID,
+        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+        config=Config(signature_version='s3v4'),
+        region_name='auto'
+    )
+    logger.info("Cloudflare R2 storage initialized")
+
+# Local Serving (Fallback)
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
@@ -119,6 +140,9 @@ class SiteBase(BaseModel):
     type: str
     status: Optional[str] = "Active"
     size: Optional[str] = None
+    width: Optional[int] = 0
+    length: Optional[int] = 0
+    totalArea: Optional[int] = 0
     facing: Optional[str] = None
     potentialMonthly: Optional[float] = 0.0
     occupancy: Optional[int] = 0
@@ -324,6 +348,9 @@ def create_site(req: SiteCreate, db: Session = Depends(get_db)):
         type=req.type,
         status=req.status,
         size=req.size,
+        width=req.width or 0,
+        length=req.length or 0,
+        total_area=(req.width or 0) * (req.length or 0),
         facing=req.facing,
         potential_monthly=int(req.potentialMonthly or 0),
         occupancy=req.occupancy or 0,
@@ -347,6 +374,9 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     site.type = req.type
     site.status = req.status
     site.size = req.size
+    site.width = req.width or 0
+    site.length = req.length or 0
+    site.total_area = (req.width or 0) * (req.length or 0)
     site.facing = req.facing
     site.potential_monthly = int(req.potentialMonthly or 0)
     site.occupancy = req.occupancy or 0
@@ -398,18 +428,37 @@ def get_recent_activity(db: Session = Depends(get_db)):
 @app.post("/api/mobile/upload")
 async def upload_file(file: UploadFile = File(...), siteId: Optional[int] = None):
     try:
-        # Generate unique filename to avoid collisions
+        # Generate unique filename
         ext = os.path.splitext(file.filename)[1]
         unique_filename = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}{ext}"
-        file_path = os.path.join(UPLOAD_DIR, unique_filename)
         
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Use R2 if configured, otherwise fallback to local
+        if r2_client and R2_BUCKET_NAME:
+            logger.info(f"Uploading {unique_filename} to R2 bucket: {R2_BUCKET_NAME}")
+            r2_client.upload_fileobj(
+                file.file, 
+                R2_BUCKET_NAME, 
+                unique_filename,
+                ExtraArgs={'ContentType': file.content_type}
+            )
             
-        return {
-            "imageUrl": f"https://traqooh-backend-python.onrender.com/uploads/{unique_filename}", 
-            "success": True
-        }
+            if R2_PUBLIC_DOMAIN:
+                image_url = f"{R2_PUBLIC_DOMAIN.rstrip('/')}/{unique_filename}"
+            else:
+                image_url = f"/uploads/{unique_filename}"
+                
+            return {"imageUrl": image_url, "success": True, "storage": "r2"}
+        else:
+            # Fallback to local storage
+            file_path = os.path.join(UPLOAD_DIR, unique_filename)
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            return {
+                "imageUrl": f"/uploads/{unique_filename}", 
+                "success": True,
+                "storage": "local"
+            }
     except Exception as e:
         logger.error(f"Upload error: {e}")
         return {"success": False, "error": str(e)}
