@@ -133,7 +133,7 @@ export default function Inventory() {
 
   const totalSites = sites.length;
   const activeSites = sites.filter((s) => (s.status || "").toLowerCase() === "active").length;
-  const monthlyPotential = sites.reduce((sum, s) => sum + (s.potential || 0), 0);
+  const totalArea = sites.reduce((sum, s) => sum + (Number(s.total_area) || (Number(s.width) * Number(s.length)) || 0), 0);
   const avgOccupancy =
     sites.length > 0
       ? Math.round(sites.reduce((sum, s) => sum + (s.occupancy || 0), 0) / sites.length)
@@ -356,8 +356,8 @@ export default function Inventory() {
             <div className="text-3xl font-semibold mt-2">{activeSites}</div>
           </div>
           <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Monthly Potential</div>
-            <div className="text-3xl font-semibold mt-2">₹{monthlyPotential.toFixed(1)}L</div>
+            <div className="text-sm text-gray-500">Total Area</div>
+            <div className="text-3xl font-semibold mt-2">{totalArea.toLocaleString()} sqft</div>
           </div>
           <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
             <div className="text-sm text-gray-500">Avg. Occupancy</div>
