@@ -37,6 +37,9 @@ export default function Inventory() {
     city: "",
     type: "Billboard",
     size: "",
+    width: 0,
+    length: 0,
+    totalArea: 0,
     facing: "",
     status: "Active",
     potentialMonthly: "1.0",
@@ -154,6 +157,9 @@ export default function Inventory() {
         type: form.type,
         status: form.status,
         size: form.size || "N/A",
+        width: Number(form.width) || 0,
+        length: Number(form.length) || 0,
+        totalArea: (Number(form.width) || 0) * (Number(form.length) || 0),
         facing: form.facing || "N/A",
         potentialMonthly: Number.parseFloat(form.potentialMonthly) || 0,
         occupancy: form.status === "Active" ? 70 : 0,
@@ -184,6 +190,9 @@ export default function Inventory() {
         city: "",
         type: "Billboard",
         size: "",
+        width: 0,
+        length: 0,
+        totalArea: 0,
         facing: "",
         status: "Active",
         potentialMonthly: "1.0",
@@ -205,6 +214,9 @@ export default function Inventory() {
       city: site.city || "",
       type: site.type || "Billboard",
       size: site.size || "",
+      width: site.width || 0,
+      length: site.length || 0,
+      totalArea: site.total_area || (site.width * site.length) || 0,
       facing: site.facing || "",
       status: site.status || "Active",
       potentialMonthly: String(site.potentialMonthly || site.potential || "0"),
@@ -225,6 +237,9 @@ export default function Inventory() {
         type: editSite.type,
         status: editSite.status,
         size: editSite.size,
+        width: Number(editSite.width) || 0,
+        length: Number(editSite.length) || 0,
+        totalArea: (Number(editSite.width) || 0) * (Number(editSite.length) || 0),
         facing: editSite.facing,
         potentialMonthly: Number.parseFloat(editSite.potentialMonthly) || 0,
         occupancy: Number(editSite.occupancy) || 0,
@@ -385,7 +400,8 @@ export default function Inventory() {
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">City</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Site Name</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Type</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Size</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">W x L (ft)</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Area (sqft)</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Facing</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700">₹ Potential (L)</th>
@@ -403,7 +419,12 @@ export default function Inventory() {
                           {site.type}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{site.size || '-'}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {site.width} x {site.length}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-blue-600">
+                        {site.total_area || (site.width * site.length) || 0}
+                      </td>
                       <td className="px-4 py-3 text-gray-600">{site.facing || '-'}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${(site.status || "").toLowerCase() === "active"
@@ -506,16 +527,39 @@ export default function Inventory() {
                 </label>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-4">
                 <label className="text-sm font-medium text-gray-700">
-                  Size
+                  Width (ft)
                   <input
-                    value={form.size}
-                    onChange={(e) => setForm({ ...form, size: e.target.value })}
+                    type="number"
+                    value={form.width}
+                    onChange={(e) => {
+                      const w = Number(e.target.value);
+                      setForm({ ...form, width: w, totalArea: w * (form.length || 0) });
+                    }}
                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., 20x10 feet"
+                    placeholder="Width"
                   />
                 </label>
+                <label className="text-sm font-medium text-gray-700">
+                  Length (ft)
+                  <input
+                    type="number"
+                    value={form.length}
+                    onChange={(e) => {
+                      const l = Number(e.target.value);
+                      setForm({ ...form, length: l, totalArea: (form.width || 0) * l });
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Length"
+                  />
+                </label>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                  <span className="text-xs text-blue-600 font-semibold uppercase tracking-wider">Total Area</span>
+                  <div className="text-2xl font-bold text-blue-700">{form.totalArea} sqft</div>
+                </div>
                 <label className="text-sm font-medium text-gray-700">
                   Facing
                   <input
@@ -664,16 +708,37 @@ export default function Inventory() {
                 </label>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-4">
                 <label className="text-sm font-medium text-gray-700">
-                  Size
+                  Width (ft)
                   <input
-                    value={editSite.size}
-                    onChange={(e) => setEditSite({ ...editSite, size: e.target.value })}
+                    type="number"
+                    value={editSite.width}
+                    onChange={(e) => {
+                      const w = Number(e.target.value);
+                      setEditSite({ ...editSite, width: w, totalArea: w * (editSite.length || 0) });
+                    }}
                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., 20x10 ft"
                   />
                 </label>
+                <label className="text-sm font-medium text-gray-700">
+                  Length (ft)
+                  <input
+                    type="number"
+                    value={editSite.length}
+                    onChange={(e) => {
+                      const l = Number(e.target.value);
+                      setEditSite({ ...editSite, length: l, totalArea: (editSite.width || 0) * l });
+                    }}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </label>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                  <span className="text-xs text-blue-600 font-semibold uppercase tracking-wider">Total Area</span>
+                  <div className="text-2xl font-bold text-blue-700">{editSite.totalArea} sqft</div>
+                </div>
                 <label className="text-sm font-medium text-gray-700">
                   Facing
                   <input
