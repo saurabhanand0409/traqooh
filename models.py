@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
@@ -70,7 +70,7 @@ class Site(Base):
     length = Column(Integer, default=0)
     total_area = Column(Integer, default=0)
     facing = Column(String, nullable=True)
-    potential_monthly = Column(Integer, default=0)
+    potential_monthly = Column(Float, default=0.0)
     occupancy = Column(Integer, default=0)
     image_url = Column(String, nullable=True)
     owner_company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)

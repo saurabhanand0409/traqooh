@@ -65,6 +65,11 @@ def run_migrations():
             conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS width INTEGER DEFAULT 0"))
             conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS length INTEGER DEFAULT 0"))
             conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS total_area INTEGER DEFAULT 0"))
+            # Alter potential_monthly to Float if it's not
+            try:
+                conn.execute(text("ALTER TABLE sites ALTER COLUMN potential_monthly TYPE FLOAT"))
+            except:
+                pass 
             conn.commit()
             logger.info("Database migrations completed successfully")
     except Exception as e:
@@ -368,7 +373,7 @@ def create_site(req: SiteCreate, db: Session = Depends(get_db)):
         length=req.length or 0,
         total_area=(req.width or 0) * (req.length or 0),
         facing=req.facing,
-        potential_monthly=int(req.potentialMonthly or 0),
+        potential_monthly=float(req.potentialMonthly or 0),
         occupancy=req.occupancy or 0,
         image_url=req.imageUrl,
         owner_company_id=req.ownerCompanyId
@@ -394,13 +399,22 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     site.length = req.length or 0
     site.total_area = (req.width or 0) * (req.length or 0)
     site.facing = req.facing
-    site.potential_monthly = int(req.potentialMonthly or 0)
+    site.potential_monthly = float(req.potentialMonthly or 0)
     site.occupancy = req.occupancy or 0
     site.image_url = req.imageUrl
     
     db.commit()
     db.refresh(site, ["owner"])
     return site
+
+@app.delete("/api/sites/{site_id}")
+def delete_site(site_id: int, db: Session = Depends(get_db)):
+    site = db.query(models.Site).filter(models.Site.id == site_id).first()
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    db.delete(site)
+    db.commit()
+    return {"message": "Site deleted successfully"}
 
 # Dashboard Routes
 @app.get("/api/dashboard/summary")
@@ -415,7 +429,8 @@ def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = De
     revenue_sum = db.query(func.sum(models.Site.potential_monthly))
     if ownerCompanyId:
         revenue_sum = revenue_sum.filter(models.Site.owner_company_id == ownerCompanyId)
-    monthly_revenue = (revenue_sum.scalar() or 0) * 100000
+    # Return as Lakhs (no multiplier needed if potentialMonthly is entered in Lakhs)
+    monthly_revenue = revenue_sum.scalar() or 0
     
     occupancy_avg = db.query(func.avg(models.Site.occupancy))
     if ownerCompanyId:
