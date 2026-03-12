@@ -44,7 +44,7 @@ export default function Inventory() {
     status: "Active",
     potentialMonthly: "1.0",
     imageUrl: "",
-    ownerCompanyId: "",
+    ownerCompanyId: user.companyId || "",
   });
 
   const [uploading, setUploading] = useState(false);
@@ -166,7 +166,7 @@ export default function Inventory() {
         imageUrl:
           form.imageUrl ||
           "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1400&q=80",
-        ownerCompanyId: form.ownerCompanyId ? Number(form.ownerCompanyId) : null,
+        ownerCompanyId: form.ownerCompanyId ? Number(form.ownerCompanyId) : (currentOwnerId ? Number(currentOwnerId) : null),
       };
       const res = await fetch(`${API_BASE}/api/sites`, {
         method: "POST",
@@ -197,7 +197,7 @@ export default function Inventory() {
         status: "Active",
         potentialMonthly: "1.0",
         imageUrl: "",
-        ownerCompanyId: "",
+        ownerCompanyId: currentOwnerId || "",
       });
       setShowAdd(false);
     } catch (err) {
