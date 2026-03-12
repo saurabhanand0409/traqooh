@@ -527,6 +527,7 @@ export default function Inventory() {
                 </label>
               </div>
 
+              <div className="grid md:grid-cols-2 gap-4">
                 <label className="text-sm font-medium text-gray-700">
                   Width (ft)
                   <input
@@ -708,6 +709,7 @@ export default function Inventory() {
                 </label>
               </div>
 
+              <div className="grid md:grid-cols-2 gap-4">
                 <label className="text-sm font-medium text-gray-700">
                   Width (ft)
                   <input
