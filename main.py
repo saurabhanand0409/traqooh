@@ -327,6 +327,9 @@ def get_sites(ownerId: Optional[int] = None, db: Session = Depends(get_db)):
             "type": s.type,
             "status": s.status,
             "size": s.size,
+            "width": s.width or 0,
+            "length": s.length or 0,
+            "total_area": s.total_area or 0,
             "facing": s.facing,
             "potentialMonthly": float(s.potential_monthly or 0),
             "occupancy": s.occupancy,
@@ -351,6 +354,9 @@ def get_site_details(site_id: int, db: Session = Depends(get_db)):
         "type": site.type,
         "status": site.status,
         "size": site.size,
+        "width": site.width or 0,
+        "length": site.length or 0,
+        "total_area": site.total_area or 0,
         "facing": site.facing,
         "potentialMonthly": float(site.potential_monthly or 0),
         "occupancy": site.occupancy,
@@ -381,8 +387,25 @@ def create_site(req: SiteCreate, db: Session = Depends(get_db)):
     db.add(site)
     db.commit()
     db.refresh(site)
-    db.refresh(site, ["owner"])
-    return site
+    return {
+        "id": site.id,
+        "name": site.name,
+        "city": site.city,
+        "type": site.type,
+        "status": site.status,
+        "size": site.size,
+        "width": site.width or 0,
+        "length": site.length or 0,
+        "total_area": site.total_area or 0,
+        "facing": site.facing,
+        "potentialMonthly": float(site.potential_monthly or 0),
+        "occupancy": site.occupancy,
+        "imageUrl": site.image_url,
+        "owner": {
+            "id": site.owner.id,
+            "name": site.owner.name
+        } if site.owner else None
+    }
 
 @app.put("/api/sites/{site_id}")
 def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
@@ -404,8 +427,27 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     site.image_url = req.imageUrl
     
     db.commit()
-    db.refresh(site, ["owner"])
-    return site
+    db.refresh(site)
+    # Build explicit response dict so width/length/total_area are included
+    return {
+        "id": site.id,
+        "name": site.name,
+        "city": site.city,
+        "type": site.type,
+        "status": site.status,
+        "size": site.size,
+        "width": site.width or 0,
+        "length": site.length or 0,
+        "total_area": site.total_area or 0,
+        "facing": site.facing,
+        "potentialMonthly": float(site.potential_monthly or 0),
+        "occupancy": site.occupancy,
+        "imageUrl": site.image_url,
+        "owner": {
+            "id": site.owner.id,
+            "name": site.owner.name
+        } if site.owner else None
+    }
 
 @app.delete("/api/sites/{site_id}")
 def delete_site(site_id: int, db: Session = Depends(get_db)):
