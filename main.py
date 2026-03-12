@@ -437,11 +437,17 @@ def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = De
         occupancy_avg = occupancy_avg.filter(models.Site.owner_company_id == ownerCompanyId)
     average_occupancy = occupancy_avg.scalar() or 0
     
+    sqft_sum = db.query(func.sum(models.Site.total_area))
+    if ownerCompanyId:
+        sqft_sum = sqft_sum.filter(models.Site.owner_company_id == ownerCompanyId)
+    total_sqft = sqft_sum.scalar() or 0
+    
     return {
         "totalInventory": total_inventory,
         "activeBookings": active_bookings,
         "monthlyRevenue": float(monthly_revenue), 
-        "averageOccupancy": float(average_occupancy)
+        "averageOccupancy": float(average_occupancy),
+        "totalSqFt": int(total_sqft)
     }
 
 @app.get("/api/dashboard/recent-activity")
