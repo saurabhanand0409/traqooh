@@ -55,7 +55,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 # Connect DB schema
+def run_migrations():
+    """Ensure database schema is up to date."""
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            # Add new columns if they don't exist
+            logger.info("Running database migrations...")
+            conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS width INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS length INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS total_area INTEGER DEFAULT 0"))
+            conn.commit()
+            logger.info("Database migrations completed successfully")
+    except Exception as e:
+        logger.warning(f"Migration check skipped or failed: {e}")
+
 try:
+    run_migrations()
     models.Base.metadata.create_all(bind=engine)
     logger.info("Database tables verified")
 except Exception as e:
