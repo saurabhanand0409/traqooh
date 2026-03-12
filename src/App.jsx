@@ -1,9 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Chatbot from "./components/Chatbot";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
 export default function App() {
   const [showDemo, setShowDemo] = useState(false);
   const demoUrl = "https://www.youtube.com/embed/xvJNxZY4IrQ";
+
+  // Wake up the backend (Render free tier sleeps after 15 mins)
+  useEffect(() => {
+    fetch(`${API_BASE}/health`).catch(() => {});
+  }, []);
 
   return (
     <main className="bg-white text-[#111827]">
