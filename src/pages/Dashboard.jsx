@@ -62,6 +62,7 @@ export default function Dashboard() {
           activeBookings: summaryJson.activeBookings ?? 0,
           monthlyRevenue: summaryJson.monthlyRevenue ?? 0,
           averageOccupancy: summaryJson.averageOccupancy ?? 0,
+          totalSqFt: summaryJson.totalSqFt ?? 0,
         });
         setRecent(
           activityJson.map((a) => ({
@@ -149,10 +150,10 @@ export default function Dashboard() {
               iconBg: "bg-green-50 text-green-700",
             },
             {
-              label: "Monthly Revenue",
-              value: `₹${Number(summary.monthlyRevenue || 0).toLocaleString("en-IN")}`,
-              badge: "+15% vs last month",
-              icon: "💲",
+              label: "Total Area",
+              value: `${(summary.totalSqFt || 0).toLocaleString()} sqft`,
+              badge: "Across all sites",
+              icon: "📐",
               iconBg: "bg-purple-50 text-purple-700",
             },
             {
