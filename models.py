@@ -1,19 +1,31 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Float
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Float, Text, Boolean, Date
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
 
+
 class Company(Base):
+    """Vendor / Media Owner company"""
     __tablename__ = "companies"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
+    contact_person = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    gst_number = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    vendor_status = Column(String, default="ACTIVE")  # ACTIVE / INACTIVE
     roc_attachment_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
-    # Relationship to GstRegistration
     gst_registrations = relationship("GstRegistration", back_populates="company")
+    sites = relationship("Site", back_populates="owner")
+
 
 class GstRegistration(Base):
     __tablename__ = "gst_registrations"
@@ -33,6 +45,7 @@ class GstRegistration(Base):
     company = relationship("Company", back_populates="gst_registrations")
     contacts = relationship("Contact", back_populates="gst_registration")
 
+
 class Contact(Base):
     __tablename__ = "contacts"
 
@@ -48,14 +61,22 @@ class Contact(Base):
 
     gst_registration = relationship("GstRegistration", back_populates="contacts")
 
+
 class UserAccount(Base):
     __tablename__ = "user_accounts"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
-    role = Column(String, nullable=False) # MEDIA_OWNER or ADVERTISER
+    role = Column(String, nullable=False)  # SUPER_ADMIN, TEAM_MEMBER, MEDIA_OWNER, ADVERTISER
     gst_registration_id = Column(Integer, nullable=True)
+    advertiser_id = Column(Integer, ForeignKey("advertisers.id"), nullable=True)
+    display_name = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    advertiser = relationship("Advertiser", back_populates="user_accounts")
+
 
 class Site(Base):
     __tablename__ = "sites"
@@ -63,7 +84,9 @@ class Site(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
     city = Column(String, index=True, nullable=False)
-    type = Column(String, nullable=False) # Billboard, LED, Hoarding, etc.
+    area_locality = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    type = Column(String, nullable=False)  # Billboard, LED, Hoarding, Unipole, Digital Screen
     status = Column(String, default="Active")
     size = Column(String, nullable=True)
     width = Column(Integer, default=0)
@@ -71,11 +94,155 @@ class Site(Base):
     total_area = Column(Integer, default=0)
     facing = Column(String, nullable=True)
     potential_monthly = Column(Float, default=0.0)
+    base_rate = Column(Float, default=0.0)
     occupancy = Column(Integer, default=0)
     image_url = Column(String, nullable=True)
+    remarks = Column(Text, nullable=True)
+
+    # Availability
+    availability_status = Column(String, default="AVAILABLE")  # AVAILABLE, BLOCKED, HOLD, BOOKED, MAINTENANCE
+    available_from = Column(Date, nullable=True)
+    available_till = Column(Date, nullable=True)
+    occupied_from = Column(Date, nullable=True)
+    occupied_till = Column(Date, nullable=True)
+    current_campaign_id = Column(Integer, ForeignKey("campaigns.id", use_alter=True), nullable=True)
+
+    # GPS
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+
+    # Owner
     owner_company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
-    owner = relationship("Company", backref="sites")
+    owner = relationship("Company", back_populates="sites")
+    current_campaign = relationship("Campaign", foreign_keys=[current_campaign_id])
+    campaign_assignments = relationship("CampaignSiteAssignment", back_populates="site")
+    audits = relationship("SiteAudit", back_populates="site")
+    images = relationship("SiteImage", back_populates="site")
 
+
+class Advertiser(Base):
+    __tablename__ = "advertisers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_name = Column(String, nullable=False, index=True)
+    contact_person = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    billing_address = Column(String, nullable=True)
+    gst_number = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    status = Column(String, default="ACTIVE")  # ACTIVE / INACTIVE
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    campaigns = relationship("Campaign", back_populates="advertiser")
+    access_links = relationship("AdvertiserAccessLink", back_populates="advertiser")
+    user_accounts = relationship("UserAccount", back_populates="advertiser")
+
+
+class AdvertiserAccessLink(Base):
+    __tablename__ = "advertiser_access_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    advertiser_id = Column(Integer, ForeignKey("advertisers.id"), nullable=False)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    token_plain = Column(String, nullable=True)  # stored temporarily for display; cleared after first view
+    expires_at = Column(DateTime, nullable=False)
+    is_revoked = Column(Boolean, default=False)
+    is_single_use = Column(Boolean, default=False)
+    used_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    advertiser = relationship("Advertiser", back_populates="access_links")
+    campaign = relationship("Campaign")
+
+
+class Campaign(Base):
+    __tablename__ = "campaigns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    advertiser_id = Column(Integer, ForeignKey("advertisers.id"), nullable=False)
+    internal_owner = Column(String, nullable=True)  # team member name
+    campaign_type = Column(String, nullable=True)  # type/category
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    total_cost = Column(Float, default=0.0)
+    status = Column(String, default="DRAFT")  # DRAFT, PLANNED, LIVE, COMPLETED, CANCELLED
+    notes = Column(Text, nullable=True)
+    billing_remarks = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    advertiser = relationship("Advertiser", back_populates="campaigns")
+    site_assignments = relationship("CampaignSiteAssignment", back_populates="campaign")
+    audits = relationship("SiteAudit", back_populates="campaign")
+
+
+class CampaignSiteAssignment(Base):
+    __tablename__ = "campaign_site_assignments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
+    booked_from = Column(Date, nullable=True)
+    booked_till = Column(Date, nullable=True)
+    agreed_cost = Column(Float, default=0.0)
+    unit_cost = Column(Float, default=0.0)
+    status = Column(String, default="PLANNED")  # PLANNED, ACTIVE, COMPLETED, CANCELLED
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    campaign = relationship("Campaign", back_populates="site_assignments")
+    site = relationship("Site", back_populates="campaign_assignments")
+
+
+class SiteAudit(Base):
+    __tablename__ = "site_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
+    audit_type = Column(String, nullable=False)  # START, MID, END, EXTRA
+    scheduled_date = Column(Date, nullable=True)
+    actual_audit_date = Column(Date, nullable=True)
+    status = Column(String, default="PENDING")  # PENDING, DONE, MISSED
+    auditor = Column(String, nullable=True)  # team member name
+    notes = Column(Text, nullable=True)
+    image_urls = Column(Text, nullable=True)  # JSON array of URLs
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    campaign = relationship("Campaign", back_populates="audits")
+    site = relationship("Site", back_populates="audits")
+
+
+class SiteImage(Base):
+    __tablename__ = "site_images"
+
+    id = Column(Integer, primary_key=True, index=True)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False)
+    image_url = Column(String, nullable=False)
+    caption = Column(String, nullable=True)
+    is_primary = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    site = relationship("Site", back_populates="images")
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    entity_type = Column(String, nullable=True)  # vendor, site, campaign, audit, advertiser
+    entity_id = Column(Integer, nullable=True)
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

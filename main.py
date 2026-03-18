@@ -1,126 +1,110 @@
-# Version 1.8.4 - Native Bcrypt + SHA256 Fix
-from fastapi import FastAPI, Depends, HTTPException, status, Request, UploadFile, File
+# TraqOOH Backend v2.0
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, text, inspect
 from pydantic import BaseModel
 from typing import Optional, List
 import datetime
 import models
-from database import engine, get_db
+from database import engine, get_db, Base
 import traceback
 import logging
 import os
 import shutil
 import hashlib
 import bcrypt
-import boto3
-from botocore.config import Config
+from utils import log_activity, site_to_dict, upload_to_r2
 
-# Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- BULLETPROOF HASHING (Fixes 72-byte limit) ---
+# --- Password Hashing ---
 def hash_password(password: str) -> str:
-    """Pre-hash with SHA256 then bcrypt to avoid 72-byte limit."""
     if not password:
         raise ValueError("Password cannot be empty")
-    # Pre-hash to 64 bytes (hexdigest)
     pw_digest = hashlib.sha256(password.encode('utf-8')).hexdigest()
-    # Bcrypt the hex (always 64 bytes)
     hashed = bcrypt.hashpw(pw_digest.encode('utf-8'), bcrypt.gensalt())
     return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Check SHA256+Bcrypt format. Supports old format as fallback if needed."""
     try:
         if not plain_password or not hashed_password:
             return False
-        
-        # New format check (SHA256 pre-hash)
         pw_digest = hashlib.sha256(plain_password.encode('utf-8')).hexdigest()
         if bcrypt.checkpw(pw_digest.encode('utf-8'), hashed_password.encode('utf-8')):
             return True
-        
-        # Fallback (Direct truncation) for users created in brief window of v1.8.3
         truncated = plain_password.encode('utf-8')[:72]
         if bcrypt.checkpw(truncated, hashed_password.encode('utf-8')):
             return True
-            
         return False
     except Exception as e:
         logger.error(f"Verify error: {e}")
         return False
 
-# Connect DB schema
+# --- Self-Healing Migration ---
 def run_migrations():
-    """Ensure database schema is up to date."""
     try:
-        from sqlalchemy import text
+        Base.metadata.create_all(bind=engine)
+        logger.info("All tables created/verified successfully")
+        # Add missing columns to existing tables
         with engine.connect() as conn:
-            # Add new columns if they don't exist
-            logger.info("Running database migrations...")
-            conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS width INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS length INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE sites ADD COLUMN IF NOT EXISTS total_area INTEGER DEFAULT 0"))
-            # Alter potential_monthly to Float if it's not
-            try:
-                conn.execute(text("ALTER TABLE sites ALTER COLUMN potential_monthly TYPE FLOAT"))
-            except:
-                pass 
-            conn.commit()
-            logger.info("Database migrations completed successfully")
+            inspector = inspect(engine)
+            # Companies table extensions
+            co_cols = [c["name"] for c in inspector.get_columns("companies")]
+            for col, typ in [("contact_person","VARCHAR"),("phone","VARCHAR"),("email","VARCHAR"),
+                             ("gst_number","VARCHAR"),("city","VARCHAR"),("state","VARCHAR"),
+                             ("notes","TEXT"),("vendor_status","VARCHAR DEFAULT 'ACTIVE'"),("address","VARCHAR")]:
+                if col not in co_cols:
+                    conn.execute(text(f"ALTER TABLE companies ADD COLUMN {col} {typ}"))
+                    conn.commit()
+            # Sites table extensions
+            si_cols = [c["name"] for c in inspector.get_columns("sites")]
+            for col, typ in [("area_locality","VARCHAR"),("address","VARCHAR"),("base_rate","FLOAT DEFAULT 0"),
+                             ("remarks","TEXT"),("availability_status","VARCHAR DEFAULT 'AVAILABLE'"),
+                             ("available_from","DATE"),("available_till","DATE"),
+                             ("occupied_from","DATE"),("occupied_till","DATE"),
+                             ("current_campaign_id","INTEGER"),("latitude","FLOAT"),("longitude","FLOAT")]:
+                if col not in si_cols:
+                    conn.execute(text(f"ALTER TABLE sites ADD COLUMN {col} {typ}"))
+                    conn.commit()
+            # UserAccounts extensions
+            ua_cols = [c["name"] for c in inspector.get_columns("user_accounts")]
+            for col, typ in [("advertiser_id","INTEGER"),("display_name","VARCHAR"),
+                             ("is_active","BOOLEAN DEFAULT TRUE"),("created_at","TIMESTAMP DEFAULT NOW()")]:
+                if col not in ua_cols:
+                    conn.execute(text(f"ALTER TABLE user_accounts ADD COLUMN {col} {typ}"))
+                    conn.commit()
+        logger.info("Migration complete")
     except Exception as e:
-        logger.warning(f"Migration check skipped or failed: {e}")
+        logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
 
-try:
-    run_migrations()
-    models.Base.metadata.create_all(bind=engine)
-    logger.info("Database tables verified")
-except Exception as e:
-    logger.error(f"DB Startup Error: {e}")
+# --- App Setup ---
+app = FastAPI(title="TraqOOH API", version="2.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
 
-app = FastAPI(
-    title="TraqOOH API",
-    description="Backend API for TraqOOH SaaS Platform",
-    version="1.8.5"
-)
+run_migrations()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# --- CLOUDFLARE R2 CONFIGURATION ---
-R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
-R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
-R2_ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL")
-R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
-R2_PUBLIC_DOMAIN = os.getenv("R2_PUBLIC_DOMAIN") # e.g. https://pub-xxx.r2.dev
-
-r2_client = None
-if R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_ENDPOINT_URL:
-    r2_client = boto3.client(
-        service_name='s3',
-        endpoint_url=R2_ENDPOINT_URL,
-        aws_access_key_id=R2_ACCESS_KEY_ID,
-        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-        config=Config(signature_version='s3v4'),
-        region_name='auto'
-    )
-    logger.info("Cloudflare R2 storage initialized")
-
-# Local Serving (Fallback)
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-# Pydantic Schemas
+# --- Include Routers ---
+from routes.vendors import router as vendors_router
+from routes.advertisers import router as advertisers_router
+from routes.campaigns import router as campaigns_router
+from routes.audits import router as audits_router
+from routes.dashboard import router as dashboard_router
+
+app.include_router(vendors_router)
+app.include_router(advertisers_router)
+app.include_router(campaigns_router)
+app.include_router(audits_router)
+app.include_router(dashboard_router)
+
+# --- Pydantic Schemas ---
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -132,6 +116,8 @@ class LoginResponse(BaseModel):
     gstRegistrationId: Optional[int] = None
     companyId: Optional[int] = None
     companyName: Optional[str] = None
+    advertiserId: Optional[int] = None
+    displayName: Optional[str] = None
     token: str
     success: bool = True
 
@@ -155,7 +141,7 @@ class CreateMediaOwnerRequest(BaseModel):
     role: Optional[str] = "MEDIA_OWNER"
     contacts: List[ContactRequest]
 
-class SiteBase(BaseModel):
+class SiteCreate(BaseModel):
     name: str
     city: str
     type: str
@@ -166,128 +152,93 @@ class SiteBase(BaseModel):
     totalArea: Optional[int] = 0
     facing: Optional[str] = None
     potentialMonthly: Optional[float] = 0.0
+    baseRate: Optional[float] = 0.0
     occupancy: Optional[int] = 0
     imageUrl: Optional[str] = None
     ownerCompanyId: Optional[int] = None
+    areaLocality: Optional[str] = None
+    address: Optional[str] = None
+    remarks: Optional[str] = None
+    availabilityStatus: Optional[str] = "AVAILABLE"
+    availableFrom: Optional[str] = None
+    availableTill: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
-class SiteCreate(SiteBase):
-    pass
-
+# --- Core Routes ---
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "1.8.5", "time": str(datetime.datetime.now())}
+    return {"status": "ok", "version": "2.0.0", "time": str(datetime.datetime.now())}
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the TraqOOH Python API!"}
+    return {"message": "Welcome to the TraqOOH API v2.0!"}
 
-# Auth & User Routes
+# --- Auth ---
 @app.post("/api/auth/login", response_model=LoginResponse)
 @app.post("/api/mobile/login", response_model=LoginResponse)
 def login(req: LoginRequest, db: Session = Depends(get_db)):
-    try:
-        user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email.strip())).first()
-        if not user:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-        
-        if not verify_password(req.password, user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-        
-        company_id = None
-        company_name = None
-        if user.gst_registration_id:
-            gst = db.query(models.GstRegistration).filter(models.GstRegistration.id == user.gst_registration_id).first()
-            if gst:
-                company_id = gst.company_id
-                company = db.query(models.Company).filter(models.Company.id == gst.company_id).first()
-                if company:
-                    company_name = company.name
-                
-        return LoginResponse(
-            userId=user.id,
-            email=user.email,
-            role=user.role,
-            gstRegistrationId=user.gst_registration_id,
-            companyId=company_id,
-            companyName=company_name,
-            token="token-placeholder",
-            success=True
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Login error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email.strip())).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not verify_password(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    company_id = None
+    company_name = None
+    if user.gst_registration_id:
+        gst = db.query(models.GstRegistration).filter(models.GstRegistration.id == user.gst_registration_id).first()
+        if gst:
+            company_id = gst.company_id
+            company = db.query(models.Company).filter(models.Company.id == gst.company_id).first()
+            if company:
+                company_name = company.name
+    log_activity(db, "User logged in", "user", user.id, user.email, user.email)
+    return LoginResponse(
+        userId=user.id, email=user.email, role=user.role,
+        gstRegistrationId=user.gst_registration_id, companyId=company_id,
+        companyName=company_name, advertiserId=user.advertiser_id,
+        displayName=user.display_name, token="token-placeholder", success=True
+    )
 
+@app.post("/api/auth/register")
 @app.post("/api/media-owners")
 def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
     try:
-        logger.info(f"REGISTRATION ATTEMPT: {req.primaryEmail} with GST {req.gstNumber}")
-        
-        # 1. Check if Email already exists
         existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail.strip())).first()
         if existing_user:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
-
-        # 2. Check if GST already exists & SELF-HEAL ZOMBIES
+            raise HTTPException(status_code=409, detail="Email already registered")
         existing_gst = db.query(models.GstRegistration).filter(models.GstRegistration.gst_number == req.gstNumber.strip()).first()
         if existing_gst:
-            # check if this GST has a user attached
             user_linked = db.query(models.UserAccount).filter(models.UserAccount.gst_registration_id == existing_gst.id).first()
             if not user_linked:
-                # ZOMBIE GST detected (from partial crash 1.5.0/1.7.0). CLEAN IT!
-                logger.info(f"Cleaning up zombie GST {existing_gst.id} for retry")
                 db.query(models.Contact).filter(models.Contact.gst_registration_id == existing_gst.id).delete()
                 db.delete(existing_gst)
-                db.commit() # Clear it so we can re-create fresh
+                db.commit()
             else:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="GST number already registered")
-
-        # 3. Find or Create Company
+                raise HTTPException(status_code=409, detail="GST number already registered")
         company = db.query(models.Company).filter(models.Company.name.ilike(req.companyName.strip())).first()
         if not company:
             company = models.Company(name=req.companyName.strip(), roc_attachment_url=req.rocAttachmentUrl)
             db.add(company)
-            db.flush() 
-
-        # 4. Create GST Registration
+            db.flush()
         gst = models.GstRegistration(
-            company_id=company.id,
-            gst_number=req.gstNumber.strip(),
-            gst_certificate_url=req.gstCertificateUrl,
-            address=req.gstAddress,
-            director_name=req.directorName,
-            director_phone=req.directorPhone,
-            primary_email=req.primaryEmail.strip(),
-            primary_phone=req.primaryPhone
+            company_id=company.id, gst_number=req.gstNumber.strip(),
+            gst_certificate_url=req.gstCertificateUrl, address=req.gstAddress,
+            director_name=req.directorName, director_phone=req.directorPhone,
+            primary_email=req.primaryEmail.strip(), primary_phone=req.primaryPhone
         )
         db.add(gst)
-        db.flush() 
-
-        # 5. Create User Account (BULLETPROOF HASH)
-        pw_hash = hash_password(req.accountPassword)
+        db.flush()
         user_account = models.UserAccount(
-            email=req.primaryEmail.lower().strip(),
-            password_hash=pw_hash,
-            role=req.role or "MEDIA_OWNER",
-            gst_registration_id=gst.id
+            email=req.primaryEmail.lower().strip(), password_hash=hash_password(req.accountPassword),
+            role=req.role or "MEDIA_OWNER", gst_registration_id=gst.id, is_active=True
         )
         db.add(user_account)
-
-        # 6. Create Contacts
         for c in req.contacts:
-            contact = models.Contact(
-                gst_registration_id=gst.id,
-                name=c.name,
-                email=c.email.strip(),
-                phone=c.phone
-            )
-            db.add(contact)
-        
+            db.add(models.Contact(gst_registration_id=gst.id, name=c.name, email=c.email.strip(), phone=c.phone))
         db.commit()
-        logger.info(f"REGISTRATION SUCCESS: {req.primaryEmail}")
+        log_activity(db, "New registration", "user", user_account.id, req.primaryEmail)
         return {"message": "Success", "gst_id": gst.id}
-
     except HTTPException:
         db.rollback()
         raise
@@ -296,158 +247,88 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         logger.error(f"Registration Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/media-owners/all")
-def get_all_media_owners(db: Session = Depends(get_db)):
-    gsts = db.query(models.GstRegistration).options(joinedload(models.GstRegistration.company)).all()
-    results = []
-    for g in gsts:
-        results.append({
-            "companyId": g.company_id,
-            "companyName": g.company.name if g.company else "Unknown",
-            "gstNumber": g.gst_number,
-            "gstId": g.id
-        })
-    return results
-
-# Inventory / Site Routes
+# --- Sites ---
 @app.get("/api/sites")
 @app.get("/api/mobile/sites")
-def get_sites(ownerId: Optional[int] = None, db: Session = Depends(get_db)):
+def get_sites(ownerId: Optional[int] = None, vendorId: Optional[int] = None,
+              availabilityStatus: Optional[str] = None, city: Optional[str] = None,
+              siteType: Optional[str] = None, db: Session = Depends(get_db)):
     query = db.query(models.Site).options(joinedload(models.Site.owner))
     if ownerId:
         query = query.filter(models.Site.owner_company_id == ownerId)
-    sites = query.all()
-    
-    results = []
-    for s in sites:
-        results.append({
-            "id": s.id,
-            "name": s.name,
-            "city": s.city,
-            "type": s.type,
-            "status": s.status,
-            "size": s.size,
-            "width": s.width or 0,
-            "length": s.length or 0,
-            "total_area": s.total_area or 0,
-            "facing": s.facing,
-            "potentialMonthly": float(s.potential_monthly or 0),
-            "occupancy": s.occupancy,
-            "imageUrl": s.image_url,
-            "owner": {
-                "id": s.owner.id,
-                "name": s.owner.name
-            } if s.owner else None,
-            "created_at": s.created_at
-        })
-    return results
+    if vendorId:
+        query = query.filter(models.Site.owner_company_id == vendorId)
+    if availabilityStatus:
+        query = query.filter(models.Site.availability_status == availabilityStatus)
+    if city:
+        query = query.filter(models.Site.city.ilike(f"%{city}%"))
+    if siteType:
+        query = query.filter(models.Site.type == siteType)
+    return [site_to_dict(s) for s in query.order_by(models.Site.city).all()]
 
 @app.get("/api/mobile/sites/{site_id}")
+@app.get("/api/sites/{site_id}")
 def get_site_details(site_id: int, db: Session = Depends(get_db)):
     site = db.query(models.Site).filter(models.Site.id == site_id).options(joinedload(models.Site.owner)).first()
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
-    return {
-        "id": site.id,
-        "name": site.name,
-        "city": site.city,
-        "type": site.type,
-        "status": site.status,
-        "size": site.size,
-        "width": site.width or 0,
-        "length": site.length or 0,
-        "total_area": site.total_area or 0,
-        "facing": site.facing,
-        "potentialMonthly": float(site.potential_monthly or 0),
-        "occupancy": site.occupancy,
-        "imageUrl": site.image_url,
-        "owner": {
-            "id": site.owner.id,
-            "name": site.owner.name
-        } if site.owner else None
-    }
+    result = site_to_dict(site)
+    # Campaign history
+    assignments = db.query(models.CampaignSiteAssignment).filter(
+        models.CampaignSiteAssignment.site_id == site_id).all()
+    result["campaignHistory"] = [{
+        "campaignId": a.campaign_id, "bookedFrom": str(a.booked_from) if a.booked_from else None,
+        "bookedTill": str(a.booked_till) if a.booked_till else None,
+        "agreedCost": a.agreed_cost, "status": a.status
+    } for a in assignments]
+    return result
 
 @app.post("/api/sites")
 def create_site(req: SiteCreate, db: Session = Depends(get_db)):
+    from datetime import date
     site = models.Site(
-        name=req.name,
-        city=req.city,
-        type=req.type,
-        status=req.status,
-        size=req.size,
-        width=req.width or 0,
-        length=req.length or 0,
+        name=req.name, city=req.city, type=req.type, status=req.status, size=req.size,
+        width=req.width or 0, length=req.length or 0,
         total_area=(req.width or 0) * (req.length or 0),
-        facing=req.facing,
-        potential_monthly=float(req.potentialMonthly or 0),
-        occupancy=req.occupancy or 0,
-        image_url=req.imageUrl,
-        owner_company_id=req.ownerCompanyId
+        facing=req.facing, potential_monthly=float(req.potentialMonthly or 0),
+        base_rate=float(req.baseRate or 0), occupancy=req.occupancy or 0,
+        image_url=req.imageUrl, owner_company_id=req.ownerCompanyId,
+        area_locality=req.areaLocality, address=req.address, remarks=req.remarks,
+        availability_status=req.availabilityStatus or "AVAILABLE",
+        available_from=date.fromisoformat(req.availableFrom) if req.availableFrom else None,
+        available_till=date.fromisoformat(req.availableTill) if req.availableTill else None,
+        latitude=req.latitude, longitude=req.longitude,
     )
     db.add(site)
     db.commit()
     db.refresh(site)
-    return {
-        "id": site.id,
-        "name": site.name,
-        "city": site.city,
-        "type": site.type,
-        "status": site.status,
-        "size": site.size,
-        "width": site.width or 0,
-        "length": site.length or 0,
-        "total_area": site.total_area or 0,
-        "facing": site.facing,
-        "potentialMonthly": float(site.potential_monthly or 0),
-        "occupancy": site.occupancy,
-        "imageUrl": site.image_url,
-        "owner": {
-            "id": site.owner.id,
-            "name": site.owner.name
-        } if site.owner else None
-    }
+    log_activity(db, "Created site", "site", site.id, site.name)
+    return site_to_dict(site)
 
 @app.put("/api/sites/{site_id}")
 def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
+    from datetime import date
     site = db.query(models.Site).filter(models.Site.id == site_id).first()
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
-    
-    site.name = req.name
-    site.city = req.city
-    site.type = req.type
-    site.status = req.status
-    site.size = req.size
-    site.width = req.width or 0
-    site.length = req.length or 0
+    site.name = req.name; site.city = req.city; site.type = req.type
+    site.status = req.status; site.size = req.size
+    site.width = req.width or 0; site.length = req.length or 0
     site.total_area = (req.width or 0) * (req.length or 0)
     site.facing = req.facing
     site.potential_monthly = float(req.potentialMonthly or 0)
-    site.occupancy = req.occupancy or 0
-    site.image_url = req.imageUrl
-    
+    site.base_rate = float(req.baseRate or 0)
+    site.occupancy = req.occupancy or 0; site.image_url = req.imageUrl
+    site.area_locality = req.areaLocality; site.address = req.address
+    site.remarks = req.remarks
+    site.availability_status = req.availabilityStatus or site.availability_status
+    site.available_from = date.fromisoformat(req.availableFrom) if req.availableFrom else site.available_from
+    site.available_till = date.fromisoformat(req.availableTill) if req.availableTill else site.available_till
+    site.latitude = req.latitude; site.longitude = req.longitude
     db.commit()
     db.refresh(site)
-    # Build explicit response dict so width/length/total_area are included
-    return {
-        "id": site.id,
-        "name": site.name,
-        "city": site.city,
-        "type": site.type,
-        "status": site.status,
-        "size": site.size,
-        "width": site.width or 0,
-        "length": site.length or 0,
-        "total_area": site.total_area or 0,
-        "facing": site.facing,
-        "potentialMonthly": float(site.potential_monthly or 0),
-        "occupancy": site.occupancy,
-        "imageUrl": site.image_url,
-        "owner": {
-            "id": site.owner.id,
-            "name": site.owner.name
-        } if site.owner else None
-    }
+    log_activity(db, "Updated site", "site", site.id, site.name)
+    return site_to_dict(site)
 
 @app.delete("/api/sites/{site_id}")
 def delete_site(site_id: int, db: Session = Depends(get_db)):
@@ -458,90 +339,56 @@ def delete_site(site_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Site deleted successfully"}
 
-# Dashboard Routes
-@app.get("/api/dashboard/summary")
-def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = Depends(get_db)):
-    query = db.query(models.Site)
-    if ownerCompanyId:
-        query = query.filter(models.Site.owner_company_id == ownerCompanyId)
-    
-    total_inventory = query.count()
-    active_bookings = query.filter(models.Site.status == "Active").count()
-    
-    revenue_sum = db.query(func.sum(models.Site.potential_monthly))
-    if ownerCompanyId:
-        revenue_sum = revenue_sum.filter(models.Site.owner_company_id == ownerCompanyId)
-    # Return as Lakhs (no multiplier needed if potentialMonthly is entered in Lakhs)
-    monthly_revenue = revenue_sum.scalar() or 0
-    
-    occupancy_avg = db.query(func.avg(models.Site.occupancy))
-    if ownerCompanyId:
-        occupancy_avg = occupancy_avg.filter(models.Site.owner_company_id == ownerCompanyId)
-    average_occupancy = occupancy_avg.scalar() or 0
-    
-    sqft_sum = db.query(func.sum(models.Site.total_area))
-    if ownerCompanyId:
-        sqft_sum = sqft_sum.filter(models.Site.owner_company_id == ownerCompanyId)
-    total_sqft = sqft_sum.scalar() or 0
-    
-    return {
-        "totalInventory": total_inventory,
-        "activeBookings": active_bookings,
-        "monthlyRevenue": float(monthly_revenue), 
-        "averageOccupancy": float(average_occupancy),
-        "totalSqFt": int(total_sqft)
-    }
-
-@app.get("/api/dashboard/recent-activity")
-def get_recent_activity(db: Session = Depends(get_db)):
-    return [
-        {"text": "Portal update: Enhanced Password Hashing v1.8.4", "time": "Just now"},
-        {"text": "System: Database self-healing active", "time": "2 mins ago"},
-        {"text": "Admin: Fixed 72-byte bcrypt limit", "time": "5 mins ago"},
-        {"text": "Registration: Ready for infinite length passwords", "time": "10 mins ago"},
-    ]
-
-# Mobile Upload Placeholder
-# --- API Routes ---
+# --- Uploads ---
 @app.post("/api/upload")
 @app.post("/api/mobile/upload")
-async def upload_file(file: UploadFile = File(...), siteId: Optional[int] = None):
+async def upload_file(file: UploadFile = File(...), folder: Optional[str] = "sites"):
     try:
-        # Generate unique filename
-        ext = os.path.splitext(file.filename)[1]
-        unique_filename = f"{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}{ext}"
-        
-        # Use R2 if configured, otherwise fallback to local
-        if r2_client and R2_BUCKET_NAME:
-            logger.info(f"Uploading {unique_filename} to R2 bucket: {R2_BUCKET_NAME}")
-            r2_client.upload_fileobj(
-                file.file, 
-                R2_BUCKET_NAME, 
-                unique_filename,
-                ExtraArgs={'ContentType': file.content_type}
-            )
-            
-            if R2_PUBLIC_DOMAIN:
-                image_url = f"{R2_PUBLIC_DOMAIN.rstrip('/')}/{unique_filename}"
-            else:
-                image_url = f"/uploads/{unique_filename}"
-                
-            return {"imageUrl": image_url, "success": True, "storage": "r2"}
-        else:
-            # Fallback to local storage
-            file_path = os.path.join(UPLOAD_DIR, unique_filename)
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            
-            return {
-                "imageUrl": f"/uploads/{unique_filename}", 
-                "success": True,
-                "storage": "local"
-            }
+        url = await upload_to_r2(file, folder=folder or "sites")
+        return {"imageUrl": url, "success": True}
     except Exception as e:
         logger.error(f"Upload error: {e}")
         return {"success": False, "error": str(e)}
 
+# --- Legacy endpoints ---
+@app.get("/api/media-owners/all")
+def get_all_media_owners(db: Session = Depends(get_db)):
+    gsts = db.query(models.GstRegistration).options(joinedload(models.GstRegistration.company)).all()
+    return [{"companyId": g.company_id, "companyName": g.company.name if g.company else "Unknown",
+             "gstNumber": g.gst_number, "gstId": g.id} for g in gsts]
+
 @app.get("/api/companies")
 def get_companies(db: Session = Depends(get_db)):
     return db.query(models.Company).all()
+
+# --- Access token validation (public, no auth) ---
+@app.get("/api/access/{token}")
+def validate_public_access(token: str, db: Session = Depends(get_db)):
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    link = db.query(models.AdvertiserAccessLink).filter(
+        models.AdvertiserAccessLink.token_hash == token_hash,
+        models.AdvertiserAccessLink.is_revoked == False
+    ).first()
+    if not link or link.expires_at < datetime.datetime.utcnow():
+        raise HTTPException(403, "Invalid or expired access link")
+    link.used_count += 1
+    db.commit()
+    adv = db.query(models.Advertiser).filter(models.Advertiser.id == link.advertiser_id).first()
+    campaigns = db.query(models.Campaign).filter(models.Campaign.advertiser_id == link.advertiser_id)
+    if link.campaign_id:
+        campaigns = campaigns.filter(models.Campaign.id == link.campaign_id)
+    result = []
+    for c in campaigns.all():
+        assigns = db.query(models.CampaignSiteAssignment).filter(
+            models.CampaignSiteAssignment.campaign_id == c.id).all()
+        audits = db.query(models.SiteAudit).filter(
+            models.SiteAudit.campaign_id == c.id, models.SiteAudit.status == "DONE").all()
+        result.append({
+            "name": c.name, "status": c.status,
+            "startDate": str(c.start_date) if c.start_date else None,
+            "endDate": str(c.end_date) if c.end_date else None,
+            "sites": [{"bookedFrom": str(a.booked_from), "bookedTill": str(a.booked_till)} for a in assigns],
+            "audits": [{"type": au.audit_type, "date": str(au.actual_audit_date),
+                        "images": au.image_urls} for au in audits]
+        })
+    return {"advertiser": adv.company_name if adv else None, "campaigns": result}
