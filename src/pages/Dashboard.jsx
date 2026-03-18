@@ -57,13 +57,7 @@ export default function Dashboard() {
         if (!activityRes.ok) throw new Error("Failed to load activity");
         const summaryJson = await summaryRes.json();
         const activityJson = await activityRes.json();
-        setSummary({
-          totalInventory: summaryJson.totalInventory ?? 0,
-          activeBookings: summaryJson.activeBookings ?? 0,
-          monthlyRevenue: summaryJson.monthlyRevenue ?? 0,
-          averageOccupancy: summaryJson.averageOccupancy ?? 0,
-          totalSqFt: summaryJson.totalSqFt ?? 0,
-        });
+        setSummary(summaryJson);
         setRecent(
           activityJson.map((a) => ({
             text: a.text,
@@ -135,34 +129,10 @@ export default function Dashboard() {
         {/* Stats */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
           {[
-            {
-              label: "Total Inventory",
-              value: summary.totalInventory,
-              badge: "+2 this month",
-              icon: "📍",
-              iconBg: "bg-blue-50 text-blue-700",
-            },
-            {
-              label: "Active Bookings",
-              value: summary.activeBookings,
-              badge: "+3 this week",
-              icon: "📅",
-              iconBg: "bg-green-50 text-green-700",
-            },
-            {
-              label: "Total Area",
-              value: `${(summary.totalSqFt || 0).toLocaleString()} sqft`,
-              badge: "Across all sites",
-              icon: "📐",
-              iconBg: "bg-purple-50 text-purple-700",
-            },
-            {
-              label: "Avg. Occupancy",
-              value: `${Math.round(summary.averageOccupancy || 0)}%`,
-              badge: "+5% this month",
-              icon: "📈",
-              iconBg: "bg-orange-50 text-orange-700",
-            },
+            { label: "Total Sites", value: summary.totalSites || 0, badge: `${summary.availableSites||0} available`, icon: "📍", iconBg: "bg-blue-50 text-blue-700" },
+            { label: "Live Campaigns", value: summary.liveCampaigns || 0, badge: `${summary.upcomingCampaigns||0} upcoming`, icon: "🎯", iconBg: "bg-green-50 text-green-700" },
+            { label: "Booked Value", value: `₹${Number(summary.totalBookedValue||0).toLocaleString("en-IN")}`, badge: `${summary.bookedSites||0} sites booked`, icon: "💰", iconBg: "bg-purple-50 text-purple-700" },
+            { label: "Pending Audits", value: summary.pendingAudits || 0, badge: `${summary.totalVendors||0} vendors, ${summary.totalAdvertisers||0} advertisers`, icon: "📋", iconBg: "bg-orange-50 text-orange-700" },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
               <div className="flex items-center justify-between">

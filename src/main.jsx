@@ -15,6 +15,11 @@ import Account from "./pages/Account.jsx";
 import Contact from "./pages/Contact.jsx";
 import Payment from "./pages/Payment.jsx";
 import Pricing from "./pages/Pricing.jsx";
+import Vendors from "./pages/Vendors.jsx";
+import Advertisers from "./pages/Advertisers.jsx";
+import Campaigns from "./pages/Campaigns.jsx";
+import CampaignDetail from "./pages/CampaignDetail.jsx";
+import AccessView from "./pages/AccessView.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -28,6 +33,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/advertiser/create" element={<AdvertiserCreate />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/inventory" element={<Inventory />} />
+        <Route path="/vendors" element={<Vendors />} />
+        <Route path="/advertisers" element={<Advertisers />} />
+        <Route path="/campaigns" element={<Campaigns />} />
+        <Route path="/campaigns/:id" element={<CampaignDetail />} />
+        <Route path="/access/:token" element={<AccessView />} />
         <Route path="/account" element={<Account />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/payment" element={<Payment />} />
