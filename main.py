@@ -345,6 +345,31 @@ def delete_site(site_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Site deleted successfully"}
 
+@app.get("/api/sites/{site_id}/bookings")
+def get_site_bookings(site_id: int, db: Session = Depends(get_db)):
+    """Fetch booking schedule for a specific site from CampaignSiteAssignment."""
+    assignments = db.query(models.CampaignSiteAssignment).options(
+        joinedload(models.CampaignSiteAssignment.campaign).joinedload(models.Campaign.advertiser)
+    ).filter(
+        models.CampaignSiteAssignment.site_id == site_id,
+        models.CampaignSiteAssignment.status.in_(["ACTIVE", "PLANNED"])
+    ).order_by(models.CampaignSiteAssignment.booked_from).all()
+
+    bookings = []
+    for a in assignments:
+        camp = a.campaign
+        adv = camp.advertiser if camp else None
+        bookings.append({
+            "assignmentId": a.id,
+            "campaignId": a.campaign_id,
+            "campaignName": camp.name if camp else "Unknown",
+            "advertiserName": adv.company_name if adv else "Unknown",
+            "bookedFrom": str(a.booked_from) if a.booked_from else None,
+            "bookedTill": str(a.booked_till) if a.booked_till else None,
+            "status": a.status
+        })
+    return bookings
+
 # --- Uploads ---
 @app.post("/api/upload")
 @app.post("/api/mobile/upload")
