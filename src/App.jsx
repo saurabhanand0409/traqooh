@@ -46,22 +46,29 @@ export default function App() {
           {/* Buttons */}
           <div className="flex flex-wrap justify-center gap-4 pt-2">
             <a
-              href="/get-started"
+              href="/login"
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-white text-[#1f3c8f] px-7 py-3 text-sm font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
             >
-              Get Started
+              Advertiser Login
               <span aria-hidden>→</span>
+            </a>
+            <a
+              href="/employeelogin"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/10 px-7 py-3 text-sm font-semibold hover:bg-white hover:text-[#1f3c8f] hover:border-white transition-all duration-200"
+            >
+              Employee Login
             </a>
             <button
               type="button"
               onClick={() => setShowDemo(true)}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/10 px-7 py-3 text-sm font-semibold hover:bg-white hover:text-[#1f3c8f] hover:border-white transition-all duration-200"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-transparent px-5 py-3 text-sm font-medium text-white/70 hover:text-white hover:border-white/40 transition-all duration-200"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
                 <path d="M8 5v14l11-7-11-7z" fill="currentColor" />
               </svg>
               Watch Demo
             </button>
+            <a href="/adminlogin" className="text-white/40 hover:text-white/70 text-xs self-center transition">Admin</a>
           </div>
         </div>
       </section>

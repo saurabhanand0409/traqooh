@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import UserMenu from "../components/UserMenu";
+import { requireAuth, signOut as authSignOut } from "../utils/auth";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
@@ -14,18 +15,14 @@ export default function Dashboard() {
     }
   }, []);
 
-  const displayName = (user.email && user.email.split("@")[0]) || "Demo User";
-  const roleLabel =
-    user.role === "media-owner"
-      ? "Vendor User"
-      : user.role === "advertiser"
-        ? "Advertiser"
-        : "Vendor User";
+  const displayName = user.displayName || (user.email && user.email.split("@")[0]) || "Employee";
+  const roleLabel = "Employee";
 
-  const signOut = () => {
-    localStorage.removeItem("tq_user");
-    navigate("/get-started");
-  };
+  useEffect(() => {
+    requireAuth(navigate, ["EMPLOYEE", "ADMIN"]);
+  }, []);
+
+  const signOut = () => authSignOut(navigate);
 
   const [summary, setSummary] = useState({
     totalInventory: 0,
