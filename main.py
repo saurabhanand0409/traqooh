@@ -97,12 +97,14 @@ from routes.advertisers import router as advertisers_router
 from routes.campaigns import router as campaigns_router
 from routes.audits import router as audits_router
 from routes.dashboard import router as dashboard_router
+from routes.admin import router as admin_router
 
 app.include_router(vendors_router)
 app.include_router(advertisers_router)
 app.include_router(campaigns_router)
 app.include_router(audits_router)
 app.include_router(dashboard_router)
+app.include_router(admin_router)
 
 # --- Pydantic Schemas ---
 class LoginRequest(BaseModel):
@@ -168,7 +170,7 @@ class SiteCreate(BaseModel):
 # --- Core Routes ---
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "2.0.0", "time": str(datetime.datetime.now())}
+    return {"status": "ok", "version": "2.1.0", "time": str(datetime.datetime.now())}
 
 @app.get("/")
 def read_root():
@@ -183,6 +185,10 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not verify_password(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Normalize legacy roles
+    role = user.role
+    if role in ("MEDIA_OWNER", "TEAM_MEMBER"):
+        role = "EMPLOYEE"
     company_id = None
     company_name = None
     if user.gst_registration_id:
@@ -194,7 +200,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
                 company_name = company.name
     log_activity(db, "User logged in", "user", user.id, user.email, user.email)
     return LoginResponse(
-        userId=user.id, email=user.email, role=user.role,
+        userId=user.id, email=user.email, role=role,  # normalized role
         gstRegistrationId=user.gst_registration_id, companyId=company_id,
         companyName=company_name, advertiserId=user.advertiser_id,
         displayName=user.display_name, token="token-placeholder", success=True
