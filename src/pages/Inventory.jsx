@@ -4,7 +4,7 @@ import UserMenu from "../components/UserMenu";
 import EmployeeNav from "../components/EmployeeNav";
 import { 
   Search, Filter, Plus, Maximize2, X, Calendar as CalendarIcon, 
-  MapPin, CheckCircle, XCircle, ChevronRight, Clock, Image as ImageIcon
+  MapPin, CheckCircle, XCircle, ChevronRight, Clock, Image as ImageIcon, Target
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
@@ -54,7 +54,7 @@ export default function Inventory() {
         const data = await res.json();
         
         // Compute active status
-        const enriched = data.map(s => {
+        const enriched = (Array.isArray(data) ? data : []).map(s => {
           const isBooked = s.availabilityStatus === "BOOKED" || s.availabilityStatus === "BLOCKED";
           return {
             ...s,
@@ -86,7 +86,7 @@ export default function Inventory() {
 
   // Apply Search & Filters
   const filteredSites = sites.filter(s => {
-    const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || 
+    const matchesSearch = (s.name || "").toLowerCase().includes(search.toLowerCase()) || 
                           (s.city || "").toLowerCase().includes(search.toLowerCase());
     const matchesCity = cityFilter === "All" || s.city === cityFilter;
     const matchesStatus = statusFilter === "All" || s.computedStatus === statusFilter;
