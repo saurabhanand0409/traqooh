@@ -7,7 +7,9 @@ export default function UserMenu({ user }) {
     const navigate = useNavigate();
 
     const displayName = (user?.email && user.email.split("@")[0]) || "User";
-    const roleLabel = user?.role === "media-owner" ? "Vendor User" : user?.role === "advertiser" ? "Advertiser" : "User";
+    const displayLabel = user?.displayName || displayName;
+    const roleMap = { ADMIN: "Admin", EMPLOYEE: "Employee", ADVERTISER: "Advertiser", "media-owner": "Employee", advertiser: "Advertiser" };
+    const roleLabel = roleMap[user?.role] || "User";
 
     // Close menu when clicking outside
     useEffect(() => {
@@ -22,7 +24,7 @@ export default function UserMenu({ user }) {
 
     const handleLogout = () => {
         localStorage.removeItem("tq_user");
-        navigate("/get-started");
+        navigate("/");
     };
 
     return (

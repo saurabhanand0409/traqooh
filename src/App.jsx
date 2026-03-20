@@ -68,7 +68,6 @@ export default function App() {
               </svg>
               Watch Demo
             </button>
-            <a href="/adminlogin" className="text-white/40 hover:text-white/70 text-xs self-center transition">Admin</a>
           </div>
         </div>
       </section>

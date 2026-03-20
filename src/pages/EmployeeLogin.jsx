@@ -18,14 +18,9 @@ export default function EmployeeLogin() {
         </svg>
       }
       bottomLinks={
-        <>
-          <div className="mt-4">
-            <Link to="/" className="text-white/70 hover:text-white text-sm">← Back to Home</Link>
-          </div>
-          <div className="mt-3">
-            <Link to="/adminlogin" className="text-white/50 hover:text-white/80 text-xs">Admin? Login here</Link>
-          </div>
-        </>
+        <div className="mt-4">
+          <Link to="/" className="text-white/70 hover:text-white text-sm">← Back to Home</Link>
+        </div>
       }
     />
   );
