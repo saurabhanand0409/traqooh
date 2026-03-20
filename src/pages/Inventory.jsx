@@ -1,108 +1,68 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import UserMenu from "../components/UserMenu";
+import EmployeeNav from "../components/EmployeeNav";
+import { 
+  Search, Filter, Plus, Maximize2, X, Calendar as CalendarIcon, 
+  MapPin, CheckCircle, XCircle, ChevronRight, Clock, Image as ImageIcon
+} from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
 export default function Inventory() {
   const user = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem("tq_user") || "{}");
-    } catch {
-      return {};
-    }
+    try { return JSON.parse(localStorage.getItem("tq_user") || "{}"); } 
+    catch { return {}; }
   }, []);
-
-  const displayName = (user.email && user.email.split("@")[0]) || "Demo User";
-  const roleLabel =
-    user.role === "media-owner"
-      ? "Vendor User"
-      : user.role === "advertiser"
-        ? "Advertiser"
-        : "Vendor User";
 
   const [sites, setSites] = useState([]);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("All");
+  const [cityFilter, setCityFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [showAdd, setShowAdd] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
-  const [editSite, setEditSite] = useState(null);
+  
+  // Details Modal state
+  const [detailSite, setDetailSite] = useState(null);
+  const [siteBookings, setSiteBookings] = useState([]);
+  const [loadingBookings, setLoadingBookings] = useState(false);
+
+  // Big Image Modal state
+  const [enlargedImage, setEnlargedImage] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [owners, setOwners] = useState([]);
   const [currentOwnerId, setCurrentOwnerId] = useState(user.companyId || null);
-  const [form, setForm] = useState({
-    name: "",
-    city: "",
-    type: "Billboard",
-    size: "",
-    width: 0,
-    length: 0,
-    totalArea: 0,
-    facing: "",
-    status: "Active",
-    potentialMonthly: "1.0",
-    imageUrl: "",
-    ownerCompanyId: user.companyId || "",
-  });
 
+  const [form, setForm] = useState({
+    name: "", city: "", type: "Billboard", size: "", width: 0, length: 0, 
+    facing: "", status: "Active", potentialMonthly: "1.0", imageUrl: "", ownerCompanyId: user.companyId || ""
+  });
   const [uploading, setUploading] = useState(false);
 
-  const handleFileUpload = async (e, isEdit = false) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      setUploading(true);
-      setError("");
-      const res = await fetch(`${API_BASE}/api/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      const data = await res.json();
-      if (data.success) {
-        if (isEdit) {
-          setEditSite({ ...editSite, imageUrl: data.imageUrl });
-        } else {
-          setForm({ ...form, imageUrl: data.imageUrl });
-        }
-      }
-    } catch (err) {
-      setError(err.message || "Unable to upload image");
-    } finally {
-      setUploading(false);
-    }
-  };
-
+  // Fetch Sites
   useEffect(() => {
     const fetchSites = async () => {
+      setLoading(true);
+      setError("");
       try {
-        setLoading(true);
-        setError("");
-
-        // Use mobile API which works correctly
         let url = `${API_BASE}/api/mobile/sites`;
-        if (currentOwnerId) {
-          url += `?ownerId=${currentOwnerId}`;
-        }
-
+        if (currentOwnerId) url += `?ownerId=${currentOwnerId}`;
         const res = await fetch(url);
         if (!res.ok) throw new Error("Failed to load sites");
         const data = await res.json();
-        setSites(
-          data.map((s) => ({
+        
+        // Compute active status
+        const enriched = data.map(s => {
+          const isBooked = s.availabilityStatus === "BOOKED" || s.availabilityStatus === "BLOCKED";
+          return {
             ...s,
-            tag: (s.type || "").toUpperCase(),
-            potential: Number(s.potentialMonthly || 0),
-            ownerName: s.owner?.name || s.owner?.companyName,
-            ownerId: s.owner?.id,
-          }))
-        );
+            computedStatus: isBooked ? "Booked" : "Vacant",
+            statusColor: isBooked ? "text-red-600 bg-red-50 border-red-200" : "text-green-600 bg-green-50 border-green-200"
+          };
+        });
+        setSites(enriched);
       } catch (err) {
         setError(err.message || "Unable to fetch sites");
       } finally {
@@ -110,749 +70,392 @@ export default function Inventory() {
       }
     };
     fetchSites();
-  }, [search, typeFilter, currentOwnerId]);
+  }, [currentOwnerId]);
 
+  // Fetch Owners
   useEffect(() => {
-    const fetchOwners = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/media-owners/all`);
-        if (!res.ok) throw new Error("Failed to load media owners");
-        const data = await res.json();
-        setOwners(data);
-      } catch (err) {
-        console.warn(err);
-      }
-    };
-    fetchOwners();
-
-    // Use companyId directly from localStorage
-    if (user.companyId) {
-      setCurrentOwnerId(user.companyId);
-    }
+    fetch(`${API_BASE}/api/media-owners/all`)
+      .then(r => r.ok && r.json())
+      .then(data => data && setOwners(data))
+      .catch(() => {});
+    if (user.companyId) setCurrentOwnerId(user.companyId);
   }, [user.companyId]);
 
+  // Filters Options
+  const cities = ["All", ...new Set(sites.map(s => s.city).filter(Boolean))].sort();
+
+  // Apply Search & Filters
+  const filteredSites = sites.filter(s => {
+    const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || 
+                          (s.city || "").toLowerCase().includes(search.toLowerCase());
+    const matchesCity = cityFilter === "All" || s.city === cityFilter;
+    const matchesStatus = statusFilter === "All" || s.computedStatus === statusFilter;
+    return matchesSearch && matchesCity && matchesStatus;
+  });
+
+  // Calculate top-level stats
   const totalSites = sites.length;
-  const activeSites = sites.filter((s) => (s.status || "").toLowerCase() === "active").length;
-  const totalArea = sites.reduce((sum, s) => sum + (Number(s.total_area) || (Number(s.width) * Number(s.length)) || 0), 0);
-  const avgOccupancy =
-    sites.length > 0
-      ? Math.round(sites.reduce((sum, s) => sum + (s.occupancy || 0), 0) / sites.length)
-      : 0;
+  const vacantSites = sites.filter(s => s.computedStatus === "Vacant").length;
+  const bookedSites = sites.filter(s => s.computedStatus === "Booked").length;
+  const occupancyRate = totalSites ? Math.round((bookedSites / totalSites) * 100) : 0;
 
-  // Sort sites alphabetically by city
-  const filteredSites = [...sites].sort((a, b) =>
-    (a.city || "").localeCompare(b.city || "")
-  );
+  // Image Upload
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      setUploading(true);
+      const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      if (data.success) setForm({ ...form, imageUrl: data.imageUrl });
+    } catch (err) {
+      alert("Unable to upload image");
+    } finally {
+      setUploading(false);
+    }
+  };
 
-  const siteTypes = ["All", ...new Set(sites.map((s) => s.type))];
-
+  // Create Site
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSaving(true);
     try {
-      setSaving(true);
-      setError("");
-      const payload = {
-        name: form.name || "Untitled Site",
-        city: form.city || "Unknown",
-        type: form.type,
-        status: form.status,
-        size: form.size || "N/A",
-        width: Number(form.width) || 0,
-        length: Number(form.length) || 0,
-        totalArea: (Number(form.width) || 0) * (Number(form.length) || 0),
-        facing: form.facing || "N/A",
-        potentialMonthly: Number.parseFloat(form.potentialMonthly) || 0,
-        occupancy: form.status === "Active" ? 70 : 0,
-        imageUrl:
-          form.imageUrl ||
-          "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1400&q=80",
-        ownerCompanyId: form.ownerCompanyId ? Number(form.ownerCompanyId) : (currentOwnerId ? Number(currentOwnerId) : null),
-      };
+      const payload = { ...form, totalArea: Number(form.width) * Number(form.length) };
       const res = await fetch(`${API_BASE}/api/sites`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to save site");
-      const created = await res.json();
-      setSites((prev) => [
-        {
-          ...created,
-          tag: (created.type || "").toUpperCase(),
-          potential: Number(created.potentialMonthly || payload.potentialMonthly || 0),
-          ownerName: created.owner?.name || created.owner?.companyName,
-          ownerId: created.owner?.id,
-        },
-        ...prev,
-      ]);
-      setForm({
-        name: "",
-        city: "",
-        type: "Billboard",
-        size: "",
-        width: 0,
-        length: 0,
-        totalArea: 0,
-        facing: "",
-        status: "Active",
-        potentialMonthly: "1.0",
-        imageUrl: "",
-        ownerCompanyId: currentOwnerId || "",
-      });
-      setShowAdd(false);
+      window.location.reload(); // Refresh to ensure valid data
     } catch (err) {
-      setError(err.message || "Unable to save site");
+      alert(err.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const openEditModal = (site) => {
-    setEditSite({
-      id: site.id,
-      name: site.name || "",
-      city: site.city || "",
-      type: site.type || "Billboard",
-      size: site.size || "",
-      width: site.width || 0,
-      length: site.length || 0,
-      totalArea: site.total_area || (site.width * site.length) || 0,
-      facing: site.facing || "",
-      status: site.status || "Active",
-      potentialMonthly: String(site.potentialMonthly || site.potential || "0"),
-      occupancy: site.occupancy || 0,
-      imageUrl: site.imageUrl || "",
-    });
-    setShowEdit(true);
-  };
-
-  const handleEditSubmit = async (e) => {
-    e.preventDefault();
+  // View Details & Fetch Bookings
+  const openDetails = async (site) => {
+    setDetailSite(site);
+    setSiteBookings([]);
+    setLoadingBookings(true);
     try {
-      setSaving(true);
-      setError("");
-      const payload = {
-        name: editSite.name,
-        city: editSite.city,
-        type: editSite.type,
-        status: editSite.status,
-        size: editSite.size,
-        width: Number(editSite.width) || 0,
-        length: Number(editSite.length) || 0,
-        totalArea: (Number(editSite.width) || 0) * (Number(editSite.length) || 0),
-        facing: editSite.facing,
-        potentialMonthly: Number.parseFloat(editSite.potentialMonthly) || 0,
-        occupancy: Number(editSite.occupancy) || 0,
-        imageUrl: editSite.imageUrl,
-      };
-      const res = await fetch(`${API_BASE}/api/sites/${editSite.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("Failed to update site");
-      const updated = await res.json();
-      setSites((prev) =>
-        prev.map((s) =>
-          s.id === updated.id
-            ? {
-              ...updated,
-              tag: (updated.type || "").toUpperCase(),
-              potential: Number(updated.potentialMonthly || 0),
-              ownerName: updated.owner?.name || updated.owner?.companyName,
-              ownerId: updated.owner?.id,
-            }
-            : s
-        )
-      );
-      setShowEdit(false);
-      setEditSite(null);
+      const res = await fetch(`${API_BASE}/api/sites/${site.id}/bookings`);
+      if (res.ok) {
+        const bk = await res.json();
+        setSiteBookings(bk);
+      }
     } catch (err) {
-      setError(err.message || "Unable to update site");
-    } finally {
-      setSaving(false);
+      console.error(err);
     }
+    setLoadingBookings(false);
   };
-
-  const handleDelete = async (siteId) => {
-    if (!window.confirm("Are you sure you want to delete this site?")) return;
-    try {
-      setError("");
-      const res = await fetch(`${API_BASE}/api/sites/${siteId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Failed to delete site");
-      setSites((prev) => prev.filter((s) => s.id !== siteId));
-    } catch (err) {
-      setError(err.message || "Unable to delete site");
-    }
-  };
-
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-[#0f172a]">
-      {/* Top Nav */}
-      <header className="bg-white border-b border-gray-200">
-        <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo.svg" alt="traqOOH logo" className="h-10 w-auto" />
-            <span className="text-lg font-semibold text-[#0f172a]">OOH Marketplace</span>
+    <div className="min-h-screen bg-[#f3f4f6] text-[#0f172a] font-sans">
+      {/* Top Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 h-16">
+        <div className="mx-auto max-w-7xl px-5 h-full flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-lg shadow-blue-500/30 text-white grid place-items-center">
+              <span className="font-bold text-xl">t</span>
+            </div>
+            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-800 to-indigo-900 tracking-tight">traqOOH</span>
           </div>
-          <nav className="hidden lg:flex items-center gap-6 text-sm text-[#475569]">
-            <Link className="flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-gray-100" to="/dashboard">
-              🏠 Dashboard
-            </Link>
-            <Link
-              className="flex items-center gap-1 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 font-medium"
-              to="/inventory"
-            >
-              🗂️ My Inventory
-            </Link>
-            <a className="flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-gray-100" href="#">
-              🎯 Campaign Requests
-            </a>
-            <a className="flex items-center gap-1 px-3 py-2 rounded-lg hover:bg-gray-100" href="#">
-              🤝 Collaborate
-            </a>
-          </nav>
           <div className="flex items-center gap-4">
-            <button className="p-2 rounded-lg hover:bg-gray-100" title="Notifications">
-              🔔
-            </button>
             <UserMenu user={user} />
           </div>
         </div>
       </header>
 
-      {/* Content */}
-      <main className="mx-auto max-w-7xl px-4 py-8 space-y-8">
-        <div className="flex items-start justify-between gap-4">
+      {/* Tabs / Sub-Nav */}
+      <EmployeeNav />
+
+      {/* Main Content */}
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold">My Inventory</h1>
-            <p className="text-gray-600 mt-2">Manage your media sites and track performance</p>
+            <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Inventory Management</h1>
+            <p className="text-gray-500 mt-1 font-medium">Manage sites, check availability, and track schedules.</p>
           </div>
-          <div className="text-sm text-gray-600">
-            {currentOwnerId
-              ? "Showing only your sites"
-              : "Showing all sites (no owner filter applied)"}
+          <button onClick={() => setShowAdd(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-5 py-2.5 text-sm font-semibold shadow-sm hover:bg-blue-700 hover:shadow-md transition">
+            <Plus className="w-5 h-5"/> Add New Site
+          </button>
+        </div>
+
+        {/* Dashboard Analytics Widgets */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><MapPin className="w-6 h-6"/></div>
+            <div><div className="text-sm font-semibold text-gray-500">Total Sites</div><div className="text-2xl font-bold">{totalSites}</div></div>
+          </div>
+          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+            <div className="p-3 bg-green-50 text-green-600 rounded-xl"><CheckCircle className="w-6 h-6"/></div>
+            <div><div className="text-sm font-semibold text-gray-500">Vacant Sites</div><div className="text-2xl font-bold">{vacantSites}</div></div>
+          </div>
+          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+            <div className="p-3 bg-red-50 text-red-600 rounded-xl"><XCircle className="w-6 h-6"/></div>
+            <div><div className="text-sm font-semibold text-gray-500">Booked Sites</div><div className="text-2xl font-bold">{bookedSites}</div></div>
+          </div>
+          <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm flex items-center gap-4">
+            <div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><Target className="w-6 h-6"/></div>
+            <div><div className="text-sm font-semibold text-gray-500">Occupancy</div><div className="text-2xl font-bold">{occupancyRate}%</div></div>
           </div>
         </div>
 
-        <button
-          onClick={() => setShowAdd(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-semibold shadow-sm hover:bg-blue-700"
-        >
-          + Add New Site
-        </button>
-
-        {/* Stats */}
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Total Sites</div>
-            <div className="text-3xl font-semibold mt-2">{totalSites}</div>
+        {/* Filter Bar */}
+        <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-3 flex flex-col md:flex-row gap-4 items-center">
+          <div className="flex-1 flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 w-full">
+            <Search className="w-5 h-5 text-gray-400" />
+            <input type="text" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by site name or location..." className="w-full bg-transparent border-none outline-none text-sm" />
           </div>
-          <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Active Sites</div>
-            <div className="text-3xl font-semibold mt-2">{activeSites}</div>
+          <div className="flex flex-row gap-3 w-full md:w-auto">
+            <select value={cityFilter} onChange={e=>setCityFilter(e.target.value)} className="bg-gray-50 border border-gray-200 text-sm rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 flex-1 md:w-40 cursor-pointer">
+              {cities.map(c => <option key={c} value={c}>{c === "All" ? "All Cities" : c}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="bg-gray-50 border border-gray-200 text-sm rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 flex-1 md:w-40 cursor-pointer">
+              <option value="All">All Status</option>
+              <option value="Vacant">Vacant</option>
+              <option value="Booked">Booked</option>
+            </select>
           </div>
-          <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Total Area</div>
-            <div className="text-3xl font-semibold mt-2">{totalArea.toLocaleString()} sqft</div>
-          </div>
-          <div className="rounded-2xl bg-white border border-gray-200 p-4 shadow-sm">
-            <div className="text-sm text-gray-500">Avg. Occupancy</div>
-            <div className="text-3xl font-semibold mt-2">{avgOccupancy}%</div>
-          </div>
-        </section>
-
-        {/* Filters */}
-        <section className="flex flex-col md:flex-row items-stretch md:items-center gap-4">
-          <div className="flex-1 flex items-center gap-3 rounded-xl bg-white border border-gray-200 px-4 py-2 shadow-sm">
-            <span className="text-gray-400">🔍</span>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by city or site name..."
-              className="w-full outline-none text-sm text-gray-700 placeholder:text-gray-400"
-            />
-          </div>
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="md:w-48 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm"
-          >
-            {siteTypes.map((t) => (
-              <option key={t} value={t}>
-                {t === "All" ? "All Types" : t}
-              </option>
-            ))}
-          </select>
-        </section>
+        </div>
 
         {/* Sites Table */}
-        <section className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          {loading && (
-            <div className="p-6 text-center text-gray-600">
-              Loading sites...
-            </div>
-          )}
-          {!loading && error && (
-            <div className="p-6 text-center text-red-700 bg-red-50">
-              {error}
-            </div>
-          )}
-          {!loading && !error && filteredSites.length === 0 && (
-            <div className="p-6 text-center text-gray-500">
-              No sites found
-            </div>
-          )}
-          {!loading && !error && filteredSites.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">City</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Site Name</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Type</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">W x L (ft)</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Area (sqft)</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Facing</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-                    <th className="px-4 py-3 text-right font-semibold text-gray-700">₹ Potential (L)</th>
-                    <th className="px-4 py-3 text-right font-semibold text-gray-700">Occupancy</th>
-                    <th className="px-4 py-3 text-center font-semibold text-gray-700">Actions</th>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase text-xs tracking-wider">
+                <tr>
+                  <th className="px-6 py-4 font-semibold">Site Detail</th>
+                  <th className="px-6 py-4 font-semibold">Location</th>
+                  <th className="px-6 py-4 font-semibold">Type & Size</th>
+                  <th className="px-6 py-4 font-semibold text-center">Status</th>
+                  <th className="px-6 py-4 font-semibold">Schedule Info</th>
+                  <th className="px-6 py-4 font-semibold text-right">Potential Rate</th>
+                  <th className="px-6 py-4 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {loading && <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500">Loading inventory...</td></tr>}
+                {!loading && filteredSites.length === 0 && <tr><td colSpan="7" className="px-6 py-12 text-center text-gray-500"><div className="flex justify-center mb-3"><MapPin className="w-10 h-10 text-gray-300"/></div>No inventory matches your search.</td></tr>}
+                
+                {filteredSites.map((site) => (
+                  <tr key={site.id} className="hover:bg-blue-50/50 transition-colors group">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-4 relative">
+                        {/* Hover Image Trigger */}
+                        <div className="relative group/preview w-12 h-12 rounded-lg border border-gray-200 bg-gray-100 overflow-hidden flex-shrink-0 cursor-pointer" onClick={() => site.imageUrl && setEnlargedImage(site.imageUrl)}>
+                          {site.imageUrl ? (
+                            <img src={site.imageUrl} className="w-full h-full object-cover" alt={site.name} />
+                          ) : (
+                            <ImageIcon className="w-5 h-5 text-gray-400 absolute inset-0 m-auto" />
+                          )}
+                          {/* Hover Popover */}
+                          {site.imageUrl && (
+                            <div className="absolute top-1/2 left-[56px] -translate-y-1/2 hidden group-hover/preview:block z-50 animate-in fade-in zoom-in duration-200">
+                              <div className="bg-white p-2 rounded-xl shadow-2xl border border-gray-100 relative">
+                                <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-l border-b border-gray-100 rotate-45"></div>
+                                <img src={site.imageUrl} className="w-64 h-48 object-cover rounded-lg" alt="Preview" />
+                                <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur text-white p-2 rounded-lg hover:bg-black transition cursor-pointer flex items-center gap-1.5 text-xs font-semibold" onClick={(e) => { e.stopPropagation(); setEnlargedImage(site.imageUrl); }}>
+                                  <Maximize2 className="w-4 h-4" /> Enlarge
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-bold text-gray-900 group-hover:text-blue-700 transition">{site.name}</div>
+                          <div className="text-xs text-gray-500 font-medium">{site.id}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-gray-800">{site.city}</div>
+                      <div className="text-xs text-gray-500 truncate max-w-[150px]">{site.areaLocality || site.address || "No exact address"}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="inline-flex px-2 py-0.5 rounded-md text-xs font-semibold bg-gray-100 text-gray-700">{site.type}</div>
+                      <div className="text-xs text-gray-500 mt-1">{site.width}x{site.length} ft</div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${site.statusColor}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${site.computedStatus === "Booked" ? "bg-red-500" : "bg-green-500"}`}></div>
+                        {site.computedStatus}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2 text-xs font-medium text-gray-600">
+                        <CalendarIcon className="w-4 h-4 text-gray-400" />
+                        {site.computedStatus === "Booked" ? (
+                          <span>Until {site.availableTill ? site.availableTill : "TBD"}</span>
+                        ) : (
+                          <span>Next available: Now</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right font-bold text-gray-900">
+                      ₹{site.potentialMonthly ? site.potentialMonthly : "0"}L
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button onClick={() => openDetails(site)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 transition py-1 px-3 border border-transparent hover:border-blue-200 hover:bg-blue-50 rounded-lg">
+                        Details <ChevronRight className="w-4 h-4"/>
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredSites.map((site) => (
-                    <tr key={site.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-900">{site.city}</td>
-                      <td className="px-4 py-3 text-gray-700">{site.name}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-block px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                          {site.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">
-                        {site.width} x {site.length}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-blue-600">
-                        {site.total_area || (site.width * site.length) || 0}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{site.facing || '-'}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${(site.status || "").toLowerCase() === "active"
-                          ? "bg-green-100 text-green-700"
-                          : "bg-orange-100 text-orange-700"
-                          }`}>
-                          {site.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium text-gray-900">₹{(site.potential || 0).toFixed(1)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-blue-500 rounded-full"
-                              style={{ width: `${site.occupancy || 0}%` }}
-                            />
-                          </div>
-                          <span className="text-gray-600">{site.occupancy || 0}%</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => openEditModal(site)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                            </svg>
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(site.id)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                            </svg>
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </main>
-
-      {/* Add Site modal */}
-      {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold">Add New Site</h3>
-              <button onClick={() => setShowAdd(false)} className="text-gray-500 hover:text-gray-800 text-xl">
-                ×
-              </button>
-            </div>
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <label className="text-sm font-medium text-gray-700">
-                  Site Name
-                  <input
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., Central Mall LED"
-                    required
-                  />
-                </label>
-                <label className="text-sm font-medium text-gray-700">
-                  City
-                  <input
-                    value={form.city}
-                    onChange={(e) => setForm({ ...form, city: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., Mumbai"
-                    required
-                  />
-                </label>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <label className="text-sm font-medium text-gray-700">
-                  Type
-                  <select
-                    value={form.type}
-                    onChange={(e) => setForm({ ...form, type: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option>Billboard</option>
-                    <option>LED</option>
-                    <option>Hoarding</option>
-                  </select>
-                </label>
-                <label className="text-sm font-medium text-gray-700">
-                  Status
-                  <select
-                    value={form.status}
-                    onChange={(e) => setForm({ ...form, status: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option>Active</option>
-                    <option>Inactive</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <label className="text-sm font-medium text-gray-700">
-                  Width (ft)
-                  <input
-                    type="number"
-                    value={form.width}
-                    onChange={(e) => {
-                      const w = Number(e.target.value);
-                      setForm({ ...form, width: w, totalArea: w * (form.length || 0) });
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Width"
-                  />
-                </label>
-                <label className="text-sm font-medium text-gray-700">
-                  Length (ft)
-                  <input
-                    type="number"
-                    value={form.length}
-                    onChange={(e) => {
-                      const l = Number(e.target.value);
-                      setForm({ ...form, length: l, totalArea: (form.width || 0) * l });
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Length"
-                  />
-                </label>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
-                  <span className="text-xs text-blue-600 font-semibold uppercase tracking-wider">Total Area</span>
-                  <div className="text-2xl font-bold text-blue-700">{form.totalArea} sqft</div>
-                </div>
-                <label className="text-sm font-medium text-gray-700">
-                  Facing
-                  <input
-                    value={form.facing}
-                    onChange={(e) => setForm({ ...form, facing: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., East"
-                  />
-                </label>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <label className="text-sm font-medium text-gray-700">
-                  Monthly Potential (₹ L)
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={form.potentialMonthly}
-                    onChange={(e) => setForm({ ...form, potentialMonthly: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </label>
-                <div className="md:col-span-2">
-                  <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Site Photo (optional)
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <div className="h-16 w-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
-                      {form.imageUrl ? (
-                        <img src={form.imageUrl} alt="Preview" className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center text-gray-400 text-xs">No Image</div>
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleFileUpload(e)}
-                        className="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                      />
-                      {uploading && <p className="text-xs text-blue-600 mt-1">Uploading...</p>}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <label className="text-sm font-medium text-gray-700 block">
-                Owner (Media Owner)
-                <select
-                  value={form.ownerCompanyId}
-                  onChange={(e) => setForm({ ...form, ownerCompanyId: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Unassigned</option>
-                  {owners.map((o) => (
-                    <option key={`${o.companyId}-${o.gstId}`} value={o.companyId}>
-                      {o.companyName} ({o.gstNumber})
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAdd(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-semibold shadow-sm hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {saving ? "Saving..." : "Save Site"}
-                </button>
-              </div>
-            </form>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-      )
-      }
+      </main>
 
-      {/* Edit Site Modal */}
-      {showEdit && editSite && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold">Edit Site</h3>
-              <button onClick={() => { setShowEdit(false); setEditSite(null); }} className="text-gray-500 hover:text-gray-800 text-xl">
-                ×
-              </button>
+      {/* --- SITE DETAILS MODAL WITH SCHEDULE --- */}
+      {detailSite && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row shadow-black/40 animate-in zoom-in-95 duration-200 outline-none">
+            
+            {/* Modal Left - Image Gallery & Basic Info */}
+            <div className="md:w-[45%] bg-gray-50 border-r border-gray-100 flex flex-col">
+              <div className="h-64 relative bg-gray-200">
+                {detailSite.imageUrl ? (
+                  <img src={detailSite.imageUrl} className="w-full h-full object-cover cursor-pointer" onClick={() => setEnlargedImage(detailSite.imageUrl)} alt="Site" />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-400"><ImageIcon className="w-12 h-12 opacity-50"/></div>
+                )}
+                <button onClick={() => setDetailSite(null)} className="md:hidden absolute top-4 right-4 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center">
+                  <X className="w-5 h-5"/>
+                </button>
+              </div>
+              <div className="p-6 flex-1 overflow-y-auto">
+                <div className="flex justify-between items-start mb-2">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${detailSite.statusColor}`}>
+                    <div className={`w-2 h-2 rounded-full ${detailSite.computedStatus === "Booked" ? "bg-red-500" : "bg-green-500"}`}></div>
+                    {detailSite.computedStatus.toUpperCase()}
+                  </span>
+                  <span className="text-xl font-bold">₹{detailSite.potentialMonthly || 0}L/mo</span>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-1 leading-tight">{detailSite.name}</h2>
+                <div className="flex items-center gap-2 text-sm text-gray-500 font-medium mb-6">
+                  <MapPin className="w-4 h-4 text-blue-500"/> {detailSite.city} • {detailSite.areaLocality || detailSite.address || "Address not provided"}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Type</div><div className="font-semibold text-gray-800">{detailSite.type}</div></div>
+                  <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Dimensions</div><div className="font-semibold text-gray-800">{detailSite.width}x{detailSite.length} ft</div></div>
+                  <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Facing</div><div className="font-semibold text-gray-800">{detailSite.facing || "N/A"}</div></div>
+                  <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Maintenance</div><div className="font-semibold text-gray-800">{detailSite.status}</div></div>
+                </div>
+              </div>
             </div>
-            <form onSubmit={handleEditSubmit} className="p-5 space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <label className="text-sm font-medium text-gray-700">
-                  Site Name
-                  <input
-                    value={editSite.name}
-                    onChange={(e) => setEditSite({ ...editSite, name: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., Central Mall LED"
-                    required
-                  />
-                </label>
-                <label className="text-sm font-medium text-gray-700">
-                  City
-                  <input
-                    value={editSite.city}
-                    onChange={(e) => setEditSite({ ...editSite, city: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., Mumbai"
-                    required
-                  />
-                </label>
+
+            {/* Modal Right - Booking Schedule */}
+            <div className="md:w-[55%] flex flex-col relative h-[500px] md:h-auto overflow-hidden">
+              <button onClick={() => setDetailSite(null)} className="hidden md:flex absolute top-4 right-4 w-8 h-8 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full items-center justify-center transition z-10">
+                <X className="w-5 h-5"/>
+              </button>
+              
+              <div className="p-6 border-b border-gray-100">
+                <h3 className="text-xl font-bold flex items-center gap-2 tracking-tight">
+                  <CalendarIcon className="w-5 h-5 text-blue-600" /> Booking Schedule
+                </h3>
+                <p className="text-sm text-gray-500 mt-1 font-medium">View availability and active campaigns.</p>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-4">
-                <label className="text-sm font-medium text-gray-700">
-                  Type
-                  <select
-                    value={editSite.type}
-                    onChange={(e) => setEditSite({ ...editSite, type: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option>Billboard</option>
-                    <option>LED</option>
-                    <option>Hoarding</option>
-                    <option>Unipole</option>
-                    <option>Digital Screen</option>
-                  </select>
-                </label>
-                <label className="text-sm font-medium text-gray-700">
-                  Status
-                  <select
-                    value={editSite.status}
-                    onChange={(e) => setEditSite({ ...editSite, status: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option>Active</option>
-                    <option>Inactive</option>
-                    <option>Maintenance</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <label className="text-sm font-medium text-gray-700">
-                  Width (ft)
-                  <input
-                    type="number"
-                    value={editSite.width}
-                    onChange={(e) => {
-                      const w = Number(e.target.value);
-                      setEditSite({ ...editSite, width: w, totalArea: w * (editSite.length || 0) });
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </label>
-                <label className="text-sm font-medium text-gray-700">
-                  Length (ft)
-                  <input
-                    type="number"
-                    value={editSite.length}
-                    onChange={(e) => {
-                      const l = Number(e.target.value);
-                      setEditSite({ ...editSite, length: l, totalArea: (editSite.width || 0) * l });
-                    }}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </label>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
-                  <span className="text-xs text-blue-600 font-semibold uppercase tracking-wider">Total Area</span>
-                  <div className="text-2xl font-bold text-blue-700">{editSite.totalArea} sqft</div>
-                </div>
-                <label className="text-sm font-medium text-gray-700">
-                  Facing
-                  <input
-                    value={editSite.facing}
-                    onChange={(e) => setEditSite({ ...editSite, facing: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., East"
-                  />
-                </label>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <label className="text-sm font-medium text-gray-700">
-                  Monthly Potential (₹ L)
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={editSite.potentialMonthly}
-                    onChange={(e) => setEditSite({ ...editSite, potentialMonthly: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., 2.5"
-                  />
-                </label>
-                <label className="text-sm font-medium text-gray-700">
-                  Occupancy (%)
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={editSite.occupancy}
-                    onChange={(e) => setEditSite({ ...editSite, occupancy: e.target.value })}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., 75"
-                  />
-                </label>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium text-gray-700 block mb-1">
-                  Site Photo
-                </label>
-                <div className="flex items-center gap-4">
-                  <div className="h-16 w-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
-                    {editSite.imageUrl ? (
-                      <img src={editSite.imageUrl} alt="Site" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="h-full w-full flex items-center justify-center text-gray-400 text-xs">No Photo</div>
-                    )}
+              <div className="flex-1 p-6 overflow-y-auto bg-gray-50/50">
+                {loadingBookings ? (
+                  <div className="flex items-center justify-center h-full text-gray-500"><Clock className="w-6 h-6 animate-spin mr-2"/> Loading schedule...</div>
+                ) : siteBookings.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-6 border-2 border-dashed border-gray-200 rounded-2xl">
+                    <CheckCircle className="w-10 h-10 text-green-400 mb-3" />
+                    <h4 className="font-bold text-gray-800">Site is completely vacant</h4>
+                    <p className="text-sm text-gray-500 mt-1 leading-relaxed">No active or upcoming bookings found.<br/>This site is ready for a new campaign.</p>
                   </div>
-                  <div className="flex-1">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleFileUpload(e, true)}
-                      className="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                    />
-                    {uploading && <p className="text-xs text-blue-600 mt-1">Uploading...</p>}
+                ) : (
+                  <div className="space-y-4 relative before:absolute before:inset-0 before:left-[17px] before:w-0.5 before:bg-blue-100">
+                    {siteBookings.map((bk, i) => (
+                      <div key={bk.assignmentId} className="relative pl-10">
+                        {/* Timeline node */}
+                        <div className="absolute left-0 top-1.5 w-9 h-9 bg-blue-50 border border-blue-200 rounded-full flex items-center justify-center z-10">
+                          <Target className="w-4 h-4 text-blue-600"/>
+                        </div>
+                        {/* Booking Card */}
+                        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm relative overflow-hidden group hover:border-blue-200 hover:shadow-md transition">
+                          <div className={`absolute top-0 left-0 w-1.5 h-full ${bk.status === "ACTIVE" ? "bg-red-500" : "bg-purple-500"}`}></div>
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">
+                                {bk.bookedFrom} &rarr; {bk.bookedTill}
+                              </div>
+                              <h5 className="font-bold text-gray-900 group-hover:text-blue-700 transition">{bk.campaignName}</h5>
+                              <div className="text-sm font-medium text-gray-600 mt-0.5">{bk.advertiserName}</div>
+                            </div>
+                            <span className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded-md tracking-wider ${bk.status === "ACTIVE" ? "bg-red-100 text-red-700" : "bg-purple-100 text-purple-700"}`}>
+                              {bk.status}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {/* Add Vacant Period End Node */}
+                    <div className="relative pl-10 pt-4">
+                      <div className="absolute left-0 top-5.5 w-9 h-9 bg-green-50 border border-green-200 text-green-600 rounded-full flex items-center justify-center z-10">
+                        <CheckCircle className="w-5 h-5"/>
+                      </div>
+                      <div className="py-2">
+                        <span className="font-bold text-green-600 text-sm">Becomes Vacant</span>
+                        <div className="text-xs text-gray-500 mt-0.5">After {siteBookings[siteBookings.length-1].bookedTill}</div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => { setShowEdit(false); setEditSite(null); }}
-                  className="rounded-lg px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-semibold shadow-sm hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {saving ? "Saving..." : "Update Site"}
-                </button>
-              </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
-    </div >
+
+      {/* --- ENLARGE IMAGE MODAL --- */}
+      {enlargedImage && (
+        <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-200 p-4">
+          <button onClick={() => setEnlargedImage(null)} className="absolute top-6 right-6 text-white/50 hover:text-white transition p-2 bg-white/10 hover:bg-white/20 rounded-full">
+            <X className="w-8 h-8" />
+          </button>
+          <img src={enlargedImage} alt="Enlarged Site" className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" />
+        </div>
+      )}
+
+      {/* --- ADD NEW SITE FORM MODAL (Kept minimalist) --- */}
+      {showAdd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          {/* We keep the inner existing logic, but clean up the UI */}
+          <div className="bg-white rounded-2xl w-full max-w-xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-200">
+             <div className="flex justify-between items-center px-6 py-4 border-b">
+                <h3 className="text-lg font-bold">Add New Missing Inventory</h3>
+                <button onClick={() => setShowAdd(false)} className="text-gray-400 hover:text-gray-800"><X/></button>
+             </div>
+             <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="text-xs font-bold text-gray-500 uppercase">Site Name</label><input required value={form.name} onChange={e=>setForm({...form, name:e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none"/></div>
+                  <div><label className="text-xs font-bold text-gray-500 uppercase">City</label><input required value={form.city} onChange={e=>setForm({...form, city:e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none"/></div>
+                </div>
+                {/* File Upload Simple UI */}
+                <div>
+                   <label className="text-xs font-bold text-gray-500 uppercase">Image Upload</label>
+                   <input type="file" onChange={handleFileUpload} className="w-full mt-1 border rounded-lg p-2 text-sm file:mr-4 file:px-4 file:py-1 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700"/>
+                   {uploading && <div className="text-xs text-blue-600 mt-1">Uploading...</div>}
+                </div>
+                <div className="pt-4 flex justify-end gap-3 border-t">
+                  <button type="button" onClick={() => setShowAdd(false)} className="px-5 py-2 rounded-lg text-sm font-semibold border text-gray-600 hover:bg-gray-50">Cancel</button>
+                  <button type="submit" disabled={saving} className="px-5 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Save Site</button>
+                </div>
+             </form>
+          </div>
+        </div>
+      )}
+
+    </div>
   );
 }
-
-
-
-
-

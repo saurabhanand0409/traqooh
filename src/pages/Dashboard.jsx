@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import UserMenu from "../components/UserMenu";
+import EmployeeNav from "../components/EmployeeNav";
 import { requireAuth, signOut as authSignOut } from "../utils/auth";
 import { 
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, 
@@ -114,8 +115,8 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-[#f3f4f6] text-[#0f172a] font-sans selection:bg-blue-100">
       {/* Top Navigation */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="mx-auto max-w-7xl px-5 h-16 flex items-center justify-between">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 h-16">
+        <div className="mx-auto max-w-7xl px-5 h-full flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-lg shadow-blue-500/30 text-white grid place-items-center">
               <span className="font-bold text-xl leading-none">t</span>
@@ -130,6 +131,9 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
+      {/* Tabs / Sub-Nav */}
+      <EmployeeNav />
 
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         
