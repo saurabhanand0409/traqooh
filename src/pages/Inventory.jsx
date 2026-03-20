@@ -4,7 +4,7 @@ import UserMenu from "../components/UserMenu";
 import EmployeeNav from "../components/EmployeeNav";
 import { 
   Search, Filter, Plus, Maximize2, X, Calendar as CalendarIcon, 
-  MapPin, CheckCircle, XCircle, ChevronRight, Clock, Image as ImageIcon, Target
+  MapPin, CheckCircle, XCircle, ChevronRight, Clock, Image as ImageIcon, Target, Edit
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
@@ -19,7 +19,11 @@ export default function Inventory() {
   const [search, setSearch] = useState("");
   const [cityFilter, setCityFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  
+  // Modals state
   const [showAdd, setShowAdd] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editSite, setEditSite] = useState(null);
   
   // Details Modal state
   const [detailSite, setDetailSite] = useState(null);
@@ -32,13 +36,15 @@ export default function Inventory() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  
   const [owners, setOwners] = useState([]);
   const [currentOwnerId, setCurrentOwnerId] = useState(user.companyId || null);
 
-  const [form, setForm] = useState({
+  const emptyForm = {
     name: "", city: "", type: "Billboard", size: "", width: 0, length: 0, 
     facing: "", status: "Active", potentialMonthly: "1.0", imageUrl: "", ownerCompanyId: user.companyId || ""
-  });
+  };
+  const [form, setForm] = useState(emptyForm);
   const [uploading, setUploading] = useState(false);
 
   // Fetch Sites
@@ -100,7 +106,7 @@ export default function Inventory() {
   const occupancyRate = totalSites ? Math.round((bookedSites / totalSites) * 100) : 0;
 
   // Image Upload
-  const handleFileUpload = async (e) => {
+  const handleFileUpload = async (e, isEdit = false) => {
     const file = e.target.files[0];
     if (!file) return;
     const formData = new FormData();
@@ -110,7 +116,10 @@ export default function Inventory() {
       const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
-      if (data.success) setForm({ ...form, imageUrl: data.imageUrl });
+      if (data.success) {
+        if (isEdit) setEditSite({ ...editSite, imageUrl: data.imageUrl });
+        else setForm({ ...form, imageUrl: data.imageUrl });
+      }
     } catch (err) {
       alert("Unable to upload image");
     } finally {
@@ -119,21 +128,63 @@ export default function Inventory() {
   };
 
   // Create Site
-  const handleSubmit = async (e) => {
+  const handleCreateSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { ...form, totalArea: Number(form.width) * Number(form.length) };
+      const payload = { 
+        ...form, 
+        potentialMonthly: Number.parseFloat(form.potentialMonthly) || 0,
+        width: Number(form.width) || 0,
+        length: Number(form.length) || 0,
+        totalArea: (Number(form.width) || 0) * (Number(form.length) || 0),
+        ownerCompanyId: form.ownerCompanyId ? Number(form.ownerCompanyId) : null
+      };
       const res = await fetch(`${API_BASE}/api/sites`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to save site");
-      window.location.reload(); // Refresh to ensure valid data
+      window.location.reload(); 
     } catch (err) {
       alert(err.message);
     } finally {
       setSaving(false);
     }
+  };
+
+  // Edit Site
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = { 
+        ...editSite, 
+        potentialMonthly: Number.parseFloat(editSite.potentialMonthly) || 0,
+        width: Number(editSite.width) || 0,
+        length: Number(editSite.length) || 0,
+        totalArea: (Number(editSite.width) || 0) * (Number(editSite.length) || 0),
+        ownerCompanyId: editSite.ownerCompanyId !== "" ? Number(editSite.ownerCompanyId) : null
+      };
+      const res = await fetch(`${API_BASE}/api/sites/${editSite.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error("Failed to update site");
+      window.location.reload();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEditModal = (site) => {
+     setEditSite({
+        id: site.id, name: site.name || "", city: site.city || "", type: site.type || "Billboard",
+        size: site.size || "", width: site.width || 0, length: site.length || 0, facing: site.facing || "",
+        status: site.status || "Active", potentialMonthly: String(site.potentialMonthly || site.potential || "0"),
+        occupancy: site.occupancy || 0, imageUrl: site.imageUrl || "", ownerCompanyId: site.ownerCompanyId || ""
+     });
+     setShowEdit(true);
   };
 
   // View Details & Fetch Bookings
@@ -179,9 +230,9 @@ export default function Inventory() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Inventory Management</h1>
-            <p className="text-gray-500 mt-1 font-medium">Manage sites, check availability, and track schedules.</p>
+            <p className="text-gray-500 mt-1 font-medium">Manage sites, check availability, edit features and rates.</p>
           </div>
-          <button onClick={() => setShowAdd(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-5 py-2.5 text-sm font-semibold shadow-sm hover:bg-blue-700 hover:shadow-md transition">
+          <button onClick={() => { setForm(emptyForm); setShowAdd(true); }} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-5 py-2.5 text-sm font-semibold shadow-sm hover:bg-blue-700 hover:shadow-md transition">
             <Plus className="w-5 h-5"/> Add New Site
           </button>
         </div>
@@ -210,13 +261,13 @@ export default function Inventory() {
         <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-3 flex flex-col md:flex-row gap-4 items-center">
           <div className="flex-1 flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 w-full">
             <Search className="w-5 h-5 text-gray-400" />
-            <input type="text" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by site name or location..." className="w-full bg-transparent border-none outline-none text-sm" />
+            <input type="text" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by site name or location..." className="w-full bg-transparent border-none outline-none text-sm font-medium" />
           </div>
           <div className="flex flex-row gap-3 w-full md:w-auto">
-            <select value={cityFilter} onChange={e=>setCityFilter(e.target.value)} className="bg-gray-50 border border-gray-200 text-sm rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 flex-1 md:w-40 cursor-pointer">
+            <select value={cityFilter} onChange={e=>setCityFilter(e.target.value)} className="bg-gray-50 border border-gray-200 text-sm font-medium rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 flex-1 md:w-40 cursor-pointer">
               {cities.map(c => <option key={c} value={c}>{c === "All" ? "All Cities" : c}</option>)}
             </select>
-            <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="bg-gray-50 border border-gray-200 text-sm rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 flex-1 md:w-40 cursor-pointer">
+            <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="bg-gray-50 border border-gray-200 text-sm font-medium rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500 flex-1 md:w-40 cursor-pointer">
               <option value="All">All Status</option>
               <option value="Vacant">Vacant</option>
               <option value="Booked">Booked</option>
@@ -240,7 +291,7 @@ export default function Inventory() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {loading && <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500">Loading inventory...</td></tr>}
+                {loading && <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500 font-medium">Loading inventory...</td></tr>}
                 {!loading && filteredSites.length === 0 && <tr><td colSpan="7" className="px-6 py-12 text-center text-gray-500"><div className="flex justify-center mb-3"><MapPin className="w-10 h-10 text-gray-300"/></div>No inventory matches your search.</td></tr>}
                 
                 {filteredSites.map((site) => (
@@ -301,9 +352,14 @@ export default function Inventory() {
                       ₹{site.potentialMonthly ? site.potentialMonthly : "0"}L
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button onClick={() => openDetails(site)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 transition py-1 px-3 border border-transparent hover:border-blue-200 hover:bg-blue-50 rounded-lg">
-                        Details <ChevronRight className="w-4 h-4"/>
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-blue-600 hover:bg-blue-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Edit Site">
+                          <Edit className="w-4 h-4"/>
+                        </button>
+                        <button onClick={() => openDetails(site)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 transition py-1.5 px-3 border border-transparent hover:border-blue-200 hover:bg-blue-50 rounded-lg" title="View Details">
+                          Details <ChevronRight className="w-4 h-4"/>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -427,31 +483,88 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* --- ADD NEW SITE FORM MODAL (Kept minimalist) --- */}
-      {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          {/* We keep the inner existing logic, but clean up the UI */}
-          <div className="bg-white rounded-2xl w-full max-w-xl shadow-xl overflow-hidden animate-in zoom-in-95 duration-200">
-             <div className="flex justify-between items-center px-6 py-4 border-b">
-                <h3 className="text-lg font-bold">Add New Missing Inventory</h3>
-                <button onClick={() => setShowAdd(false)} className="text-gray-400 hover:text-gray-800"><X/></button>
+      {/* --- CREATE / EDIT SITE FORM MODAL --- */}
+      {(showAdd || showEdit) && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+             <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100 bg-gray-50">
+                <h3 className="text-xl font-bold text-gray-900">{showEdit ? "Edit Inventory Details" : "Add New Inventory"}</h3>
+                <button onClick={() => { setShowAdd(false); setShowEdit(false); setEditSite(null); }} className="p-2 bg-white rounded-full hover:bg-gray-200 shadow-sm border border-gray-200 transition text-gray-500"><X className="w-4 h-4"/></button>
              </div>
-             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="text-xs font-bold text-gray-500 uppercase">Site Name</label><input required value={form.name} onChange={e=>setForm({...form, name:e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none"/></div>
-                  <div><label className="text-xs font-bold text-gray-500 uppercase">City</label><input required value={form.city} onChange={e=>setForm({...form, city:e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 outline-none"/></div>
+             <form onSubmit={showEdit ? handleEditSubmit : handleCreateSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
+                
+                {/* Basic Info */}
+                <div className="grid md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Site Name *</label>
+                    <input required value={showEdit ? editSite.name : form.name} onChange={e=> showEdit ? setEditSite({...editSite, name:e.target.value}) : setForm({...form, name:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">City *</label>
+                    <input required value={showEdit ? editSite.city : form.city} onChange={e=> showEdit ? setEditSite({...editSite, city:e.target.value}) : setForm({...form, city:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                  </div>
                 </div>
-                {/* File Upload Simple UI */}
+
+                <div className="grid md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Site Type</label>
+                    <select value={showEdit ? editSite.type : form.type} onChange={e=> showEdit ? setEditSite({...editSite, type:e.target.value}) : setForm({...form, type:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
+                      <option>Billboard</option><option>LED</option><option>Hoarding</option><option>Unipole</option><option>Gantry</option><option>Transit</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Maintenance Status</label>
+                    <select value={showEdit ? editSite.status : form.status} onChange={e=> showEdit ? setEditSite({...editSite, status:e.target.value}) : setForm({...form, status:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
+                      <option>Active</option><option>Inactive</option><option>Maintenance</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Dimensions & Rate */}
+                <div className="grid md:grid-cols-3 gap-5 border-t border-gray-100 pt-5">
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Width (ft)</label>
+                    <input type="number" placeholder="0" value={showEdit ? editSite.width : form.width} onChange={e=> showEdit ? setEditSite({...editSite, width:e.target.value}) : setForm({...form, width:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Height/Length (ft)</label>
+                    <input type="number" placeholder="0" value={showEdit ? editSite.length : form.length} onChange={e=> showEdit ? setEditSite({...editSite, length:e.target.value}) : setForm({...form, length:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-blue-600 uppercase tracking-wider block mb-1.5">Rate (₹ L / mo)</label>
+                    <input type="number" step="0.01" placeholder="e.g. 1.5" required value={showEdit ? editSite.potentialMonthly : form.potentialMonthly} onChange={e=> showEdit ? setEditSite({...editSite, potentialMonthly:e.target.value}) : setForm({...form, potentialMonthly:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-blue-50/50 border-blue-100 focus:bg-white font-bold text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                  </div>
+                </div>
+
                 <div>
-                   <label className="text-xs font-bold text-gray-500 uppercase">Image Upload</label>
-                   <input type="file" onChange={handleFileUpload} className="w-full mt-1 border rounded-lg p-2 text-sm file:mr-4 file:px-4 file:py-1 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700"/>
-                   {uploading && <div className="text-xs text-blue-600 mt-1">Uploading...</div>}
+                   <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Site Image Upload</label>
+                   <div className="flex items-center gap-4">
+                     <div className="w-16 h-16 rounded-xl border border-gray-200 bg-gray-50 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                       {(showEdit ? editSite.imageUrl : form.imageUrl) ? (
+                         <img src={showEdit ? editSite.imageUrl : form.imageUrl} className="w-full h-full object-cover"/>
+                       ) : <ImageIcon className="w-6 h-6 text-gray-400"/>}
+                     </div>
+                     <div className="flex-1">
+                       <input type="file" onChange={(e) => handleFileUpload(e, showEdit)} className="w-full border border-gray-300 rounded-xl p-2 text-sm file:mr-4 file:px-4 file:py-1.5 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700 file:font-semibold hover:file:bg-blue-100 transition cursor-pointer"/>
+                       {uploading && <div className="text-xs font-bold text-blue-600 mt-1.5 animate-pulse">Uploading securely to cloud...</div>}
+                     </div>
+                   </div>
                 </div>
-                <div className="pt-4 flex justify-end gap-3 border-t">
-                  <button type="button" onClick={() => setShowAdd(false)} className="px-5 py-2 rounded-lg text-sm font-semibold border text-gray-600 hover:bg-gray-50">Cancel</button>
-                  <button type="submit" disabled={saving} className="px-5 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Save Site</button>
+
+                {/* Additional ownership context */}
+                <div className="pt-2">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Assigned Media Owner</label>
+                  <select value={showEdit ? editSite.ownerCompanyId : form.ownerCompanyId} onChange={e=> showEdit ? setEditSite({...editSite, ownerCompanyId:e.target.value}) : setForm({...form, ownerCompanyId:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
+                    <option value="">No Owner assigned</option>
+                    {owners.map(o => <option key={o.companyId} value={o.companyId}>{o.companyName}</option>)}
+                  </select>
                 </div>
+
              </form>
+             <div className="px-6 py-4 flex justify-end gap-3 border-t border-gray-100 bg-gray-50 rounded-b-3xl">
+                <button type="button" onClick={() => {setShowAdd(false); setShowEdit(false); setEditSite(null)}} className="px-5 py-2.5 rounded-xl text-sm font-bold border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 transition shadow-sm">Cancel</button>
+                <button type="button" onClick={showEdit ? handleEditSubmit : handleCreateSubmit} disabled={saving} className="px-5 py-2.5 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition shadow-md shadow-blue-500/20">{saving ? "Saving..." : (showEdit ? "Save Changes" : "Create Site")}</button>
+             </div>
           </div>
         </div>
       )}
