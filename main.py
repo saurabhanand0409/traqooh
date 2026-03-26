@@ -72,10 +72,16 @@ def run_migrations():
             # UserAccounts extensions
             ua_cols = [c["name"] for c in inspector.get_columns("user_accounts")]
             for col, typ in [("advertiser_id","INTEGER"),("display_name","VARCHAR"),
-                             ("is_active","BOOLEAN DEFAULT TRUE"),("created_at","TIMESTAMP DEFAULT NOW()")]:
+                             ("is_active","BOOLEAN DEFAULT TRUE"),("created_at","TIMESTAMP DEFAULT NOW()"),
+                             ("vendor_id","INTEGER REFERENCES companies(id) ON DELETE SET NULL")]:
                 if col not in ua_cols:
                     conn.execute(text(f"ALTER TABLE user_accounts ADD COLUMN {col} {typ}"))
                     conn.commit()
+            # Sites additional extensions
+            si_cols2 = [c["name"] for c in inspector.get_columns("sites")]
+            if "added_by_user_id" not in si_cols2:
+                conn.execute(text("ALTER TABLE sites ADD COLUMN added_by_user_id INTEGER"))
+                conn.commit()
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
@@ -157,7 +163,9 @@ class SiteCreate(BaseModel):
     baseRate: Optional[float] = 0.0
     occupancy: Optional[int] = 0
     imageUrl: Optional[str] = None
-    ownerCompanyId: Optional[int] = None
+    ownerCompanyId: Optional[int] = None  # vendor ID
+    vendorId: Optional[int] = None        # alias for ownerCompanyId (preferred going forward)
+    addedByUserId: Optional[int] = None   # media user who created this site
     areaLocality: Optional[str] = None
     address: Optional[str] = None
     remarks: Optional[str] = None
@@ -329,13 +337,15 @@ def get_site_details(site_id: int, db: Session = Depends(get_db)):
 @app.post("/api/sites")
 def create_site(req: SiteCreate, db: Session = Depends(get_db)):
     from datetime import date
+    vendor_id = req.vendorId or req.ownerCompanyId  # vendorId takes precedence if provided
     site = models.Site(
         name=req.name, city=req.city, type=req.type, status=req.status, size=req.size,
         width=req.width or 0, length=req.length or 0,
         total_area=(req.width or 0) * (req.length or 0),
         facing=req.facing, potential_monthly=float(req.potentialMonthly or 0),
         base_rate=float(req.baseRate or 0), occupancy=req.occupancy or 0,
-        image_url=req.imageUrl, owner_company_id=req.ownerCompanyId,
+        image_url=req.imageUrl, owner_company_id=vendor_id,
+        added_by_user_id=req.addedByUserId,
         area_locality=req.areaLocality, address=req.address, remarks=req.remarks,
         availability_status=req.availabilityStatus or "AVAILABLE",
         available_from=date.fromisoformat(req.availableFrom) if req.availableFrom else None,
@@ -354,6 +364,7 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     site = db.query(models.Site).filter(models.Site.id == site_id).first()
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
+    vendor_id = req.vendorId or req.ownerCompanyId
     site.name = req.name; site.city = req.city; site.type = req.type
     site.status = req.status; site.size = req.size
     site.width = req.width or 0; site.length = req.length or 0
@@ -362,6 +373,7 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     site.potential_monthly = float(req.potentialMonthly or 0)
     site.base_rate = float(req.baseRate or 0)
     site.occupancy = req.occupancy or 0; site.image_url = req.imageUrl
+    site.owner_company_id = vendor_id
     site.area_locality = req.areaLocality; site.address = req.address
     site.remarks = req.remarks
     site.availability_status = req.availabilityStatus or site.availability_status

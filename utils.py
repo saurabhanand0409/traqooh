@@ -119,5 +119,7 @@ def site_to_dict(s):
             "name": s.owner.name
         } if s.owner else None,
         "ownerCompanyId": s.owner_company_id,
+        "vendorId": s.owner_company_id,  # alias
+        "addedByUserId": s.added_by_user_id,
         "created_at": str(s.created_at) if s.created_at else None,
     }

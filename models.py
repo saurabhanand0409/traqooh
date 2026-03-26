@@ -68,14 +68,16 @@ class UserAccount(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
-    role = Column(String, nullable=False)  # SUPER_ADMIN, TEAM_MEMBER, MEDIA_OWNER, ADVERTISER
+    role = Column(String, nullable=False)  # SUPER_ADMIN, TEAM_MEMBER, MEDIA_OWNER, ADVERTISER, EMPLOYEE, ADMIN
     gst_registration_id = Column(Integer, nullable=True)
     advertiser_id = Column(Integer, ForeignKey("advertisers.id"), nullable=True)
+    vendor_id = Column(Integer, ForeignKey("companies.id"), nullable=True)  # assigned vendor for media users
     display_name = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     advertiser = relationship("Advertiser", back_populates="user_accounts")
+    vendor = relationship("Company", foreign_keys=[vendor_id])
 
 
 class Site(Base):
@@ -111,8 +113,9 @@ class Site(Base):
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
 
-    # Owner
+    # Owner / vendor linkage
     owner_company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
+    added_by_user_id = Column(Integer, nullable=True)  # media user who created this site
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 

@@ -10,41 +10,52 @@ from utils import log_activity
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 
-class CreateEmployeeRequest(BaseModel):
+class CreateMediaUserRequest(BaseModel):
     email: str
     password: str
     displayName: Optional[str] = None
+    vendorId: Optional[int] = None
+    isActive: Optional[bool] = True
 
 
-class UpdateEmployeeRequest(BaseModel):
+class UpdateMediaUserRequest(BaseModel):
     displayName: Optional[str] = None
     password: Optional[str] = None
     isActive: Optional[bool] = None
+    vendorId: Optional[int] = None  # use -1 to explicitly unassign
 
 
-def employee_to_dict(u):
+def media_user_to_dict(u, db: Session = None):
+    vendor_name = None
+    if u.vendor_id and db:
+        v = db.query(models.Company).filter(models.Company.id == u.vendor_id).first()
+        vendor_name = v.name if v else None
     return {
         "id": u.id,
         "email": u.email,
         "role": u.role,
         "displayName": u.display_name,
         "isActive": u.is_active if u.is_active is not None else True,
+        "vendorId": u.vendor_id,
+        "vendorName": vendor_name,
         "createdAt": str(u.created_at) if u.created_at else None,
     }
 
 
-@router.get("/employees")
-def list_employees(db: Session = Depends(get_db)):
-    """List all employees (EMPLOYEE + TEAM_MEMBER + MEDIA_OWNER roles)."""
-    employees = db.query(models.UserAccount).filter(
+# --- Media Users (was "Employees") ---
+
+@router.get("/media-users")
+def list_media_users(db: Session = Depends(get_db)):
+    """List all media users (EMPLOYEE + TEAM_MEMBER + MEDIA_OWNER roles)."""
+    users = db.query(models.UserAccount).filter(
         models.UserAccount.role.in_(["EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER"])
     ).order_by(models.UserAccount.id).all()
-    return [employee_to_dict(e) for e in employees]
+    return [media_user_to_dict(u, db) for u in users]
 
 
-@router.post("/employees")
-def create_employee(req: CreateEmployeeRequest, db: Session = Depends(get_db)):
-    """Create a new EMPLOYEE account. Only admin should call this."""
+@router.post("/media-users")
+def create_media_user(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
+    """Create a new media user account."""
     from main import hash_password
 
     existing = db.query(models.UserAccount).filter(
@@ -53,31 +64,38 @@ def create_employee(req: CreateEmployeeRequest, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
 
+    # Validate vendor if provided
+    if req.vendorId:
+        vendor = db.query(models.Company).filter(models.Company.id == req.vendorId).first()
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+
     user = models.UserAccount(
         email=req.email.lower().strip(),
         password_hash=hash_password(req.password),
         role="EMPLOYEE",
         display_name=req.displayName,
-        is_active=True,
+        vendor_id=req.vendorId,
+        is_active=req.isActive if req.isActive is not None else True,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
-    log_activity(db, "Admin created employee", "user", user.id, req.email)
-    return employee_to_dict(user)
+    log_activity(db, "Admin created media user", "user", user.id, req.email)
+    return media_user_to_dict(user, db)
 
 
-@router.put("/employees/{employee_id}")
-def update_employee(employee_id: int, req: UpdateEmployeeRequest, db: Session = Depends(get_db)):
-    """Update employee display name, password, or active status."""
+@router.put("/media-users/{user_id}")
+def update_media_user(user_id: int, req: UpdateMediaUserRequest, db: Session = Depends(get_db)):
+    """Update media user display name, password, active status, or vendor assignment."""
     from main import hash_password
 
     user = db.query(models.UserAccount).filter(
-        models.UserAccount.id == employee_id,
+        models.UserAccount.id == user_id,
         models.UserAccount.role.in_(["EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER"])
     ).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Employee not found")
+        raise HTTPException(status_code=404, detail="Media user not found")
 
     if req.displayName is not None:
         user.display_name = req.displayName
@@ -85,31 +103,57 @@ def update_employee(employee_id: int, req: UpdateEmployeeRequest, db: Session = 
         user.password_hash = hash_password(req.password)
     if req.isActive is not None:
         user.is_active = req.isActive
+    if req.vendorId is not None:
+        user.vendor_id = None if req.vendorId == -1 else req.vendorId
 
     db.commit()
     db.refresh(user)
-    log_activity(db, "Admin updated employee", "user", user.id, user.email)
-    return employee_to_dict(user)
+    log_activity(db, "Admin updated media user", "user", user.id, user.email)
+    return media_user_to_dict(user, db)
 
 
-@router.delete("/employees/{employee_id}")
-def delete_employee(employee_id: int, db: Session = Depends(get_db)):
-    """Delete an employee account."""
+@router.delete("/media-users/{user_id}")
+def delete_media_user(user_id: int, db: Session = Depends(get_db)):
+    """Delete a media user account."""
     user = db.query(models.UserAccount).filter(
-        models.UserAccount.id == employee_id,
+        models.UserAccount.id == user_id,
         models.UserAccount.role.in_(["EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER"])
     ).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Employee not found")
+        raise HTTPException(status_code=404, detail="Media user not found")
     email = user.email
     db.delete(user)
     db.commit()
-    log_activity(db, "Admin deleted employee", "user", employee_id, email)
-    return {"message": "Employee deleted"}
+    log_activity(db, "Admin deleted media user", "user", user_id, email)
+    return {"message": "Media user deleted"}
 
+
+# --- Legacy aliases (backward compat during transition) ---
+
+@router.get("/employees")
+def list_employees_alias(db: Session = Depends(get_db)):
+    return list_media_users(db)
+
+
+@router.post("/employees")
+def create_employee_alias(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
+    return create_media_user(req, db)
+
+
+@router.put("/employees/{user_id}")
+def update_employee_alias(user_id: int, req: UpdateMediaUserRequest, db: Session = Depends(get_db)):
+    return update_media_user(user_id, req, db)
+
+
+@router.delete("/employees/{user_id}")
+def delete_employee_alias(user_id: int, db: Session = Depends(get_db)):
+    return delete_media_user(user_id, db)
+
+
+# --- Admin account creation ---
 
 @router.post("/create-admin")
-def create_admin(req: CreateEmployeeRequest, db: Session = Depends(get_db)):
+def create_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
     """Create an ADMIN account (for initial setup)."""
     from main import hash_password
 
@@ -130,4 +174,4 @@ def create_admin(req: CreateEmployeeRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
     log_activity(db, "Created admin account", "user", user.id, req.email)
-    return employee_to_dict(user)
+    return media_user_to_dict(user, db)

@@ -37,12 +37,39 @@ def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = De
 
     # Advertisers
     total_advertisers = db.query(models.Advertiser).count()
+    active_advertisers = db.query(models.Advertiser).filter(models.Advertiser.status == "ACTIVE").count()
 
     # Revenue
     total_booked_value = db.query(func.sum(models.CampaignSiteAssignment.agreed_cost)).scalar() or 0
 
     # Pending audits
     pending_audits = db.query(models.SiteAudit).filter(models.SiteAudit.status == "PENDING").count()
+
+    # Media Users
+    total_media_users = db.query(models.UserAccount).filter(
+        models.UserAccount.role.in_(["EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER"])
+    ).count()
+    unassigned_media_users = db.query(models.UserAccount).filter(
+        models.UserAccount.role.in_(["EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER"]),
+        models.UserAccount.vendor_id == None
+    ).count()
+
+    # Inventory without vendor
+    inventory_without_vendor = db.query(models.Site).filter(
+        models.Site.owner_company_id == None
+    ).count()
+
+    # Vendors with no inventory
+    from sqlalchemy import not_, exists
+    vendors_with_no_inventory = db.query(models.Company).filter(
+        ~exists().where(models.Site.owner_company_id == models.Company.id)
+    ).count()
+
+    # Inventory added this month
+    first_of_month = datetime.date.today().replace(day=1)
+    inventory_this_month = db.query(models.Site).filter(
+        models.Site.created_at >= first_of_month
+    ).count()
 
     return {
         "totalVendors": total_vendors,
@@ -55,8 +82,14 @@ def get_dashboard_summary(ownerCompanyId: Optional[int] = None, db: Session = De
         "upcomingCampaigns": upcoming_campaigns,
         "endingSoon": ending_soon,
         "totalAdvertisers": total_advertisers,
+        "activeAdvertisers": active_advertisers,
         "totalBookedValue": float(total_booked_value),
         "pendingAudits": pending_audits,
+        "totalMediaUsers": total_media_users,
+        "unassignedMediaUsers": unassigned_media_users,
+        "inventoryWithoutVendor": inventory_without_vendor,
+        "vendorsWithNoInventory": vendors_with_no_inventory,
+        "inventoryThisMonth": inventory_this_month,
     }
 
 
