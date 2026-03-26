@@ -186,6 +186,16 @@ def temp_update_email(old_email: str, new_email: str, db: Session = Depends(get_
     db.commit()
     return {"success": True, "message": f"Email updated from {old_email} to {new_email}"}
 
+# --- TEMP: One-time password reset utility (DELETE AFTER USE) ---
+@app.put("/api/temp/reset-password")
+def temp_reset_password(email: str, new_password: str, db: Session = Depends(get_db)):
+    user = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = hash_password(new_password)
+    db.commit()
+    return {"success": True, "message": f"Password updated for {email}"}
+
 # --- Auth ---
 @app.post("/api/auth/login", response_model=LoginResponse)
 @app.post("/api/mobile/login", response_model=LoginResponse)
