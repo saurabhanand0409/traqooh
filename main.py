@@ -176,6 +176,16 @@ def health_check():
 def read_root():
     return {"message": "Welcome to the TraqOOH API v2.0!"}
 
+# --- TEMP: One-time email update utility (DELETE AFTER USE) ---
+@app.put("/api/temp/update-email")
+def temp_update_email(old_email: str, new_email: str, db: Session = Depends(get_db)):
+    user = db.query(models.UserAccount).filter(models.UserAccount.email == old_email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.email = new_email
+    db.commit()
+    return {"success": True, "message": f"Email updated from {old_email} to {new_email}"}
+
 # --- Auth ---
 @app.post("/api/auth/login", response_model=LoginResponse)
 @app.post("/api/mobile/login", response_model=LoginResponse)
