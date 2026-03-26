@@ -182,6 +182,17 @@ def temp_list_users(db: Session = Depends(get_db)):
     users = db.query(models.UserAccount).all()
     return [{"id": u.id, "email": u.email, "role": u.role} for u in users]
 
+# --- TEMP: Fix admin by ID — clean email + reset password (DELETE AFTER USE) ---
+@app.put("/api/temp/fix-admin")
+def temp_fix_admin(user_id: int, new_email: str, new_password: str, db: Session = Depends(get_db)):
+    user = db.query(models.UserAccount).filter(models.UserAccount.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.email = new_email.strip()
+    user.password_hash = hash_password(new_password)
+    db.commit()
+    return {"success": True, "email": user.email, "role": user.role}
+
 # --- TEMP: One-time email update utility (DELETE AFTER USE) ---
 @app.put("/api/temp/update-email")
 def temp_update_email(old_email: str, new_email: str, db: Session = Depends(get_db)):
