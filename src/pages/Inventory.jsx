@@ -37,12 +37,16 @@ export default function Inventory() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   
-  const [owners, setOwners] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [owners, setOwners] = useState([]); // kept for legacy compat
   const [currentOwnerId, setCurrentOwnerId] = useState(user.companyId || null);
+  const isAdmin = user.role === "ADMIN";
 
   const emptyForm = {
-    name: "", city: "", type: "Billboard", size: "", width: 0, length: 0, 
-    facing: "", status: "Active", potentialMonthly: "1.0", imageUrl: "", ownerCompanyId: user.companyId || ""
+    name: "", city: "", type: "Billboard", size: "", width: 0, length: 0,
+    facing: "", status: "Active", potentialMonthly: "1.0", imageUrl: "",
+    ownerCompanyId: user.companyId || "", vendorId: user.companyId || "",
+    addedByUserId: user.userId || ""
   };
   const [form, setForm] = useState(emptyForm);
   const [uploading, setUploading] = useState(false);
@@ -78,13 +82,13 @@ export default function Inventory() {
     fetchSites();
   }, [currentOwnerId]);
 
-  // Fetch Owners
+  // Fetch vendors list for dropdown
   useEffect(() => {
-    fetch(`${API_BASE}/api/media-owners/all`)
+    fetch(`${API_BASE}/api/vendors`)
       .then(r => r.ok && r.json())
-      .then(data => data && setOwners(data))
+      .then(data => data && setVendors(data))
       .catch(() => {});
-    if (user.companyId) setCurrentOwnerId(user.companyId);
+    if (user.companyId && !isAdmin) setCurrentOwnerId(user.companyId);
   }, [user.companyId]);
 
   // Filters Options
@@ -132,13 +136,15 @@ export default function Inventory() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { 
-        ...form, 
+      const payload = {
+        ...form,
         potentialMonthly: Number.parseFloat(form.potentialMonthly) || 0,
         width: Number(form.width) || 0,
         length: Number(form.length) || 0,
         totalArea: (Number(form.width) || 0) * (Number(form.length) || 0),
-        ownerCompanyId: form.ownerCompanyId ? Number(form.ownerCompanyId) : null
+        vendorId: form.vendorId ? Number(form.vendorId) : null,
+        ownerCompanyId: form.vendorId ? Number(form.vendorId) : (form.ownerCompanyId ? Number(form.ownerCompanyId) : null),
+        addedByUserId: user.userId || null,
       };
       const res = await fetch(`${API_BASE}/api/sites`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
@@ -157,13 +163,14 @@ export default function Inventory() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { 
-        ...editSite, 
+      const payload = {
+        ...editSite,
         potentialMonthly: Number.parseFloat(editSite.potentialMonthly) || 0,
         width: Number(editSite.width) || 0,
         length: Number(editSite.length) || 0,
         totalArea: (Number(editSite.width) || 0) * (Number(editSite.length) || 0),
-        ownerCompanyId: editSite.ownerCompanyId !== "" ? Number(editSite.ownerCompanyId) : null
+        vendorId: editSite.vendorId ? Number(editSite.vendorId) : null,
+        ownerCompanyId: editSite.vendorId ? Number(editSite.vendorId) : (editSite.ownerCompanyId !== "" ? Number(editSite.ownerCompanyId) : null),
       };
       const res = await fetch(`${API_BASE}/api/sites/${editSite.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
@@ -182,7 +189,8 @@ export default function Inventory() {
         id: site.id, name: site.name || "", city: site.city || "", type: site.type || "Billboard",
         size: site.size || "", width: site.width || 0, length: site.length || 0, facing: site.facing || "",
         status: site.status || "Active", potentialMonthly: String(site.potentialMonthly || site.potential || "0"),
-        occupancy: site.occupancy || 0, imageUrl: site.imageUrl || "", ownerCompanyId: site.ownerCompanyId || ""
+        occupancy: site.occupancy || 0, imageUrl: site.imageUrl || "",
+        ownerCompanyId: site.ownerCompanyId || "", vendorId: site.vendorId || site.ownerCompanyId || "",
      });
      setShowEdit(true);
   };
@@ -232,9 +240,14 @@ export default function Inventory() {
             <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Inventory Management</h1>
             <p className="text-gray-500 mt-1 font-medium">Manage sites, check availability, edit features and rates.</p>
           </div>
-          <button onClick={() => { setForm(emptyForm); setShowAdd(true); }} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-5 py-2.5 text-sm font-semibold shadow-sm hover:bg-blue-700 hover:shadow-md transition">
-            <Plus className="w-5 h-5"/> Add New Site
-          </button>
+          {!isAdmin && (
+            <button onClick={() => { setForm(emptyForm); setShowAdd(true); }} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-5 py-2.5 text-sm font-semibold shadow-sm hover:bg-blue-700 hover:shadow-md transition">
+              <Plus className="w-5 h-5"/> Add New Site
+            </button>
+          )}
+          {isAdmin && (
+            <span className="text-xs text-gray-400 border rounded-lg px-4 py-2.5 bg-gray-50">👁 View Only Mode</span>
+          )}
         </div>
 
         {/* Dashboard Analytics Widgets */}
@@ -284,15 +297,15 @@ export default function Inventory() {
                   <th className="px-6 py-4 font-semibold">Site Detail</th>
                   <th className="px-6 py-4 font-semibold">Location</th>
                   <th className="px-6 py-4 font-semibold">Type & Size</th>
+                  <th className="px-6 py-4 font-semibold">Vendor</th>
                   <th className="px-6 py-4 font-semibold text-center">Status</th>
-                  <th className="px-6 py-4 font-semibold">Schedule Info</th>
                   <th className="px-6 py-4 font-semibold text-right">Potential Rate</th>
                   <th className="px-6 py-4 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {loading && <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500 font-medium">Loading inventory...</td></tr>}
-                {!loading && filteredSites.length === 0 && <tr><td colSpan="7" className="px-6 py-12 text-center text-gray-500"><div className="flex justify-center mb-3"><MapPin className="w-10 h-10 text-gray-300"/></div>No inventory matches your search.</td></tr>}
+                {!loading && filteredSites.length === 0 && <tr><td colSpan="8" className="px-6 py-12 text-center text-gray-500"><div className="flex justify-center mb-3"><MapPin className="w-10 h-10 text-gray-300"/></div>No inventory matches your search.</td></tr>}
                 
                 {filteredSites.map((site) => (
                   <tr key={site.id} className="hover:bg-blue-50/50 transition-colors group">
@@ -332,6 +345,11 @@ export default function Inventory() {
                       <div className="inline-flex px-2 py-0.5 rounded-md text-xs font-semibold bg-gray-100 text-gray-700">{site.type}</div>
                       <div className="text-xs text-gray-500 mt-1">{site.width}x{site.length} ft</div>
                     </td>
+                    <td className="px-6 py-4">
+                      {site.owner?.name
+                        ? <span className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">{site.owner.name}</span>
+                        : <span className="text-xs text-gray-400">—</span>}
+                    </td>
                     <td className="px-6 py-4 text-center">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${site.statusColor}`}>
                         <div className={`w-1.5 h-1.5 rounded-full ${site.computedStatus === "Booked" ? "bg-red-500" : "bg-green-500"}`}></div>
@@ -353,9 +371,11 @@ export default function Inventory() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-blue-600 hover:bg-blue-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Edit Site">
-                          <Edit className="w-4 h-4"/>
-                        </button>
+                        {!isAdmin && (
+                          <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-blue-600 hover:bg-blue-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Edit Site">
+                            <Edit className="w-4 h-4"/>
+                          </button>
+                        )}
                         <button onClick={() => openDetails(site)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 transition py-1.5 px-3 border border-transparent hover:border-blue-200 hover:bg-blue-50 rounded-lg" title="View Details">
                           Details <ChevronRight className="w-4 h-4"/>
                         </button>
@@ -551,12 +571,15 @@ export default function Inventory() {
                    </div>
                 </div>
 
-                {/* Additional ownership context */}
+                {/* Assigned Vendor */}
                 <div className="pt-2">
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Assigned Media Owner</label>
-                  <select value={showEdit ? editSite.ownerCompanyId : form.ownerCompanyId} onChange={e=> showEdit ? setEditSite({...editSite, ownerCompanyId:e.target.value}) : setForm({...form, ownerCompanyId:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
-                    <option value="">No Owner assigned</option>
-                    {owners.map(o => <option key={o.companyId} value={o.companyId}>{o.companyName}</option>)}
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Assigned Vendor</label>
+                  <select
+                    value={showEdit ? (editSite.vendorId || "") : (form.vendorId || "")}
+                    onChange={e => showEdit ? setEditSite({...editSite, vendorId: e.target.value, ownerCompanyId: e.target.value}) : setForm({...form, vendorId: e.target.value, ownerCompanyId: e.target.value})}
+                    className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
+                    <option value="">No Vendor Assigned</option>
+                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}{v.city ? ` — ${v.city}` : ""}</option>)}
                   </select>
                 </div>
 

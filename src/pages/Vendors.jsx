@@ -31,6 +31,15 @@ export default function Vendors() {
     if (res.ok) { setShowModal(false); setEditing(null); fetchVendors(); }
   };
 
+  const handleDelete = async (v) => {
+    const msg = `Delete vendor "${v.name}"?\n\n` +
+      `This will unlink:\n• ${v.mediaUserCount || 0} media user(s)\n• ${v.siteCount || 0} inventory site(s)\n\nThey will not be deleted — their vendor assignment will be cleared.`;
+    if (!confirm(msg)) return;
+    const res = await fetch(`${API}/api/vendors/${v.id}`, { method: "DELETE" });
+    if (res.ok) fetchVendors();
+    else alert("Failed to delete vendor");
+  };
+
   const openEdit = (v) => {
     setEditing(v);
     setForm({ name:v.name, contactPerson:v.contactPerson||"", phone:v.phone||"", email:v.email||"", gstNumber:v.gstNumber||"", address:v.address||"", city:v.city||"", state:v.state||"", notes:v.notes||"", status:v.status||"ACTIVE" });
@@ -77,8 +86,8 @@ export default function Vendors() {
                   <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">City</th>
-                  <th className="px-4 py-3">GST</th>
-                  <th className="px-4 py-3">Sites</th>
+                  <th className="px-4 py-3 text-center">Media Users</th>
+                  <th className="px-4 py-3 text-center">Sites</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
@@ -89,10 +98,13 @@ export default function Vendors() {
                     <td className="px-4 py-3 font-medium">{v.name}</td>
                     <td className="px-4 py-3 text-gray-500">{v.contactPerson || "—"}<br/><span className="text-xs">{v.phone||""}</span></td>
                     <td className="px-4 py-3">{v.city || "—"}</td>
-                    <td className="px-4 py-3 text-xs font-mono">{v.gstNumber || "—"}</td>
-                    <td className="px-4 py-3"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{v.siteCount}</span></td>
+                    <td className="px-4 py-3 text-center"><span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{v.mediaUserCount ?? 0}</span></td>
+                    <td className="px-4 py-3 text-center"><span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-xs font-semibold">{v.siteCount ?? 0}</span></td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${v.status==="ACTIVE"?"bg-green-100 text-green-700":"bg-gray-200 text-gray-600"}`}>{v.status}</span></td>
-                    <td className="px-4 py-3"><button onClick={()=>openEdit(v)} className="text-blue-600 hover:underline text-xs mr-2">Edit</button><Link to={`/inventory?vendorId=${v.id}`} className="text-gray-500 hover:underline text-xs">Sites →</Link></td>
+                    <td className="px-4 py-3 flex gap-3">
+                      <button onClick={()=>openEdit(v)} className="text-blue-600 hover:underline text-xs">Edit</button>
+                      <button onClick={()=>handleDelete(v)} className="text-red-500 hover:underline text-xs">Delete</button>
+                    </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && <tr><td colSpan={7} className="text-center py-8 text-gray-400">No vendors found</td></tr>}
