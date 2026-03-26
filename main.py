@@ -176,6 +176,12 @@ def health_check():
 def read_root():
     return {"message": "Welcome to the TraqOOH API v2.0!"}
 
+# --- TEMP: List all users (DELETE AFTER USE) ---
+@app.get("/api/temp/list-users")
+def temp_list_users(db: Session = Depends(get_db)):
+    users = db.query(models.UserAccount).all()
+    return [{"id": u.id, "email": u.email, "role": u.role} for u in users]
+
 # --- TEMP: One-time email update utility (DELETE AFTER USE) ---
 @app.put("/api/temp/update-email")
 def temp_update_email(old_email: str, new_email: str, db: Session = Depends(get_db)):
