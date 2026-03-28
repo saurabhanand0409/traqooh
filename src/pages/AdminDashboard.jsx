@@ -134,9 +134,7 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteVendor = async (v) => {
-    const msg = `Delete vendor "${v.name}"?\n\n` +
-      `This will unlink:\n• ${v.mediaUserCount || 0} media user(s)\n• ${v.siteCount || 0} inventory site(s)\n\nThey will not be deleted — their vendor assignment will be cleared.`;
-    if (!confirm(msg)) return;
+    if (!confirm(`Delete vendor "${v.name}"? This cannot be undone.`)) return;
     const res = await fetch(`${API}/api/vendors/${v.id}`, { method: "DELETE" });
     if (res.ok) fetchAll();
     else alert("Failed to delete vendor");
