@@ -91,6 +91,18 @@ def update_advertiser(adv_id: int, req: AdvertiserCreate, db: Session = Depends(
     return adv_to_dict(a)
 
 
+@router.delete("/{adv_id}")
+def delete_advertiser(adv_id: int, db: Session = Depends(get_db)):
+    a = db.query(models.Advertiser).filter(models.Advertiser.id == adv_id).first()
+    if not a:
+        raise HTTPException(404, "Advertiser not found")
+    name = a.company_name
+    db.delete(a)
+    db.commit()
+    log_activity(db, f"Deleted advertiser '{name}'", "advertiser", adv_id)
+    return {"message": f"Advertiser '{name}' deleted"}
+
+
 @router.post("/create-login")
 def create_advertiser_login(req: AdvertiserLoginCreate, db: Session = Depends(get_db)):
     """Create a login account for an advertiser."""
