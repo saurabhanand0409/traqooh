@@ -102,39 +102,38 @@ def update_vendor(vendor_id: int, req: VendorCreate, db: Session = Depends(get_d
 
 @router.delete("/{vendor_id}")
 def delete_vendor(vendor_id: int, db: Session = Depends(get_db)):
-    """Delete a vendor. Safely unlinks media users and inventory (sets their vendor reference to NULL)."""
+    """Delete a vendor. Unlinks media users and inventory, removes GST registrations, then deletes."""
     v = db.query(models.Company).filter(models.Company.id == vendor_id).first()
     if not v:
         raise HTTPException(404, "Vendor not found")
 
     vendor_name = v.name
 
-    # Count linked records before unlinking
-    media_user_count = db.query(models.UserAccount).filter(
-        models.UserAccount.vendor_id == vendor_id
-    ).count()
-    site_count = db.query(models.Site).filter(
-        models.Site.owner_company_id == vendor_id
-    ).count()
-
-    # Safely unlink media users
+    # Unlink media users
     db.query(models.UserAccount).filter(
         models.UserAccount.vendor_id == vendor_id
     ).update({"vendor_id": None}, synchronize_session=False)
 
-    # Safely unlink inventory
+    # Unlink inventory sites
     db.query(models.Site).filter(
         models.Site.owner_company_id == vendor_id
     ).update({"owner_company_id": None}, synchronize_session=False)
 
+    # Remove GST registrations (and their contacts) linked to this company
+    gst_records = db.query(models.GstRegistration).filter(
+        models.GstRegistration.company_id == vendor_id
+    ).all()
+    for gst in gst_records:
+        db.query(models.Contact).filter(
+            models.Contact.gst_registration_id == gst.id
+        ).delete(synchronize_session=False)
+        db.delete(gst)
+
+    db.flush()
     db.delete(v)
     db.commit()
-    log_activity(db, f"Deleted vendor '{vendor_name}' (unlinked {media_user_count} media users, {site_count} sites)", "vendor", vendor_id)
-    return {
-        "message": f"Vendor '{vendor_name}' deleted successfully",
-        "unlinkedMediaUsers": media_user_count,
-        "unlinkedSites": site_count,
-    }
+    log_activity(db, f"Deleted vendor '{vendor_name}'", "vendor", vendor_id)
+    return {"message": f"Vendor '{vendor_name}' deleted successfully"}
 
 
 @router.get("/{vendor_id}/sites")
