@@ -400,12 +400,12 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ==================== INVENTORY TAB (READ-ONLY) ==================== */}
+        {/* ==================== INVENTORY TAB ==================== */}
         {activeTab === "inventory" && (
           <div className="space-y-4">
             <div>
               <h2 className="text-xl font-bold">Inventory</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Read-only monitoring view. Inventory is managed by media users.</p>
+              <p className="text-xs text-gray-500 mt-0.5">View and manage all inventory across vendors and media users.</p>
             </div>
 
             <div className="flex items-center gap-2 bg-white rounded-xl border px-3 py-2 shadow-sm">
@@ -423,6 +423,7 @@ export default function AdminDashboard() {
                     <th className="px-4 py-3">Assigned Vendor</th>
                     <th className="px-4 py-3">Availability</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -446,10 +447,17 @@ export default function AdminDashboard() {
                       <td className="px-4 py-3">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${s.status === "Active" ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-600"}`}>{s.status}</span>
                       </td>
+                      <td className="px-4 py-3">
+                        <button onClick={async () => {
+                          if (!confirm(`Delete "${s.name}"? This cannot be undone.`)) return;
+                          const res = await fetch(`${API}/api/sites/${s.id}`, { method: "DELETE" });
+                          if (res.ok) fetchAll();
+                        }} className="text-red-500 text-xs hover:underline">Delete</button>
+                      </td>
                     </tr>
                   ))}
                   {filteredInv.length === 0 && (
-                    <tr><td colSpan={6} className="text-center py-8 text-gray-400">No inventory found</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8 text-gray-400">No inventory found</td></tr>
                   )}
                 </tbody>
               </table>
