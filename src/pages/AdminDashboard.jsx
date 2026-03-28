@@ -41,11 +41,18 @@ export default function AdminDashboard() {
   const [vendorForm, setVendorForm] = useState({ name: "", contactPerson: "", phone: "", email: "", gstNumber: "", address: "", city: "", state: "", notes: "", status: "ACTIVE" });
   const [vendorErr, setVendorErr] = useState("");
 
+  // Advertiser modal state
+  const [showAdvModal, setShowAdvModal] = useState(false);
+  const [editAdv, setEditAdv] = useState(null);
+  const [advForm, setAdvForm] = useState({ companyName: "", contactPerson: "", email: "", phone: "", billingAddress: "", gstNumber: "", notes: "", status: "ACTIVE" });
+  const [advErr, setAdvErr] = useState("");
+
   // Search/filter state
   const [muSearch, setMUSearch] = useState("");
   const [vendorSearch, setVendorSearch] = useState("");
   const [invSearch, setInvSearch] = useState("");
   const [campSearch, setCampSearch] = useState("");
+  const [advSearch, setAdvSearch] = useState("");
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -140,6 +147,39 @@ export default function AdminDashboard() {
     else alert("Failed to delete vendor");
   };
 
+  // ---- Advertiser CRUD ----
+  const openCreateAdv = () => {
+    setEditAdv(null);
+    setAdvForm({ companyName: "", contactPerson: "", email: "", phone: "", billingAddress: "", gstNumber: "", notes: "", status: "ACTIVE" });
+    setAdvErr("");
+    setShowAdvModal(true);
+  };
+
+  const openEditAdv = (a) => {
+    setEditAdv(a);
+    setAdvForm({ companyName: a.companyName || "", contactPerson: a.contactPerson || "", email: a.email || "", phone: a.phone || "", billingAddress: a.billingAddress || "", gstNumber: a.gstNumber || "", notes: a.notes || "", status: a.status || "ACTIVE" });
+    setAdvErr("");
+    setShowAdvModal(true);
+  };
+
+  const handleSaveAdv = async (e) => {
+    e.preventDefault();
+    setAdvErr("");
+    if (!advForm.companyName) return setAdvErr("Company name is required.");
+    const isCreate = !editAdv;
+    const url = isCreate ? `${API}/api/advertisers` : `${API}/api/advertisers/${editAdv.id}`;
+    const res = await fetch(url, { method: isCreate ? "POST" : "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(advForm) });
+    if (res.ok) { setShowAdvModal(false); fetchAll(); }
+    else { const d = await res.json().catch(() => ({})); setAdvErr(d.detail || "Error saving advertiser"); }
+  };
+
+  const handleDeleteAdv = async (a) => {
+    if (!confirm(`Delete advertiser "${a.companyName}"? This cannot be undone.`)) return;
+    const res = await fetch(`${API}/api/advertisers/${a.id}`, { method: "DELETE" });
+    if (res.ok) fetchAll();
+    else alert("Failed to delete advertiser");
+  };
+
   // ---- Filtered lists ----
   const filteredMU = mediaUsers.filter(u =>
     (u.displayName || "").toLowerCase().includes(muSearch.toLowerCase()) ||
@@ -157,6 +197,10 @@ export default function AdminDashboard() {
   const filteredCamp = campaigns.filter(c =>
     (c.name || "").toLowerCase().includes(campSearch.toLowerCase()) ||
     (c.advertiserName || "").toLowerCase().includes(campSearch.toLowerCase())
+  );
+  const filteredAdv = advertisers.filter(a =>
+    (a.companyName || "").toLowerCase().includes(advSearch.toLowerCase()) ||
+    (a.email || "").toLowerCase().includes(advSearch.toLowerCase())
   );
 
   const tabs = [
@@ -465,13 +509,24 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ==================== ADVERTISERS TAB (READ-ONLY) ==================== */}
+        {/* ==================== ADVERTISERS TAB ==================== */}
         {activeTab === "advertisers" && (
           <div className="space-y-4">
-            <div>
-              <h2 className="text-xl font-bold">Advertisers</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Monitoring view. Manage advertisers from the <Link to="/advertisers" className="text-blue-600 hover:underline">Advertisers page</Link>.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold">Advertisers</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Manage all advertiser accounts.</p>
+              </div>
+              <button onClick={openCreateAdv} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 shrink-0">
+                + Add Advertiser
+              </button>
             </div>
+
+            <div className="flex items-center gap-2 bg-white rounded-xl border px-3 py-2 shadow-sm">
+              <span className="text-gray-400">🔍</span>
+              <input value={advSearch} onChange={e => setAdvSearch(e.target.value)} placeholder="Search by company or email..." className="flex-1 outline-none text-sm" />
+            </div>
+
             <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider text-left">
@@ -479,21 +534,32 @@ export default function AdminDashboard() {
                     <th className="px-4 py-3">Company</th>
                     <th className="px-4 py-3">Contact Person</th>
                     <th className="px-4 py-3">Email</th>
+                    <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {advertisers.map(a => (
+                  {filteredAdv.map(a => (
                     <tr key={a.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium">{a.companyName || a.name}</td>
+                      <td className="px-4 py-3 font-medium">{a.companyName}</td>
                       <td className="px-4 py-3 text-gray-500">{a.contactPerson || "—"}</td>
                       <td className="px-4 py-3 text-gray-500">{a.email || "—"}</td>
+                      <td className="px-4 py-3 text-gray-500">{a.phone || "—"}</td>
                       <td className="px-4 py-3">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${a.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-600"}`}>{a.status}</span>
                       </td>
+                      <td className="px-4 py-3 flex gap-3">
+                        <button onClick={() => openEditAdv(a)} className="text-blue-600 text-xs hover:underline">Edit</button>
+                        <button onClick={() => handleDeleteAdv(a)} className="text-red-500 text-xs hover:underline">Delete</button>
+                      </td>
                     </tr>
                   ))}
-                  {advertisers.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-gray-400">No advertisers yet</td></tr>}
+                  {filteredAdv.length === 0 && (
+                    <tr><td colSpan={6} className="text-center py-8 text-gray-400">
+                      {advSearch ? "No advertisers match your search." : "No advertisers yet. Click \"+ Add Advertiser\" to create one."}
+                    </td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -634,6 +700,40 @@ export default function AdminDashboard() {
             <div className="flex gap-3 pt-2">
               <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700">{editVendor ? "Update" : "Create"}</button>
               <button type="button" onClick={() => setShowVendorModal(false)} className="flex-1 border py-2 rounded-lg text-gray-600">Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ==================== ADVERTISER MODAL ==================== */}
+      {showAdvModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <form onSubmit={handleSaveAdv} className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold">{editAdv ? "Edit Advertiser" : "Add Advertiser"}</h2>
+            {advErr && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{advErr}</div>}
+
+            {[["companyName","Company Name *"],["contactPerson","Contact Person"],["email","Email"],["phone","Phone"],["billingAddress","Billing Address"],["gstNumber","GST Number"]].map(([k, l]) => (
+              <div key={k}>
+                <label className="text-xs font-medium text-gray-500 block mb-1">{l}</label>
+                <input value={advForm[k]} onChange={e => setAdvForm({ ...advForm, [k]: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" required={k === "companyName"} />
+              </div>
+            ))}
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1">Notes</label>
+              <textarea value={advForm.notes} onChange={e => setAdvForm({ ...advForm, notes: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" rows={2} />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1">Status</label>
+              <select value={advForm.status} onChange={e => setAdvForm({ ...advForm, status: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm">
+                <option>ACTIVE</option><option>INACTIVE</option>
+              </select>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700">{editAdv ? "Update" : "Create"}</button>
+              <button type="button" onClick={() => setShowAdvModal(false)} className="flex-1 border py-2 rounded-lg text-gray-600">Cancel</button>
             </div>
           </form>
         </div>
