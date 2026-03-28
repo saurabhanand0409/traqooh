@@ -131,6 +131,13 @@ export default function Inventory() {
     }
   };
 
+  // Delete Site
+  const handleDeleteSite = async (site) => {
+    if (!confirm(`Delete "${site.name}"? This cannot be undone.`)) return;
+    await fetch(`${API_BASE}/api/sites/${site.id}`, { method: "DELETE" });
+    window.location.reload();
+  };
+
   // Create Site
   const handleCreateSubmit = async (e) => {
     e.preventDefault();
@@ -372,9 +379,14 @@ export default function Inventory() {
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {!isAdmin && (
-                          <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-blue-600 hover:bg-blue-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Edit Site">
-                            <Edit className="w-4 h-4"/>
-                          </button>
+                          <>
+                            <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-blue-600 hover:bg-blue-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Edit Site">
+                              <Edit className="w-4 h-4"/>
+                            </button>
+                            <button onClick={() => handleDeleteSite(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-red-600 hover:bg-red-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Delete Site">
+                              <X className="w-4 h-4"/>
+                            </button>
+                          </>
                         )}
                         <button onClick={() => openDetails(site)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 transition py-1.5 px-3 border border-transparent hover:border-blue-200 hover:bg-blue-50 rounded-lg" title="View Details">
                           Details <ChevronRight className="w-4 h-4"/>
