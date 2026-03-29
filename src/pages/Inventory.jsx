@@ -249,11 +249,11 @@ export default function Inventory() {
   const handleSiteNameMouseEnter = (e, site) => {
     clearTimeout(hoverTimeoutRef.current);
     const rect = e.currentTarget.getBoundingClientRect();
-    const popupWidth = 320;
+    const popupWidth = 480;
     const leftPos = rect.right + 12;
     const rightOverflow = leftPos + popupWidth - window.innerWidth;
     const finalLeft = rightOverflow > 0 ? rect.left - popupWidth - 12 : leftPos;
-    const finalTop = Math.min(rect.top, window.innerHeight - 440);
+    const finalTop = Math.min(rect.top, window.innerHeight - 560);
     setHoverPopupStyle({ top: finalTop, left: finalLeft });
     setHoverSite(site);
   };
@@ -458,13 +458,13 @@ export default function Inventory() {
       {/* --- HOVER POPUP (desktop) --- */}
       {hoverSite && (
         <div
-          style={{ position: "fixed", top: hoverPopupStyle.top, left: hoverPopupStyle.left, zIndex: 9999, width: 320 }}
+          style={{ position: "fixed", top: hoverPopupStyle.top, left: hoverPopupStyle.left, zIndex: 9999, width: 480 }}
           onMouseEnter={handlePopupMouseEnter}
           onMouseLeave={handlePopupMouseLeave}
           className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
         >
           {/* Image */}
-          <div className="h-44 bg-gray-100 relative">
+          <div className="h-64 bg-gray-100 relative">
             {hoverSite.imageUrl ? (
               <img
                 src={hoverSite.imageUrl}
@@ -489,34 +489,34 @@ export default function Inventory() {
             </span>
           </div>
           {/* Details */}
-          <div className="p-4 space-y-3">
+          <div className="p-5 space-y-4">
             <div>
-              <div className="font-bold text-gray-900 text-base leading-tight">{hoverSite.name}</div>
-              <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                <MapPin className="w-3 h-3 text-blue-400 flex-shrink-0"/>
+              <div className="font-bold text-gray-900 text-lg leading-tight">{hoverSite.name}</div>
+              <div className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                <MapPin className="w-4 h-4 text-blue-400 flex-shrink-0"/>
                 {[hoverSite.state, hoverSite.city, hoverSite.areaLocality].filter(Boolean).join(", ") || "—"}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-gray-50 rounded-lg p-2">
-                <div className="text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Size</div>
-                <div className="font-bold text-gray-800">{hoverSite.width && hoverSite.length ? `${hoverSite.width}×${hoverSite.length} ft` : (hoverSite.size || "—")}</div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-gray-50 rounded-xl p-3">
+                <div className="text-gray-400 font-semibold uppercase tracking-wide text-xs mb-1">Size</div>
+                <div className="font-bold text-gray-800 text-base">{hoverSite.width && hoverSite.length ? `${hoverSite.width}×${hoverSite.length} ft` : (hoverSite.size || "—")}</div>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2">
-                <div className="text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Type</div>
-                <div className="font-bold text-gray-800">{typeLabel(hoverSite.type, hoverSite.lightingType)}</div>
+              <div className="bg-gray-50 rounded-xl p-3">
+                <div className="text-gray-400 font-semibold uppercase tracking-wide text-xs mb-1">Type</div>
+                <div className="font-bold text-gray-800 text-base">{typeLabel(hoverSite.type, hoverSite.lightingType)}</div>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2">
-                <div className="text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Rate</div>
-                <div className="font-bold text-blue-700">₹{hoverSite.potentialMonthly ? Number(hoverSite.potentialMonthly).toLocaleString("en-IN") : "—"}<span className="text-gray-400 font-normal">/mo</span></div>
+              <div className="bg-gray-50 rounded-xl p-3">
+                <div className="text-gray-400 font-semibold uppercase tracking-wide text-xs mb-1">Rate</div>
+                <div className="font-bold text-blue-700 text-base">₹{hoverSite.potentialMonthly ? Number(hoverSite.potentialMonthly).toLocaleString("en-IN") : "—"}<span className="text-gray-400 font-normal text-sm">/mo</span></div>
               </div>
-              <div className="bg-gray-50 rounded-lg p-2">
-                <div className="text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Facing</div>
-                <div className="font-bold text-gray-800">{hoverSite.facing || "—"}</div>
+              <div className="bg-gray-50 rounded-xl p-3">
+                <div className="text-gray-400 font-semibold uppercase tracking-wide text-xs mb-1">Facing</div>
+                <div className="font-bold text-gray-800 text-base">{hoverSite.facing || "—"}</div>
               </div>
             </div>
             {hoverSite.owner?.name && (
-              <div className="text-xs text-blue-700 bg-blue-50 px-2.5 py-1.5 rounded-lg font-medium">
+              <div className="text-sm text-blue-700 bg-blue-50 px-3 py-2 rounded-xl font-medium">
                 Vendor: {hoverSite.owner.name}
               </div>
             )}
