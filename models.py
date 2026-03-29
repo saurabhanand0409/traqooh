@@ -109,6 +109,10 @@ class Site(Base):
     occupied_till = Column(Date, nullable=True)
     current_campaign_id = Column(Integer, ForeignKey("campaigns.id", use_alter=True), nullable=True)
 
+    # Additional attributes
+    state = Column(String, nullable=True)
+    lighting_type = Column(String, nullable=True)  # Lit / Non-Lit
+
     # GPS
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)

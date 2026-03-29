@@ -106,6 +106,8 @@ def site_to_dict(s):
         "occupancy": s.occupancy,
         "imageUrl": s.image_url,
         "remarks": s.remarks,
+        "state": s.state,
+        "lightingType": s.lighting_type,
         "availabilityStatus": s.availability_status,
         "availableFrom": str(s.available_from) if s.available_from else None,
         "availableTill": str(s.available_till) if s.available_till else None,

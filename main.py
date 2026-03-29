@@ -82,6 +82,12 @@ def run_migrations():
             if "added_by_user_id" not in si_cols2:
                 conn.execute(text("ALTER TABLE sites ADD COLUMN added_by_user_id INTEGER"))
                 conn.commit()
+            # Sites phase-2 columns
+            si_cols3 = [c["name"] for c in inspector.get_columns("sites")]
+            for col, typ in [("state", "VARCHAR"), ("lighting_type", "VARCHAR")]:
+                if col not in si_cols3:
+                    conn.execute(text(f"ALTER TABLE sites ADD COLUMN {col} {typ}"))
+                    conn.commit()
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
@@ -169,6 +175,8 @@ class SiteCreate(BaseModel):
     areaLocality: Optional[str] = None
     address: Optional[str] = None
     remarks: Optional[str] = None
+    state: Optional[str] = None
+    lightingType: Optional[str] = None
     availabilityStatus: Optional[str] = "AVAILABLE"
     availableFrom: Optional[str] = None
     availableTill: Optional[str] = None
@@ -347,6 +355,7 @@ def create_site(req: SiteCreate, db: Session = Depends(get_db)):
         image_url=req.imageUrl, owner_company_id=vendor_id,
         added_by_user_id=req.addedByUserId,
         area_locality=req.areaLocality, address=req.address, remarks=req.remarks,
+        state=req.state, lighting_type=req.lightingType,
         availability_status=req.availabilityStatus or "AVAILABLE",
         available_from=date.fromisoformat(req.availableFrom) if req.availableFrom else None,
         available_till=date.fromisoformat(req.availableTill) if req.availableTill else None,
@@ -376,6 +385,7 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     site.owner_company_id = vendor_id
     site.area_locality = req.areaLocality; site.address = req.address
     site.remarks = req.remarks
+    site.state = req.state; site.lighting_type = req.lightingType
     site.availability_status = req.availabilityStatus or site.availability_status
     site.available_from = date.fromisoformat(req.availableFrom) if req.availableFrom else site.available_from
     site.available_till = date.fromisoformat(req.availableTill) if req.availableTill else site.available_till
