@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import UserMenu from "../components/UserMenu";
 import EmployeeNav from "../components/EmployeeNav";
-import { 
-  Search, Filter, Plus, Maximize2, X, Calendar as CalendarIcon, 
+import {
+  Search, Plus, Maximize2, X, Calendar as CalendarIcon,
   MapPin, CheckCircle, XCircle, ChevronRight, Clock, Image as ImageIcon, Target, Edit
 } from "lucide-react";
 
@@ -11,7 +11,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-pytho
 
 export default function Inventory() {
   const user = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem("tq_user") || "{}"); } 
+    try { return JSON.parse(localStorage.getItem("tq_user") || "{}"); }
     catch { return {}; }
   }, []);
 
@@ -19,16 +19,21 @@ export default function Inventory() {
   const [search, setSearch] = useState("");
   const [cityFilter, setCityFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
-  
+
   // Modals state
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editSite, setEditSite] = useState(null);
-  
-  // Details Modal state
+
+  // Details Modal state (for mobile tap)
   const [detailSite, setDetailSite] = useState(null);
   const [siteBookings, setSiteBookings] = useState([]);
   const [loadingBookings, setLoadingBookings] = useState(false);
+
+  // Hover popup state
+  const [hoverSite, setHoverSite] = useState(null);
+  const [hoverPopupStyle, setHoverPopupStyle] = useState({});
+  const hoverTimeoutRef = useRef(null);
 
   // Big Image Modal state
   const [enlargedImage, setEnlargedImage] = useState(null);
@@ -36,15 +41,15 @@ export default function Inventory() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  
+
   const [vendors, setVendors] = useState([]);
-  const [owners, setOwners] = useState([]); // kept for legacy compat
   const [currentOwnerId, setCurrentOwnerId] = useState(user.companyId || null);
   const isAdmin = user.role === "ADMIN";
 
   const emptyForm = {
-    name: "", city: "", type: "Billboard", size: "", width: 0, length: 0,
-    facing: "", status: "Active", potentialMonthly: "1.0", imageUrl: "",
+    name: "", city: "", state: "", type: "Billboard", lightingType: "Lit",
+    size: "", width: 0, length: 0,
+    facing: "", status: "Active", potentialMonthly: "", imageUrl: "",
     ownerCompanyId: user.companyId || "", vendorId: user.companyId || "",
     addedByUserId: user.userId || ""
   };
@@ -62,7 +67,7 @@ export default function Inventory() {
         const res = await fetch(url);
         if (!res.ok) throw new Error("Failed to load sites");
         const data = await res.json();
-        
+
         // Compute 3-tier status
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -112,7 +117,7 @@ export default function Inventory() {
 
   // Apply Search & Filters
   const filteredSites = sites.filter(s => {
-    const matchesSearch = (s.name || "").toLowerCase().includes(search.toLowerCase()) || 
+    const matchesSearch = (s.name || "").toLowerCase().includes(search.toLowerCase()) ||
                           (s.city || "").toLowerCase().includes(search.toLowerCase());
     const matchesCity = cityFilter === "All" || s.city === cityFilter;
     const matchesStatus = statusFilter === "All" || s.computedStatus === statusFilter;
@@ -168,12 +173,14 @@ export default function Inventory() {
         vendorId: form.vendorId ? Number(form.vendorId) : null,
         ownerCompanyId: form.vendorId ? Number(form.vendorId) : (form.ownerCompanyId ? Number(form.ownerCompanyId) : null),
         addedByUserId: user.userId || null,
+        state: form.state || null,
+        lightingType: form.lightingType || null,
       };
       const res = await fetch(`${API_BASE}/api/sites`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to save site");
-      window.location.reload(); 
+      window.location.reload();
     } catch (err) {
       alert(err.message);
     } finally {
@@ -194,6 +201,8 @@ export default function Inventory() {
         totalArea: (Number(editSite.width) || 0) * (Number(editSite.length) || 0),
         vendorId: editSite.vendorId ? Number(editSite.vendorId) : null,
         ownerCompanyId: editSite.vendorId ? Number(editSite.vendorId) : (editSite.ownerCompanyId !== "" ? Number(editSite.ownerCompanyId) : null),
+        state: editSite.state || null,
+        lightingType: editSite.lightingType || null,
       };
       const res = await fetch(`${API_BASE}/api/sites/${editSite.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
@@ -209,16 +218,17 @@ export default function Inventory() {
 
   const openEditModal = (site) => {
      setEditSite({
-        id: site.id, name: site.name || "", city: site.city || "", type: site.type || "Billboard",
+        id: site.id, name: site.name || "", city: site.city || "", state: site.state || "",
+        type: site.type || "Billboard", lightingType: site.lightingType || "Lit",
         size: site.size || "", width: site.width || 0, length: site.length || 0, facing: site.facing || "",
-        status: site.status || "Active", potentialMonthly: String(site.potentialMonthly || site.potential || "0"),
+        status: site.status || "Active", potentialMonthly: String(site.potentialMonthly || ""),
         occupancy: site.occupancy || 0, imageUrl: site.imageUrl || "",
         ownerCompanyId: site.ownerCompanyId || "", vendorId: site.vendorId || site.ownerCompanyId || "",
      });
      setShowEdit(true);
   };
 
-  // View Details & Fetch Bookings
+  // View Details & Fetch Bookings (mobile / manual trigger)
   const openDetails = async (site) => {
     setDetailSite(site);
     setSiteBookings([]);
@@ -233,6 +243,37 @@ export default function Inventory() {
       console.error(err);
     }
     setLoadingBookings(false);
+  };
+
+  // Hover popup handlers
+  const handleSiteNameMouseEnter = (e, site) => {
+    clearTimeout(hoverTimeoutRef.current);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const popupWidth = 320;
+    const leftPos = rect.right + 12;
+    const rightOverflow = leftPos + popupWidth - window.innerWidth;
+    const finalLeft = rightOverflow > 0 ? rect.left - popupWidth - 12 : leftPos;
+    const finalTop = Math.min(rect.top, window.innerHeight - 440);
+    setHoverPopupStyle({ top: finalTop, left: finalLeft });
+    setHoverSite(site);
+  };
+
+  const handleSiteNameMouseLeave = () => {
+    hoverTimeoutRef.current = setTimeout(() => setHoverSite(null), 120);
+  };
+
+  const handlePopupMouseEnter = () => {
+    clearTimeout(hoverTimeoutRef.current);
+  };
+
+  const handlePopupMouseLeave = () => {
+    hoverTimeoutRef.current = setTimeout(() => setHoverSite(null), 120);
+  };
+
+  // Type display helper: "Billboard (Lit)"
+  const typeLabel = (type, lightingType) => {
+    if (!lightingType) return type;
+    return `${type} (${lightingType})`;
   };
 
   return (
@@ -257,7 +298,7 @@ export default function Inventory() {
 
       {/* Main Content */}
       <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        
+
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Inventory Management</h1>
@@ -340,40 +381,35 @@ export default function Inventory() {
 
                     {/* Col 1: State / City */}
                     <td className="px-5 py-3 border border-gray-200 whitespace-nowrap">
+                      {site.state && <div className="text-xs text-gray-400 font-medium mb-0.5">{site.state}</div>}
                       <div className="font-semibold text-gray-800 text-sm">{site.city}</div>
                       <div className="text-xs text-gray-400 mt-0.5">{site.areaLocality || site.address || "—"}</div>
                     </td>
 
-                    {/* Col 2: Site Name + Photo */}
+                    {/* Col 2: Site Name + Photo (hover for popup, tap for modal on mobile) */}
                     <td className="px-5 py-3 border border-gray-200">
                       <div className="flex items-center gap-3">
-                        <div className="relative group/preview w-14 h-14 rounded-lg border border-gray-200 bg-gray-100 overflow-hidden flex-shrink-0 cursor-pointer" onClick={() => site.imageUrl && setEnlargedImage(site.imageUrl)}>
+                        <div className="w-14 h-14 rounded-lg border border-gray-200 bg-gray-100 overflow-hidden flex-shrink-0">
                           {site.imageUrl
                             ? <img src={site.imageUrl} className="w-full h-full object-cover" alt={site.name} />
-                            : <ImageIcon className="w-5 h-5 text-gray-400 absolute inset-0 m-auto" />}
-                          {site.imageUrl && (
-                            <div className="absolute top-1/2 left-[60px] -translate-y-1/2 hidden group-hover/preview:block z-50">
-                              <div className="bg-white p-2 rounded-xl shadow-2xl border border-gray-100 relative">
-                                <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-l border-b border-gray-100 rotate-45"></div>
-                                <img src={site.imageUrl} className="w-56 h-40 object-cover rounded-lg" alt="Preview" />
-                                <div className="absolute bottom-3 right-3 bg-black/60 text-white p-1.5 rounded-lg cursor-pointer flex items-center gap-1 text-xs font-semibold" onClick={(e) => { e.stopPropagation(); setEnlargedImage(site.imageUrl); }}>
-                                  <Maximize2 className="w-3 h-3" /> Enlarge
-                                </div>
-                              </div>
-                            </div>
-                          )}
+                            : <ImageIcon className="w-5 h-5 text-gray-400 m-auto mt-4" />}
                         </div>
-                        <div>
-                          <div className="font-bold text-gray-900 group-hover:text-blue-700 transition leading-tight">{site.name}</div>
+                        <div
+                          className="cursor-pointer"
+                          onMouseEnter={(e) => handleSiteNameMouseEnter(e, site)}
+                          onMouseLeave={handleSiteNameMouseLeave}
+                          onClick={() => { if (window.innerWidth < 768) openDetails(site); }}
+                        >
+                          <div className="font-bold text-gray-900 group-hover:text-blue-700 transition leading-tight hover:underline decoration-dotted underline-offset-2">{site.name}</div>
                           <div className="text-xs text-gray-400 mt-0.5">ID: {site.id}</div>
                         </div>
                       </div>
                     </td>
 
-                    {/* Col 3: Type & Size */}
+                    {/* Col 3: Type & Size — Size prominent on top, Type with lighting below */}
                     <td className="px-5 py-3 border border-gray-200 whitespace-nowrap">
-                      <span className="inline-flex px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-700">{site.type}</span>
-                      <div className="text-xs text-gray-400 mt-1">{site.width}×{site.length} ft</div>
+                      <div className="font-bold text-gray-800 text-sm">{site.width && site.length ? `${site.width}×${site.length} ft` : (site.size || "—")}</div>
+                      <span className="inline-flex mt-1 px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-600">{typeLabel(site.type, site.lightingType)}</span>
                     </td>
 
                     {/* Col 4: Vendor */}
@@ -393,7 +429,7 @@ export default function Inventory() {
 
                     {/* Col 6: Rate per Month */}
                     <td className="px-5 py-3 border border-gray-200 text-right font-bold text-gray-900 whitespace-nowrap">
-                      ₹{site.potentialMonthly ? Number(site.potentialMonthly).toLocaleString("en-IN") : "0"}<span className="text-xs font-normal text-gray-400 ml-0.5">/mo</span>
+                      ₹{site.potentialMonthly ? Number(site.potentialMonthly).toLocaleString("en-IN") : "—"}<span className="text-xs font-normal text-gray-400 ml-0.5">/mo</span>
                     </td>
 
                     {/* Col 7: Actions */}
@@ -409,9 +445,6 @@ export default function Inventory() {
                             </button>
                           </>
                         )}
-                        <button onClick={() => openDetails(site)} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 py-1.5 px-3 border border-blue-100 hover:bg-blue-50 rounded-lg transition" title="View Details">
-                          Details <ChevronRight className="w-3.5 h-3.5"/>
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -422,11 +455,80 @@ export default function Inventory() {
         </div>
       </main>
 
-      {/* --- SITE DETAILS MODAL WITH SCHEDULE --- */}
+      {/* --- HOVER POPUP (desktop) --- */}
+      {hoverSite && (
+        <div
+          style={{ position: "fixed", top: hoverPopupStyle.top, left: hoverPopupStyle.left, zIndex: 9999, width: 320 }}
+          onMouseEnter={handlePopupMouseEnter}
+          onMouseLeave={handlePopupMouseLeave}
+          className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
+        >
+          {/* Image */}
+          <div className="h-44 bg-gray-100 relative">
+            {hoverSite.imageUrl ? (
+              <img
+                src={hoverSite.imageUrl}
+                className="w-full h-full object-cover cursor-pointer"
+                alt={hoverSite.name}
+                onClick={() => setEnlargedImage(hoverSite.imageUrl)}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-300"><ImageIcon className="w-10 h-10"/></div>
+            )}
+            {hoverSite.imageUrl && (
+              <button
+                onClick={() => setEnlargedImage(hoverSite.imageUrl)}
+                className="absolute bottom-2 right-2 bg-black/60 text-white px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 hover:bg-black/80 transition"
+              >
+                <Maximize2 className="w-3 h-3"/> Enlarge
+              </button>
+            )}
+            <span className={`absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border ${hoverSite.statusColor}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${hoverSite.statusDot}`}></span>
+              {hoverSite.computedStatus}
+            </span>
+          </div>
+          {/* Details */}
+          <div className="p-4 space-y-3">
+            <div>
+              <div className="font-bold text-gray-900 text-base leading-tight">{hoverSite.name}</div>
+              <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-blue-400 flex-shrink-0"/>
+                {[hoverSite.state, hoverSite.city, hoverSite.areaLocality].filter(Boolean).join(", ") || "—"}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-gray-50 rounded-lg p-2">
+                <div className="text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Size</div>
+                <div className="font-bold text-gray-800">{hoverSite.width && hoverSite.length ? `${hoverSite.width}×${hoverSite.length} ft` : (hoverSite.size || "—")}</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2">
+                <div className="text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Type</div>
+                <div className="font-bold text-gray-800">{typeLabel(hoverSite.type, hoverSite.lightingType)}</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2">
+                <div className="text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Rate</div>
+                <div className="font-bold text-blue-700">₹{hoverSite.potentialMonthly ? Number(hoverSite.potentialMonthly).toLocaleString("en-IN") : "—"}<span className="text-gray-400 font-normal">/mo</span></div>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2">
+                <div className="text-gray-400 font-semibold uppercase tracking-wide mb-0.5">Facing</div>
+                <div className="font-bold text-gray-800">{hoverSite.facing || "—"}</div>
+              </div>
+            </div>
+            {hoverSite.owner?.name && (
+              <div className="text-xs text-blue-700 bg-blue-50 px-2.5 py-1.5 rounded-lg font-medium">
+                Vendor: {hoverSite.owner.name}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- SITE DETAILS MODAL (mobile tap) --- */}
       {detailSite && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row shadow-black/40 animate-in zoom-in-95 duration-200 outline-none">
-            
+
             {/* Modal Left - Image Gallery & Basic Info */}
             <div className="md:w-[45%] bg-gray-50 border-r border-gray-100 flex flex-col">
               <div className="h-64 relative bg-gray-200">
@@ -445,15 +547,16 @@ export default function Inventory() {
                     <div className={`w-2 h-2 rounded-full ${detailSite.computedStatus === "Booked" ? "bg-red-500" : "bg-green-500"}`}></div>
                     {detailSite.computedStatus.toUpperCase()}
                   </span>
-                  <span className="text-xl font-bold">₹{detailSite.potentialMonthly || 0}L/mo</span>
+                  <span className="text-xl font-bold">₹{detailSite.potentialMonthly ? Number(detailSite.potentialMonthly).toLocaleString("en-IN") : "—"}<span className="text-sm font-normal text-gray-400">/mo</span></span>
                 </div>
                 <h2 className="text-2xl font-bold text-gray-900 mb-1 leading-tight">{detailSite.name}</h2>
                 <div className="flex items-center gap-2 text-sm text-gray-500 font-medium mb-6">
-                  <MapPin className="w-4 h-4 text-blue-500"/> {detailSite.city} • {detailSite.areaLocality || detailSite.address || "Address not provided"}
+                  <MapPin className="w-4 h-4 text-blue-500"/>
+                  {[detailSite.state, detailSite.city, detailSite.areaLocality || detailSite.address].filter(Boolean).join(" • ") || "Address not provided"}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Type</div><div className="font-semibold text-gray-800">{detailSite.type}</div></div>
-                  <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Dimensions</div><div className="font-semibold text-gray-800">{detailSite.width}x{detailSite.length} ft</div></div>
+                  <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Size</div><div className="font-semibold text-gray-800">{detailSite.width && detailSite.length ? `${detailSite.width}×${detailSite.length} ft` : (detailSite.size || "—")}</div></div>
+                  <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Type</div><div className="font-semibold text-gray-800">{typeLabel(detailSite.type, detailSite.lightingType)}</div></div>
                   <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Facing</div><div className="font-semibold text-gray-800">{detailSite.facing || "N/A"}</div></div>
                   <div className="bg-white border p-3 rounded-xl shadow-sm"><div className="text-xs text-gray-400 uppercase font-bold">Maintenance</div><div className="font-semibold text-gray-800">{detailSite.status}</div></div>
                 </div>
@@ -465,7 +568,7 @@ export default function Inventory() {
               <button onClick={() => setDetailSite(null)} className="hidden md:flex absolute top-4 right-4 w-8 h-8 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-full items-center justify-center transition z-10">
                 <X className="w-5 h-5"/>
               </button>
-              
+
               <div className="p-6 border-b border-gray-100">
                 <h3 className="text-xl font-bold flex items-center gap-2 tracking-tight">
                   <CalendarIcon className="w-5 h-5 text-blue-600" /> Booking Schedule
@@ -484,13 +587,11 @@ export default function Inventory() {
                   </div>
                 ) : (
                   <div className="space-y-4 relative before:absolute before:inset-0 before:left-[17px] before:w-0.5 before:bg-blue-100">
-                    {siteBookings.map((bk, i) => (
+                    {siteBookings.map((bk) => (
                       <div key={bk.assignmentId} className="relative pl-10">
-                        {/* Timeline node */}
                         <div className="absolute left-0 top-1.5 w-9 h-9 bg-blue-50 border border-blue-200 rounded-full flex items-center justify-center z-10">
                           <Target className="w-4 h-4 text-blue-600"/>
                         </div>
-                        {/* Booking Card */}
                         <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm relative overflow-hidden group hover:border-blue-200 hover:shadow-md transition">
                           <div className={`absolute top-0 left-0 w-1.5 h-full ${bk.status === "ACTIVE" ? "bg-red-500" : "bg-purple-500"}`}></div>
                           <div className="flex items-start justify-between">
@@ -508,7 +609,6 @@ export default function Inventory() {
                         </div>
                       </div>
                     ))}
-                    {/* Add Vacant Period End Node */}
                     <div className="relative pl-10 pt-4">
                       <div className="absolute left-0 top-5.5 w-9 h-9 bg-green-50 border border-green-200 text-green-600 rounded-full flex items-center justify-center z-10">
                         <CheckCircle className="w-5 h-5"/>
@@ -545,30 +645,44 @@ export default function Inventory() {
                 <button onClick={() => { setShowAdd(false); setShowEdit(false); setEditSite(null); }} className="p-2 bg-white rounded-full hover:bg-gray-200 shadow-sm border border-gray-200 transition text-gray-500"><X className="w-4 h-4"/></button>
              </div>
              <form onSubmit={showEdit ? handleEditSubmit : handleCreateSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
-                
+
                 {/* Basic Info */}
                 <div className="grid md:grid-cols-2 gap-5">
                   <div>
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Site Name *</label>
-                    <input required value={showEdit ? editSite.name : form.name} onChange={e=> showEdit ? setEditSite({...editSite, name:e.target.value}) : setForm({...form, name:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                    <input required value={showEdit ? editSite.name : form.name} onChange={e=> showEdit ? setEditSite({...editSite, name:e.target.value}) : setForm({...form, name:e.target.value})} className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
                   </div>
                   <div>
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">City *</label>
-                    <input required value={showEdit ? editSite.city : form.city} onChange={e=> showEdit ? setEditSite({...editSite, city:e.target.value}) : setForm({...form, city:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                    <input required value={showEdit ? editSite.city : form.city} onChange={e=> showEdit ? setEditSite({...editSite, city:e.target.value}) : setForm({...form, city:e.target.value})} className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">State</label>
+                    <input value={showEdit ? (editSite.state || "") : form.state} onChange={e=> showEdit ? setEditSite({...editSite, state:e.target.value}) : setForm({...form, state:e.target.value})} placeholder="e.g. Maharashtra" className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Maintenance Status</label>
+                    <select value={showEdit ? editSite.status : form.status} onChange={e=> showEdit ? setEditSite({...editSite, status:e.target.value}) : setForm({...form, status:e.target.value})} className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
+                      <option>Active</option><option>Inactive</option><option>Maintenance</option>
+                    </select>
                   </div>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-5">
                   <div>
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Site Type</label>
-                    <select value={showEdit ? editSite.type : form.type} onChange={e=> showEdit ? setEditSite({...editSite, type:e.target.value}) : setForm({...form, type:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
+                    <select value={showEdit ? editSite.type : form.type} onChange={e=> showEdit ? setEditSite({...editSite, type:e.target.value}) : setForm({...form, type:e.target.value})} className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
                       <option>Billboard</option><option>LED</option><option>Hoarding</option><option>Unipole</option><option>Gantry</option><option>Transit</option>
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Maintenance Status</label>
-                    <select value={showEdit ? editSite.status : form.status} onChange={e=> showEdit ? setEditSite({...editSite, status:e.target.value}) : setForm({...form, status:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
-                      <option>Active</option><option>Inactive</option><option>Maintenance</option>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Lighting Type</label>
+                    <select value={showEdit ? (editSite.lightingType || "Lit") : form.lightingType} onChange={e=> showEdit ? setEditSite({...editSite, lightingType:e.target.value}) : setForm({...form, lightingType:e.target.value})} className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
+                      <option value="Lit">Lit</option>
+                      <option value="Non-Lit">Non-Lit</option>
                     </select>
                   </div>
                 </div>
@@ -577,15 +691,15 @@ export default function Inventory() {
                 <div className="grid md:grid-cols-3 gap-5 border-t border-gray-100 pt-5">
                   <div>
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Width (ft)</label>
-                    <input type="number" placeholder="0" value={showEdit ? editSite.width : form.width} onChange={e=> showEdit ? setEditSite({...editSite, width:e.target.value}) : setForm({...form, width:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                    <input type="number" placeholder="0" value={showEdit ? editSite.width : form.width} onChange={e=> showEdit ? setEditSite({...editSite, width:e.target.value}) : setForm({...form, width:e.target.value})} className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Height/Length (ft)</label>
-                    <input type="number" placeholder="0" value={showEdit ? editSite.length : form.length} onChange={e=> showEdit ? setEditSite({...editSite, length:e.target.value}) : setForm({...form, length:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Height / Length (ft)</label>
+                    <input type="number" placeholder="0" value={showEdit ? editSite.length : form.length} onChange={e=> showEdit ? setEditSite({...editSite, length:e.target.value}) : setForm({...form, length:e.target.value})} className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-blue-600 uppercase tracking-wider block mb-1.5">Rate (₹ L / mo)</label>
-                    <input type="number" step="0.01" placeholder="e.g. 1.5" required value={showEdit ? editSite.potentialMonthly : form.potentialMonthly} onChange={e=> showEdit ? setEditSite({...editSite, potentialMonthly:e.target.value}) : setForm({...form, potentialMonthly:e.target.value})} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-blue-50/50 border-blue-100 focus:bg-white font-bold text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
+                    <label className="text-xs font-bold text-blue-600 uppercase tracking-wider block mb-1.5">Rate (₹ / month)</label>
+                    <input type="number" step="1" placeholder="e.g. 15000" required value={showEdit ? editSite.potentialMonthly : form.potentialMonthly} onChange={e=> showEdit ? setEditSite({...editSite, potentialMonthly:e.target.value}) : setForm({...form, potentialMonthly:e.target.value})} className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-blue-50/50 border-blue-100 focus:bg-white font-bold text-gray-900 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"/>
                   </div>
                 </div>
 
@@ -610,7 +724,7 @@ export default function Inventory() {
                   <select
                     value={showEdit ? (editSite.vendorId || "") : (form.vendorId || "")}
                     onChange={e => showEdit ? setEditSite({...editSite, vendorId: e.target.value, ownerCompanyId: e.target.value}) : setForm({...form, vendorId: e.target.value, ownerCompanyId: e.target.value})}
-                    className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
                     <option value="">No Vendor Assigned</option>
                     {vendors.map(v => <option key={v.id} value={v.id}>{v.name}{v.city ? ` — ${v.city}` : ""}</option>)}
                   </select>
