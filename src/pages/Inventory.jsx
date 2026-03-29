@@ -63,14 +63,30 @@ export default function Inventory() {
         if (!res.ok) throw new Error("Failed to load sites");
         const data = await res.json();
         
-        // Compute active status
+        // Compute 3-tier status
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
         const enriched = (Array.isArray(data) ? data : []).map(s => {
           const isBooked = s.availabilityStatus === "BOOKED" || s.availabilityStatus === "BLOCKED";
-          return {
-            ...s,
-            computedStatus: isBooked ? "Booked" : "Vacant",
-            statusColor: isBooked ? "text-red-600 bg-red-50 border-red-200" : "text-green-600 bg-green-50 border-green-200"
-          };
+          let computedStatus, statusColor, statusDot;
+          if (!isBooked) {
+            computedStatus = "Vacant";
+            statusColor = "text-green-700 bg-green-50 border-green-200";
+            statusDot = "bg-green-500";
+          } else {
+            const till = s.availableTill ? new Date(s.availableTill) : null;
+            const daysUntilFree = till ? Math.ceil((till - today) / (1000 * 60 * 60 * 24)) : Infinity;
+            if (daysUntilFree <= 7) {
+              computedStatus = "Vacant Soon";
+              statusColor = "text-yellow-700 bg-yellow-50 border-yellow-300";
+              statusDot = "bg-yellow-500";
+            } else {
+              computedStatus = "Booked";
+              statusColor = "text-red-700 bg-red-50 border-red-200";
+              statusDot = "bg-red-500";
+            }
+          }
+          return { ...s, computedStatus, statusColor, statusDot };
         });
         setSites(enriched);
       } catch (err) {
@@ -296,100 +312,105 @@ export default function Inventory() {
         </div>
 
         {/* Sites Table */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm whitespace-nowrap">
-              <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 uppercase text-xs tracking-wider">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead className="bg-gray-50 text-gray-600 uppercase text-xs tracking-wider">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">Site Detail</th>
-                  <th className="px-6 py-4 font-semibold">Location</th>
-                  <th className="px-6 py-4 font-semibold">Type & Size</th>
-                  <th className="px-6 py-4 font-semibold">Vendor</th>
-                  <th className="px-6 py-4 font-semibold text-center">Status</th>
-                  <th className="px-6 py-4 font-semibold text-right">Potential Rate</th>
-                  <th className="px-6 py-4 font-semibold text-right">Actions</th>
+                  <th className="px-5 py-3 font-semibold border border-gray-200">State / City</th>
+                  <th className="px-5 py-3 font-semibold border border-gray-200">Site Name</th>
+                  <th className="px-5 py-3 font-semibold border border-gray-200">Type & Size</th>
+                  <th className="px-5 py-3 font-semibold border border-gray-200">Vendor</th>
+                  <th className="px-5 py-3 font-semibold border border-gray-200 text-center">Status</th>
+                  <th className="px-5 py-3 font-semibold border border-gray-200 text-right">Rate / Month</th>
+                  <th className="px-5 py-3 font-semibold border border-gray-200 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {loading && <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500 font-medium">Loading inventory...</td></tr>}
-                {!loading && filteredSites.length === 0 && <tr><td colSpan="8" className="px-6 py-12 text-center text-gray-500"><div className="flex justify-center mb-3"><MapPin className="w-10 h-10 text-gray-300"/></div>No inventory matches your search.</td></tr>}
-                
+              <tbody>
+                {loading && <tr><td colSpan="7" className="px-6 py-8 text-center text-gray-500 font-medium border border-gray-200">Loading inventory...</td></tr>}
+                {!loading && filteredSites.length === 0 && (
+                  <tr><td colSpan="7" className="px-6 py-12 text-center text-gray-500 border border-gray-200">
+                    <div className="flex justify-center mb-3"><MapPin className="w-10 h-10 text-gray-300"/></div>
+                    No inventory matches your search.
+                  </td></tr>
+                )}
+
                 {filteredSites.map((site) => (
-                  <tr key={site.id} className="hover:bg-blue-50/50 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-4 relative">
-                        {/* Hover Image Trigger */}
-                        <div className="relative group/preview w-12 h-12 rounded-lg border border-gray-200 bg-gray-100 overflow-hidden flex-shrink-0 cursor-pointer" onClick={() => site.imageUrl && setEnlargedImage(site.imageUrl)}>
-                          {site.imageUrl ? (
-                            <img src={site.imageUrl} className="w-full h-full object-cover" alt={site.name} />
-                          ) : (
-                            <ImageIcon className="w-5 h-5 text-gray-400 absolute inset-0 m-auto" />
-                          )}
-                          {/* Hover Popover */}
+                  <tr key={site.id} className="hover:bg-blue-50/40 transition-colors group">
+
+                    {/* Col 1: State / City */}
+                    <td className="px-5 py-3 border border-gray-200 whitespace-nowrap">
+                      <div className="font-semibold text-gray-800 text-sm">{site.city}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">{site.areaLocality || site.address || "—"}</div>
+                    </td>
+
+                    {/* Col 2: Site Name + Photo */}
+                    <td className="px-5 py-3 border border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <div className="relative group/preview w-14 h-14 rounded-lg border border-gray-200 bg-gray-100 overflow-hidden flex-shrink-0 cursor-pointer" onClick={() => site.imageUrl && setEnlargedImage(site.imageUrl)}>
+                          {site.imageUrl
+                            ? <img src={site.imageUrl} className="w-full h-full object-cover" alt={site.name} />
+                            : <ImageIcon className="w-5 h-5 text-gray-400 absolute inset-0 m-auto" />}
                           {site.imageUrl && (
-                            <div className="absolute top-1/2 left-[56px] -translate-y-1/2 hidden group-hover/preview:block z-50 animate-in fade-in zoom-in duration-200">
+                            <div className="absolute top-1/2 left-[60px] -translate-y-1/2 hidden group-hover/preview:block z-50">
                               <div className="bg-white p-2 rounded-xl shadow-2xl border border-gray-100 relative">
                                 <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-white border-l border-b border-gray-100 rotate-45"></div>
-                                <img src={site.imageUrl} className="w-64 h-48 object-cover rounded-lg" alt="Preview" />
-                                <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur text-white p-2 rounded-lg hover:bg-black transition cursor-pointer flex items-center gap-1.5 text-xs font-semibold" onClick={(e) => { e.stopPropagation(); setEnlargedImage(site.imageUrl); }}>
-                                  <Maximize2 className="w-4 h-4" /> Enlarge
+                                <img src={site.imageUrl} className="w-56 h-40 object-cover rounded-lg" alt="Preview" />
+                                <div className="absolute bottom-3 right-3 bg-black/60 text-white p-1.5 rounded-lg cursor-pointer flex items-center gap-1 text-xs font-semibold" onClick={(e) => { e.stopPropagation(); setEnlargedImage(site.imageUrl); }}>
+                                  <Maximize2 className="w-3 h-3" /> Enlarge
                                 </div>
                               </div>
                             </div>
                           )}
                         </div>
                         <div>
-                          <div className="font-bold text-gray-900 group-hover:text-blue-700 transition">{site.name}</div>
-                          <div className="text-xs text-gray-500 font-medium">{site.id}</div>
+                          <div className="font-bold text-gray-900 group-hover:text-blue-700 transition leading-tight">{site.name}</div>
+                          <div className="text-xs text-gray-400 mt-0.5">ID: {site.id}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-800">{site.city}</div>
-                      <div className="text-xs text-gray-500 truncate max-w-[150px]">{site.areaLocality || site.address || "No exact address"}</div>
+
+                    {/* Col 3: Type & Size */}
+                    <td className="px-5 py-3 border border-gray-200 whitespace-nowrap">
+                      <span className="inline-flex px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-700">{site.type}</span>
+                      <div className="text-xs text-gray-400 mt-1">{site.width}×{site.length} ft</div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="inline-flex px-2 py-0.5 rounded-md text-xs font-semibold bg-gray-100 text-gray-700">{site.type}</div>
-                      <div className="text-xs text-gray-500 mt-1">{site.width}x{site.length} ft</div>
-                    </td>
-                    <td className="px-6 py-4">
+
+                    {/* Col 4: Vendor */}
+                    <td className="px-5 py-3 border border-gray-200">
                       {site.owner?.name
                         ? <span className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">{site.owner.name}</span>
                         : <span className="text-xs text-gray-400">—</span>}
                     </td>
-                    <td className="px-6 py-4 text-center">
+
+                    {/* Col 5: Status */}
+                    <td className="px-5 py-3 border border-gray-200 text-center">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${site.statusColor}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${site.computedStatus === "Booked" ? "bg-red-500" : "bg-green-500"}`}></div>
+                        <div className={`w-1.5 h-1.5 rounded-full ${site.statusDot}`}></div>
                         {site.computedStatus}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-xs font-medium text-gray-600">
-                        <CalendarIcon className="w-4 h-4 text-gray-400" />
-                        {site.computedStatus === "Booked" ? (
-                          <span>Until {site.availableTill ? site.availableTill : "TBD"}</span>
-                        ) : (
-                          <span>Next available: Now</span>
-                        )}
-                      </div>
+
+                    {/* Col 6: Rate per Month */}
+                    <td className="px-5 py-3 border border-gray-200 text-right font-bold text-gray-900 whitespace-nowrap">
+                      ₹{site.potentialMonthly ? Number(site.potentialMonthly).toLocaleString("en-IN") : "0"}<span className="text-xs font-normal text-gray-400 ml-0.5">/mo</span>
                     </td>
-                    <td className="px-6 py-4 text-right font-bold text-gray-900">
-                      ₹{site.potentialMonthly ? site.potentialMonthly : "0"}L
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+
+                    {/* Col 7: Actions */}
+                    <td className="px-5 py-3 border border-gray-200 text-center">
+                      <div className="flex items-center justify-center gap-2">
                         {!isAdmin && (
                           <>
-                            <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-blue-600 hover:bg-blue-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Edit Site">
+                            <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-blue-600 hover:bg-blue-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Edit">
                               <Edit className="w-4 h-4"/>
                             </button>
-                            <button onClick={() => handleDeleteSite(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-red-600 hover:bg-red-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Delete Site">
+                            <button onClick={() => handleDeleteSite(site)} className="inline-flex items-center justify-center w-8 h-8 text-gray-500 hover:text-red-600 hover:bg-red-50 bg-gray-50 rounded-lg border border-gray-200 transition" title="Delete">
                               <X className="w-4 h-4"/>
                             </button>
                           </>
                         )}
-                        <button onClick={() => openDetails(site)} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800 transition py-1.5 px-3 border border-transparent hover:border-blue-200 hover:bg-blue-50 rounded-lg" title="View Details">
-                          Details <ChevronRight className="w-4 h-4"/>
+                        <button onClick={() => openDetails(site)} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 py-1.5 px-3 border border-blue-100 hover:bg-blue-50 rounded-lg transition" title="View Details">
+                          Details <ChevronRight className="w-3.5 h-3.5"/>
                         </button>
                       </div>
                     </td>
