@@ -5,7 +5,7 @@ import UserMenu from "../components/UserMenu";
 import {
   Target, Search, Plus, Calendar, IndianRupee, MapPin, Trash2,
   X, LayoutList, PlusCircle, CheckSquare, Square, Edit2,
-  ChevronRight, Building2, Image as ImageIcon, Filter
+  ChevronRight, Building2, Image as ImageIcon, Filter, Send, Copy, Check, ExternalLink
 } from "lucide-react";
 
 const API = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
@@ -56,6 +56,12 @@ export default function Campaigns() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [adding, setAdding] = useState(false);
 
+  // Send-to-advertiser modal
+  const [sendModal, setSendModal] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sentLink, setSentLink] = useState(null); // { accessUrl, expiresAt }
+  const [copied, setCopied] = useState(false);
+
   const [form, setForm] = useState({
     name: "", advertiserId: "", internalOwner: "", campaignType: "",
     startDate: "", endDate: "", totalCost: 0, status: "DRAFT", notes: "", billingRemarks: ""
@@ -67,12 +73,16 @@ export default function Campaigns() {
     fetchList();
   }, []);
 
+  const isAdmin = ["ADMIN", "SUPER_ADMIN"].includes((user.role || "").toUpperCase());
+
   const fetchList = async () => {
     setLoading(true);
-    let url = `${API}/api/campaigns`;
+    const p = new URLSearchParams();
     const advId = params.get("advertiserId");
-    if (advId) url += `?advertiserId=${advId}`;
-    const res = await fetch(url);
+    if (advId) p.set("advertiserId", advId);
+    // Employees only see their own campaigns; admins see all
+    if (!isAdmin && user.userId) p.set("userId", user.userId);
+    const res = await fetch(`${API}/api/campaigns?${p.toString()}`);
     if (res.ok) setList(await res.json());
     setLoading(false);
   };
@@ -104,7 +114,12 @@ export default function Campaigns() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const url = editing ? `${API}/api/campaigns/${editing.id}` : `${API}/api/campaigns`;
-    const payload = { ...form, advertiserId: Number(form.advertiserId), totalCost: Number(form.totalCost) };
+    const payload = {
+      ...form,
+      advertiserId: Number(form.advertiserId),
+      totalCost: Number(form.totalCost),
+      ...(!editing && { createdByUserId: user.userId || null }),
+    };
     const res = await fetch(url, { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (res.ok) {
       setShowModal(false);
@@ -211,6 +226,34 @@ export default function Campaigns() {
       alert(d.detail || "Failed to add sites");
     }
     setAdding(false);
+  };
+
+  const handleSend = async () => {
+    if (!detail) return;
+    setSending(true);
+    const res = await fetch(`${API}/api/advertisers/send-access-link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ advertiserId: detail.advertiserId, campaignId: detail.id, expiryDays: 30 }),
+    });
+    if (res.ok) {
+      const d = await res.json();
+      const FRONTEND = import.meta.env.VITE_FRONTEND_URL || window.location.origin;
+      setSentLink({ accessUrl: `${FRONTEND}${d.accessUrl}`, expiresAt: d.expiresAt });
+      setSendModal(true);
+      await refreshDetail(); // update isSentToAdvertiser badge
+    } else {
+      const d = await res.json();
+      alert(d.detail || "Failed to generate link");
+    }
+    setSending(false);
+  };
+
+  const handleCopyLink = () => {
+    if (!sentLink) return;
+    navigator.clipboard.writeText(sentLink.accessUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
   };
 
   const filtered = list.filter(c => {
@@ -354,14 +397,28 @@ export default function Campaigns() {
                 <div className="bg-gradient-to-r from-blue-700 to-indigo-700 px-6 py-5 text-white flex-shrink-0">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <StatusBadge status={detail.status} />
                         {detail.campaignType && <span className="text-blue-200 text-xs font-semibold">{detail.campaignType}</span>}
+                        {detail.isSentToAdvertiser && (
+                          <span className="flex items-center gap-1 bg-green-400/30 text-green-200 border border-green-300/40 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                            <Check className="w-3 h-3" /> Sent to Advertiser
+                          </span>
+                        )}
                       </div>
                       <h2 className="text-2xl font-extrabold leading-tight truncate">{detail.name}</h2>
                       <p className="text-blue-200 text-sm mt-0.5 font-medium">{detail.advertiserName}</p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={handleSend}
+                        disabled={sending}
+                        className="flex items-center gap-1.5 bg-green-500/80 hover:bg-green-500 px-3 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-60"
+                        title="Generate a shareable link for the advertiser"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        {sending ? "Sending..." : "Send to Advertiser"}
+                      </button>
                       <button onClick={(e) => openEdit(detail, e)} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-xs font-bold transition">
                         <Edit2 className="w-3.5 h-3.5" /> Edit
                       </button>
@@ -558,6 +615,55 @@ export default function Campaigns() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Send-to-Advertiser Link Modal */}
+      {sendModal && sentLink && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-5 text-white flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Send className="w-5 h-5" />
+                  <h3 className="text-lg font-bold">Campaign Link Generated</h3>
+                </div>
+                <p className="text-green-100 text-sm">Share this link with the advertiser to give them access.</p>
+              </div>
+              <button onClick={() => { setSendModal(false); setSentLink(null); setCopied(false); }} className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-2">Advertiser Access Link</label>
+                <div className="flex gap-2">
+                  <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono text-gray-700 break-all select-all">
+                    {sentLink.accessUrl}
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={handleCopyLink}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition ${copied ? "bg-green-100 text-green-700 border border-green-200" : "bg-blue-600 text-white hover:bg-blue-700"}`}
+                  >
+                    {copied ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Link</>}
+                  </button>
+                  <a
+                    href={sentLink.accessUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
+                  >
+                    <ExternalLink className="w-4 h-4" /> Preview
+                  </a>
+                </div>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 font-medium">
+                ⏳ This link expires on <span className="font-bold">{new Date(sentLink.expiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</span>. You can generate a new link anytime.
+              </div>
+            </div>
           </div>
         </div>
       )}
