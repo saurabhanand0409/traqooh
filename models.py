@@ -174,6 +174,7 @@ class Campaign(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
     advertiser_id = Column(Integer, ForeignKey("advertisers.id"), nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("user_accounts.id"), nullable=True)  # employee who created it
     internal_owner = Column(String, nullable=True)  # team member name
     campaign_type = Column(String, nullable=True)  # type/category
     start_date = Column(Date, nullable=True)

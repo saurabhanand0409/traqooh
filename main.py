@@ -88,6 +88,11 @@ def run_migrations():
                 if col not in si_cols3:
                     conn.execute(text(f"ALTER TABLE sites ADD COLUMN {col} {typ}"))
                     conn.commit()
+            # Campaigns: employee ownership
+            ca_cols = [c["name"] for c in inspector.get_columns("campaigns")]
+            if "created_by_user_id" not in ca_cols:
+                conn.execute(text("ALTER TABLE campaigns ADD COLUMN created_by_user_id INTEGER REFERENCES user_accounts(id) ON DELETE SET NULL"))
+                conn.commit()
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")

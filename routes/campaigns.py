@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/campaigns", tags=["Campaigns"])
 class CampaignCreate(BaseModel):
     name: str
     advertiserId: int
+    createdByUserId: Optional[int] = None
     internalOwner: Optional[str] = None
     campaignType: Optional[str] = None
     startDate: Optional[str] = None
@@ -43,6 +44,7 @@ def campaign_to_dict(c):
     return {
         "id": c.id, "name": c.name, "advertiserId": c.advertiser_id,
         "advertiserName": c.advertiser.company_name if c.advertiser else None,
+        "createdByUserId": c.created_by_user_id,
         "internalOwner": c.internal_owner, "campaignType": c.campaign_type,
         "startDate": str(c.start_date) if c.start_date else None,
         "endDate": str(c.end_date) if c.end_date else None,
@@ -83,7 +85,7 @@ def assignment_to_dict(a, site):
 
 @router.get("")
 def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = None,
-                   db: Session = Depends(get_db)):
+                   userId: Optional[int] = None, db: Session = Depends(get_db)):
     q = db.query(models.Campaign).options(
         joinedload(models.Campaign.advertiser),
         joinedload(models.Campaign.site_assignments)
@@ -92,6 +94,9 @@ def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = N
         q = q.filter(models.Campaign.status == status)
     if advertiserId:
         q = q.filter(models.Campaign.advertiser_id == advertiserId)
+    if userId:
+        # Employee isolation: only show campaigns created by this user
+        q = q.filter(models.Campaign.created_by_user_id == userId)
     return [campaign_to_dict(c) for c in q.order_by(models.Campaign.created_at.desc()).all()]
 
 
@@ -121,6 +126,19 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
         "status": au.status, "auditor": au.auditor, "notes": au.notes,
         "imageUrls": au.image_urls,
     } for au in audits]
+    # Access links / sent status
+    access_links = db.query(models.AdvertiserAccessLink).filter(
+        models.AdvertiserAccessLink.campaign_id == campaign_id,
+        models.AdvertiserAccessLink.is_revoked == False
+    ).order_by(models.AdvertiserAccessLink.created_at.desc()).all()
+    result["isSentToAdvertiser"] = len(access_links) > 0
+    result["accessLinks"] = [{
+        "id": al.id,
+        "tokenPlain": al.token_plain,
+        "expiresAt": str(al.expires_at),
+        "usedCount": al.used_count,
+        "createdAt": str(al.created_at),
+    } for al in access_links]
     return result
 
 
@@ -132,6 +150,7 @@ def create_campaign(req: CampaignCreate, db: Session = Depends(get_db)):
         raise HTTPException(404, "Advertiser not found")
     c = models.Campaign(
         name=req.name, advertiser_id=req.advertiserId,
+        created_by_user_id=req.createdByUserId,
         internal_owner=req.internalOwner, campaign_type=req.campaignType,
         start_date=date.fromisoformat(req.startDate) if req.startDate else None,
         end_date=date.fromisoformat(req.endDate) if req.endDate else None,
