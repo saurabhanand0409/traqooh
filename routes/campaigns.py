@@ -1,12 +1,11 @@
 """Campaign management routes."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_
 from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db
 import models
-from utils import log_activity, site_to_dict
+from utils import log_activity
 
 router = APIRouter(prefix="/api/campaigns", tags=["Campaigns"])
 
@@ -33,6 +32,13 @@ class AssignSiteRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class BulkAssignRequest(BaseModel):
+    siteIds: List[int]
+    bookedFrom: Optional[str] = None
+    bookedTill: Optional[str] = None
+    agreedCost: Optional[float] = 0.0
+
+
 def campaign_to_dict(c):
     return {
         "id": c.id, "name": c.name, "advertiserId": c.advertiser_id,
@@ -47,9 +53,41 @@ def campaign_to_dict(c):
     }
 
 
+def assignment_to_dict(a, site):
+    size_str = None
+    if site:
+        if site.width and site.length:
+            size_str = f"{site.width}×{site.length} ft"
+        elif site.size:
+            size_str = site.size
+    return {
+        "assignmentId": a.id,
+        "siteId": a.site_id,
+        "siteName": site.name if site else None,
+        "siteState": site.state if site else None,
+        "siteCity": site.city if site else None,
+        "siteType": site.type if site else None,
+        "siteSize": size_str,
+        "lightingType": site.lighting_type if site else None,
+        "imageUrl": site.image_url if site else None,
+        "potentialMonthly": float(site.potential_monthly or 0) if site else 0,
+        "vendorName": site.owner.name if site and site.owner else None,
+        "bookedFrom": str(a.booked_from) if a.booked_from else None,
+        "bookedTill": str(a.booked_till) if a.booked_till else None,
+        "agreedCost": a.agreed_cost,
+        "unitCost": a.unit_cost,
+        "status": a.status,
+        "notes": a.notes,
+    }
+
+
 @router.get("")
-def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = None, db: Session = Depends(get_db)):
-    q = db.query(models.Campaign).options(joinedload(models.Campaign.advertiser))
+def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = None,
+                   db: Session = Depends(get_db)):
+    q = db.query(models.Campaign).options(
+        joinedload(models.Campaign.advertiser),
+        joinedload(models.Campaign.site_assignments)
+    )
     if status:
         q = q.filter(models.Campaign.status == status)
     if advertiserId:
@@ -66,23 +104,16 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
     if not c:
         raise HTTPException(404, "Campaign not found")
     result = campaign_to_dict(c)
-    # Include assigned sites
     assignments = []
     for a in c.site_assignments:
-        site = db.query(models.Site).options(joinedload(models.Site.owner)).filter(models.Site.id == a.site_id).first()
-        assignments.append({
-            "assignmentId": a.id, "siteId": a.site_id,
-            "siteName": site.name if site else None,
-            "siteCity": site.city if site else None,
-            "vendorName": site.owner.name if site and site.owner else None,
-            "bookedFrom": str(a.booked_from) if a.booked_from else None,
-            "bookedTill": str(a.booked_till) if a.booked_till else None,
-            "agreedCost": a.agreed_cost, "unitCost": a.unit_cost,
-            "status": a.status, "notes": a.notes,
-        })
+        site = db.query(models.Site).options(
+            joinedload(models.Site.owner)
+        ).filter(models.Site.id == a.site_id).first()
+        assignments.append(assignment_to_dict(a, site))
     result["assignments"] = assignments
-    # Include audits
-    audits = db.query(models.SiteAudit).filter(models.SiteAudit.campaign_id == campaign_id).all()
+    audits = db.query(models.SiteAudit).filter(
+        models.SiteAudit.campaign_id == campaign_id
+    ).all()
     result["audits"] = [{
         "id": au.id, "siteId": au.site_id, "auditType": au.audit_type,
         "scheduledDate": str(au.scheduled_date) if au.scheduled_date else None,
@@ -136,6 +167,43 @@ def update_campaign(campaign_id: int, req: CampaignCreate, db: Session = Depends
     return campaign_to_dict(c)
 
 
+@router.delete("/{campaign_id}")
+def delete_campaign(campaign_id: int, db: Session = Depends(get_db)):
+    """Delete campaign and safely clean up all linked records."""
+    c = db.query(models.Campaign).options(
+        joinedload(models.Campaign.site_assignments)
+    ).filter(models.Campaign.id == campaign_id).first()
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+    campaign_name = c.name
+    site_count = len(c.site_assignments)
+    # Reset availability for sites that have this campaign as current
+    for a in c.site_assignments:
+        site = db.query(models.Site).filter(models.Site.id == a.site_id).first()
+        if site and site.current_campaign_id == campaign_id:
+            site.availability_status = "AVAILABLE"
+            site.current_campaign_id = None
+            site.occupied_from = None
+            site.occupied_till = None
+    # Nullify campaign_id on advertiser access links (don't delete them)
+    db.query(models.AdvertiserAccessLink).filter(
+        models.AdvertiserAccessLink.campaign_id == campaign_id
+    ).update({"campaign_id": None}, synchronize_session=False)
+    # Delete assignments and audits
+    db.query(models.CampaignSiteAssignment).filter(
+        models.CampaignSiteAssignment.campaign_id == campaign_id
+    ).delete(synchronize_session=False)
+    db.query(models.SiteAudit).filter(
+        models.SiteAudit.campaign_id == campaign_id
+    ).delete(synchronize_session=False)
+    db.flush()
+    db.delete(c)
+    db.commit()
+    log_activity(db, f"Deleted campaign '{campaign_name}'", "campaign", campaign_id,
+                 f"{site_count} sites unlinked")
+    return {"message": f"Campaign '{campaign_name}' deleted", "unlinkedSites": site_count}
+
+
 @router.post("/{campaign_id}/assign-site")
 def assign_site(campaign_id: int, req: AssignSiteRequest, db: Session = Depends(get_db)):
     from datetime import date
@@ -147,7 +215,6 @@ def assign_site(campaign_id: int, req: AssignSiteRequest, db: Session = Depends(
         raise HTTPException(404, "Site not found")
     bk_from = date.fromisoformat(req.bookedFrom) if req.bookedFrom else None
     bk_till = date.fromisoformat(req.bookedTill) if req.bookedTill else None
-    # Check for overlapping bookings
     if bk_from and bk_till:
         overlap = db.query(models.CampaignSiteAssignment).filter(
             models.CampaignSiteAssignment.site_id == req.siteId,
@@ -156,7 +223,8 @@ def assign_site(campaign_id: int, req: AssignSiteRequest, db: Session = Depends(
             models.CampaignSiteAssignment.booked_till >= bk_from,
         ).first()
         if overlap:
-            raise HTTPException(409, f"Site is already booked for overlapping dates (campaign #{overlap.campaign_id})")
+            raise HTTPException(409,
+                f"Site already booked for overlapping dates (campaign #{overlap.campaign_id})")
     assignment = models.CampaignSiteAssignment(
         campaign_id=campaign_id, site_id=req.siteId,
         booked_from=bk_from, booked_till=bk_till,
@@ -164,21 +232,56 @@ def assign_site(campaign_id: int, req: AssignSiteRequest, db: Session = Depends(
         notes=req.notes, status="PLANNED",
     )
     db.add(assignment)
-    # Update site availability
-    site.availability_status = "BOOKED"
-    site.current_campaign_id = campaign_id
-    site.occupied_from = bk_from
-    site.occupied_till = bk_till
+    if bk_from and bk_till:
+        site.availability_status = "BOOKED"
+        site.current_campaign_id = campaign_id
+        site.occupied_from = bk_from
+        site.occupied_till = bk_till
     db.commit()
     log_activity(db, "Assigned site to campaign", "campaign", campaign_id, f"Site #{req.siteId}")
     return {"message": "Site assigned", "assignmentId": assignment.id}
+
+
+@router.post("/{campaign_id}/assign-sites-bulk")
+def assign_sites_bulk(campaign_id: int, req: BulkAssignRequest, db: Session = Depends(get_db)):
+    """Bulk-assign multiple sites. Silently skips already-linked or non-existent sites."""
+    c = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+    from datetime import date
+    bk_from = date.fromisoformat(req.bookedFrom) if req.bookedFrom else None
+    bk_till = date.fromisoformat(req.bookedTill) if req.bookedTill else None
+    added = 0
+    skipped = 0
+    for site_id in req.siteIds:
+        existing = db.query(models.CampaignSiteAssignment).filter(
+            models.CampaignSiteAssignment.campaign_id == campaign_id,
+            models.CampaignSiteAssignment.site_id == site_id,
+        ).first()
+        if existing:
+            skipped += 1
+            continue
+        site = db.query(models.Site).filter(models.Site.id == site_id).first()
+        if not site:
+            skipped += 1
+            continue
+        db.add(models.CampaignSiteAssignment(
+            campaign_id=campaign_id, site_id=site_id,
+            booked_from=bk_from, booked_till=bk_till,
+            agreed_cost=req.agreedCost or 0.0, status="PLANNED",
+        ))
+        added += 1
+    db.commit()
+    log_activity(db, f"Bulk assigned {added} sites to campaign", "campaign", campaign_id)
+    return {"message": f"Added {added} sites, skipped {skipped} duplicates",
+            "added": added, "skipped": skipped}
 
 
 @router.delete("/{campaign_id}/remove-site/{assignment_id}")
 def remove_site(campaign_id: int, assignment_id: int, db: Session = Depends(get_db)):
     a = db.query(models.CampaignSiteAssignment).filter(
         models.CampaignSiteAssignment.id == assignment_id,
-        models.CampaignSiteAssignment.campaign_id == campaign_id
+        models.CampaignSiteAssignment.campaign_id == campaign_id,
     ).first()
     if not a:
         raise HTTPException(404, "Assignment not found")

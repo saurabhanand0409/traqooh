@@ -311,7 +311,8 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
 @app.get("/api/mobile/sites")
 def get_sites(ownerId: Optional[int] = None, vendorId: Optional[int] = None,
               availabilityStatus: Optional[str] = None, city: Optional[str] = None,
-              siteType: Optional[str] = None, db: Session = Depends(get_db)):
+              state: Optional[str] = None, siteType: Optional[str] = None,
+              db: Session = Depends(get_db)):
     query = db.query(models.Site).options(joinedload(models.Site.owner))
     if ownerId:
         query = query.filter(models.Site.owner_company_id == ownerId)
@@ -321,6 +322,8 @@ def get_sites(ownerId: Optional[int] = None, vendorId: Optional[int] = None,
         query = query.filter(models.Site.availability_status == availabilityStatus)
     if city:
         query = query.filter(models.Site.city.ilike(f"%{city}%"))
+    if state:
+        query = query.filter(models.Site.state.ilike(f"%{state}%"))
     if siteType:
         query = query.filter(models.Site.type == siteType)
     return [site_to_dict(s) for s in query.order_by(models.Site.city).all()]
