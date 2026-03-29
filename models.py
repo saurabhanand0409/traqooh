@@ -203,6 +203,15 @@ class CampaignSiteAssignment(Base):
     unit_cost = Column(Float, default=0.0)
     status = Column(String, default="PLANNED")  # PLANNED, ACTIVE, COMPLETED, CANCELLED
     notes = Column(Text, nullable=True)
+    # Advertiser shortlist & per-site execution fields
+    is_shortlisted = Column(Boolean, default=False)
+    final_start_date = Column(Date, nullable=True)
+    final_end_date = Column(Date, nullable=True)
+    printing_type = Column(String, nullable=True)     # Flex, Vinyl, Backlit, etc.
+    printing_cost = Column(Float, default=0.0)
+    mounting_cost = Column(Float, default=0.0)
+    other_cost = Column(Float, default=0.0)
+    execution_remarks = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     campaign = relationship("Campaign", back_populates="site_assignments")

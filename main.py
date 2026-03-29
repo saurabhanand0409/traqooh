@@ -93,6 +93,21 @@ def run_migrations():
             if "created_by_user_id" not in ca_cols:
                 conn.execute(text("ALTER TABLE campaigns ADD COLUMN created_by_user_id INTEGER REFERENCES user_accounts(id) ON DELETE SET NULL"))
                 conn.commit()
+            # CampaignSiteAssignment: advertiser shortlist & cost fields
+            csa_cols = [c["name"] for c in inspector.get_columns("campaign_site_assignments")]
+            for col, typ in [
+                ("is_shortlisted", "BOOLEAN DEFAULT FALSE"),
+                ("final_start_date", "DATE"),
+                ("final_end_date", "DATE"),
+                ("printing_type", "VARCHAR"),
+                ("printing_cost", "FLOAT DEFAULT 0"),
+                ("mounting_cost", "FLOAT DEFAULT 0"),
+                ("other_cost", "FLOAT DEFAULT 0"),
+                ("execution_remarks", "TEXT"),
+            ]:
+                if col not in csa_cols:
+                    conn.execute(text(f"ALTER TABLE campaign_site_assignments ADD COLUMN {col} {typ}"))
+                    conn.commit()
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
@@ -459,9 +474,9 @@ def get_all_media_owners(db: Session = Depends(get_db)):
 def get_companies(db: Session = Depends(get_db)):
     return db.query(models.Company).all()
 
-# --- Access token validation (public, no auth) ---
-@app.get("/api/access/{token}")
-def validate_public_access(token: str, db: Session = Depends(get_db)):
+# --- Access token helpers ---
+def _validate_access_link(token: str, db: Session):
+    """Validate token and return the AdvertiserAccessLink or raise 403."""
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     link = db.query(models.AdvertiserAccessLink).filter(
         models.AdvertiserAccessLink.token_hash == token_hash,
@@ -469,24 +484,150 @@ def validate_public_access(token: str, db: Session = Depends(get_db)):
     ).first()
     if not link or link.expires_at < datetime.datetime.utcnow():
         raise HTTPException(403, "Invalid or expired access link")
+    return link
+
+def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) -> dict:
+    """Return full site metadata + assignment fields for the advertiser access page."""
+    site = db.query(models.Site).options(
+        joinedload(models.Site.owner)
+    ).filter(models.Site.id == a.site_id).first()
+    size_str = None
+    if site:
+        if site.width and site.length:
+            size_str = f"{site.width}×{site.length} ft"
+        elif site.size:
+            size_str = site.size
+    return {
+        "assignmentId": a.id,
+        "siteId": a.site_id,
+        "siteName": site.name if site else None,
+        "state": site.state if site else None,
+        "city": site.city if site else None,
+        "location": site.area_locality or site.address if site else None,
+        "address": site.address if site else None,
+        "type": site.type if site else None,
+        "lightingType": site.lighting_type if site else None,
+        "size": size_str,
+        "vendorName": site.owner.name if site and site.owner else None,
+        "baseRate": float(site.potential_monthly or site.base_rate or 0) if site else 0,
+        "imageUrl": site.image_url if site else None,
+        "availabilityStatus": site.availability_status if site else None,
+        "remarks": site.remarks if site else None,
+        # assignment dates
+        "bookedFrom": str(a.booked_from) if a.booked_from else None,
+        "bookedTill": str(a.booked_till) if a.booked_till else None,
+        # advertiser shortlist fields
+        "isShortlisted": bool(a.is_shortlisted),
+        "finalStartDate": str(a.final_start_date) if a.final_start_date else None,
+        "finalEndDate": str(a.final_end_date) if a.final_end_date else None,
+        "printingType": a.printing_type,
+        "printingCost": float(a.printing_cost or 0),
+        "mountingCost": float(a.mounting_cost or 0),
+        "otherCost": float(a.other_cost or 0),
+        "executionRemarks": a.execution_remarks,
+    }
+
+# --- Access token validation (public, no auth) ---
+@app.get("/api/access/{token}")
+def validate_public_access(token: str, db: Session = Depends(get_db)):
+    link = _validate_access_link(token, db)
     link.used_count += 1
     db.commit()
     adv = db.query(models.Advertiser).filter(models.Advertiser.id == link.advertiser_id).first()
-    campaigns = db.query(models.Campaign).filter(models.Campaign.advertiser_id == link.advertiser_id)
+    campaigns_q = db.query(models.Campaign).filter(models.Campaign.advertiser_id == link.advertiser_id)
     if link.campaign_id:
-        campaigns = campaigns.filter(models.Campaign.id == link.campaign_id)
+        campaigns_q = campaigns_q.filter(models.Campaign.id == link.campaign_id)
     result = []
-    for c in campaigns.all():
+    for c in campaigns_q.all():
         assigns = db.query(models.CampaignSiteAssignment).filter(
-            models.CampaignSiteAssignment.campaign_id == c.id).all()
+            models.CampaignSiteAssignment.campaign_id == c.id
+        ).all()
         audits = db.query(models.SiteAudit).filter(
-            models.SiteAudit.campaign_id == c.id, models.SiteAudit.status == "DONE").all()
+            models.SiteAudit.campaign_id == c.id, models.SiteAudit.status == "DONE"
+        ).all()
         result.append({
-            "name": c.name, "status": c.status,
+            "id": c.id,
+            "name": c.name,
+            "status": c.status,
+            "campaignType": c.campaign_type,
             "startDate": str(c.start_date) if c.start_date else None,
             "endDate": str(c.end_date) if c.end_date else None,
-            "sites": [{"bookedFrom": str(a.booked_from), "bookedTill": str(a.booked_till)} for a in assigns],
-            "audits": [{"type": au.audit_type, "date": str(au.actual_audit_date),
-                        "images": au.image_urls} for au in audits]
+            "totalCost": float(c.total_cost or 0),
+            "notes": c.notes,
+            "sites": [_assignment_to_access_dict(a, db) for a in assigns],
+            "audits": [{
+                "type": au.audit_type,
+                "date": str(au.actual_audit_date) if au.actual_audit_date else None,
+                "images": au.image_urls,
+            } for au in audits],
         })
-    return {"advertiser": adv.company_name if adv else None, "campaigns": result}
+    return {
+        "advertiser": adv.company_name if adv else None,
+        "advertiserEmail": adv.email if adv else None,
+        "campaigns": result,
+    }
+
+
+class ShortlistAssignment(BaseModel):
+    assignmentId: int
+    isShortlisted: bool = False
+    finalStartDate: Optional[str] = None
+    finalEndDate: Optional[str] = None
+    printingType: Optional[str] = None
+    printingCost: Optional[float] = 0.0
+    mountingCost: Optional[float] = 0.0
+    otherCost: Optional[float] = 0.0
+    executionRemarks: Optional[str] = None
+
+class ShortlistRequest(BaseModel):
+    assignments: List[ShortlistAssignment]
+
+@app.post("/api/access/{token}/shortlist")
+def save_shortlist(token: str, req: ShortlistRequest, db: Session = Depends(get_db)):
+    """Advertiser saves their shortlist + per-site dates/charges."""
+    from datetime import date as dateobj
+    link = _validate_access_link(token, db)
+    for item in req.assignments:
+        a = db.query(models.CampaignSiteAssignment).filter(
+            models.CampaignSiteAssignment.id == item.assignmentId
+        ).first()
+        if not a:
+            continue
+        # Verify this assignment belongs to this advertiser's campaign
+        camp = db.query(models.Campaign).filter(
+            models.Campaign.id == a.campaign_id,
+            models.Campaign.advertiser_id == link.advertiser_id,
+        ).first()
+        if not camp:
+            continue
+        a.is_shortlisted = item.isShortlisted
+        a.final_start_date = dateobj.fromisoformat(item.finalStartDate) if item.finalStartDate else None
+        a.final_end_date = dateobj.fromisoformat(item.finalEndDate) if item.finalEndDate else None
+        a.printing_type = item.printingType
+        a.printing_cost = item.printingCost or 0.0
+        a.mounting_cost = item.mountingCost or 0.0
+        a.other_cost = item.otherCost or 0.0
+        a.execution_remarks = item.executionRemarks
+    db.commit()
+    return {"message": "Shortlist saved"}
+
+
+class FinalizeRequest(BaseModel):
+    campaignId: int
+
+@app.post("/api/access/{token}/finalize")
+def finalize_campaign(token: str, req: FinalizeRequest, db: Session = Depends(get_db)):
+    """Advertiser finalizes the campaign — moves status to PLANNED (approved)."""
+    link = _validate_access_link(token, db)
+    c = db.query(models.Campaign).filter(
+        models.Campaign.id == req.campaignId,
+        models.Campaign.advertiser_id == link.advertiser_id,
+    ).first()
+    if not c:
+        raise HTTPException(404, "Campaign not found or access denied")
+    # Advance status: DRAFT → PLANNED
+    if c.status in ("DRAFT",):
+        c.status = "PLANNED"
+    db.commit()
+    log_activity(db, "Advertiser finalized campaign", "campaign", c.id, c.name)
+    return {"message": "Campaign finalized", "newStatus": c.status}
