@@ -470,14 +470,14 @@ export default function Inventory() {
                 src={hoverSite.imageUrl}
                 className="w-full h-full object-cover cursor-pointer"
                 alt={hoverSite.name}
-                onClick={() => setEnlargedImage(hoverSite.imageUrl)}
+                onClick={() => { clearTimeout(hoverTimeoutRef.current); setHoverSite(null); setEnlargedImage(hoverSite.imageUrl); }}
               />
             ) : (
               <div className="flex items-center justify-center h-full text-gray-300"><ImageIcon className="w-10 h-10"/></div>
             )}
             {hoverSite.imageUrl && (
               <button
-                onClick={() => setEnlargedImage(hoverSite.imageUrl)}
+                onClick={() => { clearTimeout(hoverTimeoutRef.current); setHoverSite(null); setEnlargedImage(hoverSite.imageUrl); }}
                 className="absolute bottom-2 right-2 bg-black/60 text-white px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 hover:bg-black/80 transition"
               >
                 <Maximize2 className="w-3 h-3"/> Enlarge
