@@ -108,6 +108,25 @@ def run_migrations():
                 if col not in csa_cols:
                     conn.execute(text(f"ALTER TABLE campaign_site_assignments ADD COLUMN {col} {typ}"))
                     conn.commit()
+            # CampaignActivity (campaign execution log) — self-heal columns
+            if inspector.has_table("campaign_activities"):
+                act_cols = [c["name"] for c in inspector.get_columns("campaign_activities")]
+                for col, typ in [
+                    ("assignment_id", "INTEGER"),
+                    ("status", "VARCHAR DEFAULT 'PENDING'"),
+                    ("performed_by", "VARCHAR"),
+                    ("activity_date", "DATE"),
+                    ("notes", "TEXT"),
+                    ("image_urls", "TEXT"),
+                    ("latitude", "FLOAT"),
+                    ("longitude", "FLOAT"),
+                    ("source", "VARCHAR DEFAULT 'web'"),
+                    ("created_by_user_id", "INTEGER"),
+                    ("updated_at", "TIMESTAMP DEFAULT NOW()"),
+                ]:
+                    if col not in act_cols:
+                        conn.execute(text(f"ALTER TABLE campaign_activities ADD COLUMN {col} {typ}"))
+                        conn.commit()
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
@@ -133,6 +152,7 @@ from routes.campaigns import router as campaigns_router
 from routes.audits import router as audits_router
 from routes.dashboard import router as dashboard_router
 from routes.admin import router as admin_router
+from routes.activities import router as activities_router
 
 app.include_router(vendors_router)
 app.include_router(advertisers_router)
@@ -140,6 +160,7 @@ app.include_router(campaigns_router)
 app.include_router(audits_router)
 app.include_router(dashboard_router)
 app.include_router(admin_router)
+app.include_router(activities_router)
 
 # --- Pydantic Schemas ---
 class LoginRequest(BaseModel):

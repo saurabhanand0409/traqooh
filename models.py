@@ -253,6 +253,36 @@ class SiteImage(Base):
     site = relationship("Site", back_populates="images")
 
 
+class CampaignActivity(Base):
+    """Execution activity per site within a campaign.
+    Covers the full on-ground lifecycle: print, reprint, mounting, audit,
+    maintenance, take-down, plus campaign start/end. Each entry can carry
+    photos (geo-tagged + timestamped) uploaded from web or the TraqOOH mobile app.
+    """
+    __tablename__ = "campaign_activities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    site_id = Column(Integer, ForeignKey("sites.id"), nullable=False, index=True)
+    assignment_id = Column(Integer, ForeignKey("campaign_site_assignments.id"), nullable=True, index=True)
+
+    activity_type = Column(String, nullable=False)  # PRINT, REPRINT, MOUNTING, AUDIT, MAINTENANCE, TAKEDOWN, START, END
+    status = Column(String, default="PENDING")      # PENDING, DONE, VERIFIED
+    performed_by = Column(String, nullable=True)    # field staff / team member name
+    activity_date = Column(Date, nullable=True)     # when it was actually done
+    notes = Column(Text, nullable=True)
+    image_urls = Column(Text, nullable=True)        # JSON array of photo URLs
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    source = Column(String, default="web")          # web / mobile
+    created_by_user_id = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    campaign = relationship("Campaign")
+    site = relationship("Site")
+
+
 class ActivityLog(Base):
     __tablename__ = "activity_log"
 
