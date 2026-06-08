@@ -7,6 +7,7 @@ import App from "./App.jsx";
 // Login pages
 import EmployeeLogin from "./pages/EmployeeLogin.jsx";
 import AdminLogin from "./pages/AdminLogin.jsx";
+import MasterLogin from "./pages/MasterLogin.jsx";
 import AdvertiserLogin from "./pages/AdvertiserLogin.jsx";
 // Legacy / registration pages (kept for backward compat)
 import MediaOwnerCreate from "./pages/MediaOwnerCreate.jsx";
@@ -39,6 +40,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/login" element={<AdvertiserLogin />} />
         <Route path="/employeelogin" element={<EmployeeLogin />} />
         <Route path="/adminlogin" element={<AdminLogin />} />
+        <Route path="/masterlogin" element={<MasterLogin />} />
 
         {/* Legacy routes — redirect to correct login */}
         <Route path="/get-started" element={<GetStarted />} />

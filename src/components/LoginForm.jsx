@@ -272,14 +272,26 @@ export default function LoginForm({ defaultTab = "employee", allowedRoles = [] }
 
         {/* Footer links */}
         <div className="mt-6 text-center space-y-2">
-          <p className="text-xs" style={{ color: "#4B5563" }}>
-            Advertiser?{" "}
-            <Link to="/login" className="font-semibold transition-colors" style={{ color: "#3B82F6" }}
-              onMouseEnter={e => e.currentTarget.style.color = "#93C5FD"}
-              onMouseLeave={e => e.currentTarget.style.color = "#3B82F6"}>
-              Access your campaign here
-            </Link>
-          </p>
+          {!allowedRoles.includes("ADVERTISER") && (
+            <p className="text-xs" style={{ color: "#4B5563" }}>
+              Advertiser?{" "}
+              <Link to="/login" className="font-semibold transition-colors" style={{ color: "#3B82F6" }}
+                onMouseEnter={e => e.currentTarget.style.color = "#93C5FD"}
+                onMouseLeave={e => e.currentTarget.style.color = "#3B82F6"}>
+                Access your campaign here
+              </Link>
+            </p>
+          )}
+          {!allowedRoles.includes("SUPER_ADMIN") && (
+            <p className="text-xs" style={{ color: "#4B5563" }}>
+              Admin?{" "}
+              <Link to="/adminlogin" className="font-semibold transition-colors" style={{ color: "#3B82F6" }}
+                onMouseEnter={e => e.currentTarget.style.color = "#93C5FD"}
+                onMouseLeave={e => e.currentTarget.style.color = "#3B82F6"}>
+                Admin login here
+              </Link>
+            </p>
+          )}
           <p className="text-xs">
             <Link to="/" className="transition-colors" style={{ color: "#4B5563" }}
               onMouseEnter={e => e.currentTarget.style.color = "#9CA3AF"}
