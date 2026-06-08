@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { requireAuth, signOut } from "../utils/auth";
+import { requireAuth } from "../utils/auth";
+import AppShell from "../components/AppShell";
 
 const API = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
@@ -213,36 +214,25 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#f8f9fb]">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
-        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link to="/dashboard/admin" className="text-xl font-bold text-blue-700">traqOOH</Link>
-            <span className="text-xs bg-purple-100 text-purple-700 font-semibold px-2 py-0.5 rounded-full">Admin</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500 hidden md:block">{user.displayName || user.email}</span>
-            <button onClick={() => signOut(navigate)} className="text-xs text-gray-500 hover:text-red-500 border px-3 py-1 rounded-lg">Sign Out</button>
-          </div>
-        </div>
-      </header>
+    <AppShell user={user}>
+      <div>
+        <h1 className="font-syne font-extrabold text-2xl text-white mb-0.5">Admin Dashboard</h1>
+        <p className="text-sm mb-6" style={{ color: "var(--gray2)" }}>Manage media users, vendors, and monitor platform activity</p>
+      </div>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 space-y-5">
-        <div>
-          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Manage media users, vendors, and monitor platform activity</p>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex border-b overflow-x-auto">
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition ${activeTab === t.id ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-              {t.icon} {t.label}
-            </button>
-          ))}
-        </div>
+      {/* Tabs */}
+      <div className="flex overflow-x-auto mb-6" style={{ borderBottom: "1px solid var(--border)" }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            className="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition"
+            style={activeTab === t.id
+              ? { borderColor: "#2563EB", color: "#3B82F6" }
+              : { borderColor: "transparent", color: "var(--gray2)" }}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
 
         {/* ==================== OVERVIEW TAB ==================== */}
         {activeTab === "overview" && (
@@ -616,7 +606,6 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
-      </main>
 
       {/* ==================== MEDIA USER MODAL ==================== */}
       {showMUModal && (
@@ -738,6 +727,6 @@ export default function AdminDashboard() {
           </form>
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }

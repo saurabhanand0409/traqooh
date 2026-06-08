@@ -1,26 +1,25 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import EmployeeNav from "../components/EmployeeNav";
-import UserMenu from "../components/UserMenu";
+import AppShell from "../components/AppShell";
 import {
   Target, Search, Plus, Calendar, IndianRupee, MapPin, Trash2,
   X, LayoutList, PlusCircle, CheckSquare, Square, Edit2,
-  ChevronRight, Building2, Image as ImageIcon, Filter, Send, Copy, Check, ExternalLink
+  ChevronRight, Image as ImageIcon, Filter, Send, Copy, Check, ExternalLink
 } from "lucide-react";
 
 const API = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
-const statusColors = {
-  DRAFT: "bg-gray-100 text-gray-700 border-gray-200",
-  PLANNED: "bg-blue-50 text-blue-700 border-blue-200",
-  LIVE: "bg-green-50 text-green-700 border-green-200",
-  COMPLETED: "bg-purple-50 text-purple-700 border-purple-200",
-  CANCELLED: "bg-red-50 text-red-700 border-red-200",
+const STATUS_CLS = {
+  DRAFT:     "badge-draft",
+  PLANNED:   "badge-planned",
+  LIVE:      "badge-live",
+  COMPLETED: "badge-completed",
+  CANCELLED: "bg-red-500/15 text-red-400 border border-red-500/20",
 };
 
 function StatusBadge({ status }) {
   return (
-    <span className={`px-2.5 py-1 rounded-md text-[10px] uppercase font-bold tracking-widest border ${statusColors[status] || statusColors.DRAFT}`}>
+    <span className={`px-2.5 py-1 rounded-lg text-[10px] uppercase font-bold tracking-widest ${STATUS_CLS[status] || STATUS_CLS.DRAFT}`}>
       {status}
     </span>
   );
@@ -266,224 +265,248 @@ export default function Campaigns() {
   const unlinkedInPicker = pickerSites.filter(s => !linkedSiteIds.has(s.id));
 
   return (
-    <div className="min-h-screen bg-[#f3f4f6] text-[#0f172a] font-sans">
-      {/* Top Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 h-16">
-        <div className="mx-auto max-w-7xl px-5 h-full flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-lg shadow-blue-500/30 text-white grid place-items-center">
-              <span className="font-bold text-xl leading-none">t</span>
-            </div>
-            <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-800 to-indigo-900 tracking-tight">traqOOH</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <UserMenu user={user} />
-          </div>
+    <AppShell user={user}>
+      {/* Page Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+        <div>
+          <h1 className="font-syne font-extrabold text-2xl text-white">Campaigns</h1>
+          <p className="text-sm mt-0.5" style={{ color: "var(--gray2)" }}>Create, manage, and track advertising campaigns.</p>
         </div>
-      </header>
+        <button
+          onClick={openCreate}
+          className="inline-flex items-center gap-2 rounded-xl text-white px-4 py-2.5 text-sm font-bold transition-all hover:brightness-110"
+          style={{ background: "linear-gradient(135deg,#2563EB,#DC143C)" }}
+        >
+          <Plus className="w-4 h-4" /> New Campaign
+        </button>
+      </div>
 
-      <EmployeeNav />
-
-      <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Campaign Requests</h1>
-            <p className="text-gray-500 mt-1 font-medium">Create, manage, and track advertising campaigns.</p>
-          </div>
-          <button onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 text-white px-5 py-2.5 text-sm font-semibold shadow-sm hover:bg-blue-700 hover:shadow-md transition">
-            <Plus className="w-5 h-5" /> New Campaign
-          </button>
+      {/* Filter Bar */}
+      <div className="glass rounded-xl p-3 flex flex-col md:flex-row gap-3 items-center mb-6">
+        <div
+          className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg w-full"
+          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)" }}
+        >
+          <Search className="w-4 h-4 flex-shrink-0" style={{ color: "var(--gray2)" }} />
+          <input
+            type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search campaigns or advertisers..."
+            className="w-full bg-transparent border-none outline-none text-sm"
+            style={{ color: "#fff" }}
+          />
         </div>
+        <div className="flex flex-wrap gap-2 md:ml-auto">
+          {["", "DRAFT", "PLANNED", "LIVE", "COMPLETED", "CANCELLED"].map(s => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className="px-3 py-1.5 rounded-full text-xs font-bold uppercase transition-all"
+              style={statusFilter === s
+                ? { background: "#2563EB", color: "#fff" }
+                : { background: "rgba(255,255,255,0.06)", color: "var(--gray)", border: "1px solid var(--border)" }}
+            >
+              {s || "All"}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        {/* Filter Bar */}
-        <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-3 flex flex-col md:flex-row gap-4 items-center">
-          <div className="flex-1 flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 w-full">
-            <Search className="w-5 h-5 text-gray-400" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search campaigns or advertisers..." className="w-full bg-transparent border-none outline-none text-sm font-medium" />
-          </div>
-          <div className="flex flex-wrap gap-2 md:ml-auto">
-            {["", "DRAFT", "PLANNED", "LIVE", "COMPLETED", "CANCELLED"].map(s => (
+      {/* Campaign Cards */}
+      {loading ? (
+        <div className="py-20 flex flex-col items-center justify-center animate-pulse">
+          <Target className="w-10 h-10 mb-3" style={{ color: "var(--gray3)" }} />
+          <p className="font-semibold text-sm uppercase tracking-wider" style={{ color: "var(--gray2)" }}>Loading Campaigns...</p>
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-2 gap-4">
+          {filtered.map(c => (
+            <div
+              key={c.id}
+              className="glass rounded-2xl p-5 hover:border-white/15 transition-all group flex flex-col justify-between cursor-pointer relative"
+              onClick={() => openPanel(c)}
+            >
               <button
-                key={s}
-                onClick={() => setStatusFilter(s)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold uppercase transition ${statusFilter === s ? "bg-blue-600 text-white shadow-md shadow-blue-500/30" : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"}`}
+                onClick={(e) => handleDelete(c, e)}
+                className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-all z-10"
+                style={{ background: "rgba(220,20,60,0.1)", color: "#F87171", border: "1px solid rgba(220,20,60,0.2)" }}
+                title="Delete campaign"
               >
-                {s || "All"}
+                <Trash2 className="w-4 h-4" />
               </button>
-            ))}
-          </div>
-        </div>
 
-        {/* Campaign Cards */}
-        {loading ? (
-          <div className="py-20 flex flex-col items-center justify-center text-gray-500 animate-pulse">
-            <Target className="w-10 h-10 mb-3 text-gray-300" />
-            <p className="font-semibold text-sm uppercase tracking-wider">Loading Campaigns...</p>
-          </div>
-        ) : (
-          <div className="grid lg:grid-cols-2 gap-4">
-            {filtered.map(c => (
-              <div
-                key={c.id}
-                className="bg-white rounded-2xl border border-gray-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] p-5 hover:shadow-lg hover:border-blue-100 transition-all group flex flex-col justify-between cursor-pointer relative"
-                onClick={() => openPanel(c)}
-              >
-                {/* Hover-reveal delete button */}
-                <button
-                  onClick={(e) => handleDelete(c, e)}
-                  className="absolute top-3 right-3 p-1.5 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all shadow-sm z-10"
-                  title="Delete campaign"
+              <div>
+                <div className="flex items-start justify-between mb-2 pr-8">
+                  <h3 className="font-syne font-bold text-lg text-white leading-tight">{c.name}</h3>
+                  <StatusBadge status={c.status} />
+                </div>
+                <div className="text-sm mb-4" style={{ color: "var(--gray)" }}>
+                  {c.advertiserName || "Unknown Advertiser"}
+                  <span style={{ color: "var(--gray2)" }}> · {c.campaignType || "Standard"}</span>
+                </div>
+                <div
+                  className="flex flex-wrap gap-4 text-xs font-semibold rounded-xl p-3"
+                  style={{ background: "rgba(255,255,255,0.04)", color: "var(--gray)" }}
                 >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5" style={{ color: "#3B82F6" }} />
+                    {c.startDate || "TBD"} → {c.endDate || "TBD"}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5" style={{ color: "#22C55E" }} />
+                    {c.siteCount} Site{c.siteCount !== 1 ? "s" : ""}
+                  </div>
+                </div>
+              </div>
 
+              <div className="mt-4 pt-4 flex items-center justify-between" style={{ borderTop: "1px solid var(--border)" }}>
                 <div>
-                  <div className="flex items-start justify-between mb-2 pr-8">
-                    <h3 className="font-bold text-xl text-gray-900 leading-tight group-hover:text-blue-700 transition">{c.name}</h3>
-                    <StatusBadge status={c.status} />
-                  </div>
-                  <div className="text-sm font-semibold text-gray-600 mb-4">
-                    {c.advertiserName || "Unknown Advertiser"} • <span className="text-gray-400 font-medium">{c.campaignType || "Standard"}</span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-4 text-xs font-semibold text-gray-600 bg-gray-50 rounded-xl p-3 border border-gray-100">
-                    <div className="flex items-center gap-1.5"><Calendar className="w-4 h-4 text-blue-500" />{c.startDate || "TBD"} → {c.endDate || "TBD"}</div>
-                    <div className="flex items-center gap-1.5"><MapPin className="w-4 h-4 text-green-500" />{c.siteCount} Site{c.siteCount !== 1 ? "s" : ""}</div>
-                  </div>
+                  <div className="text-[10px] uppercase font-bold tracking-wider mb-0.5" style={{ color: "var(--gray2)" }}>Booking Value</div>
+                  <div className="text-lg font-bold text-white">₹{Number(c.totalCost || 0).toLocaleString("en-IN")}</div>
                 </div>
-
-                <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between">
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Total Booking Value</div>
-                    <div className="text-lg font-bold text-gray-900">₹{Number(c.totalCost || 0).toLocaleString("en-IN")}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={(e) => openEdit(c, e)}
-                      className="flex items-center gap-1.5 text-gray-500 hover:text-blue-600 font-semibold text-xs border border-gray-200 hover:border-blue-200 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition opacity-0 group-hover:opacity-100"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" /> Edit
-                    </button>
-                    <div className="text-blue-600 font-semibold text-sm opacity-0 group-hover:opacity-100 transition bg-blue-50 px-3 py-1.5 rounded-lg flex items-center gap-1">
-                      View <ChevronRight className="w-4 h-4" />
-                    </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => openEdit(c, e)}
+                    className="flex items-center gap-1.5 font-semibold text-xs px-3 py-1.5 rounded-lg transition opacity-0 group-hover:opacity-100"
+                    style={{ color: "var(--gray)", border: "1px solid var(--border)" }}
+                    onMouseEnter={e => { e.currentTarget.style.color = "#3B82F6"; e.currentTarget.style.borderColor = "rgba(59,130,246,0.4)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = "var(--gray)"; e.currentTarget.style.borderColor = "var(--border)"; }}
+                  >
+                    <Edit2 className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <div
+                    className="font-semibold text-sm opacity-0 group-hover:opacity-100 transition px-3 py-1.5 rounded-lg flex items-center gap-1"
+                    style={{ color: "#3B82F6", background: "rgba(37,99,235,0.12)" }}
+                  >
+                    View <ChevronRight className="w-4 h-4" />
                   </div>
                 </div>
               </div>
-            ))}
-            {filtered.length === 0 && (
-              <div className="col-span-1 lg:col-span-2 py-16 flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-3xl bg-white text-center">
-                <Target className="w-12 h-12 text-gray-300 mb-4" />
-                <h3 className="text-lg font-bold text-gray-900">No campaigns found</h3>
-                <p className="text-gray-500 mt-1 max-w-sm">You haven't created any campaigns matching this criteria yet.</p>
-              </div>
-            )}
-          </div>
-        )}
-      </main>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div
+              className="col-span-1 lg:col-span-2 py-16 flex flex-col items-center justify-center rounded-2xl text-center"
+              style={{ border: "2px dashed var(--border)" }}
+            >
+              <Target className="w-12 h-12 mb-4" style={{ color: "var(--gray3)" }} />
+              <h3 className="text-lg font-bold text-white">No campaigns found</h3>
+              <p className="text-sm mt-1 max-w-sm" style={{ color: "var(--gray2)" }}>Create your first campaign to get started.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Campaign Detail Panel */}
       {panel && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden" style={{ maxHeight: "92vh" }}>
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div
+            className="w-full max-w-5xl flex flex-col overflow-hidden rounded-2xl"
+            style={{ maxHeight: "92vh", background: "#0D1428", border: "1px solid var(--border)" }}
+          >
             {detailLoading || !detail ? (
-              <div className="flex-1 flex items-center justify-center py-24 text-gray-400 animate-pulse">
-                <Target className="w-10 h-10 mr-3 text-gray-300" />
-                <span className="text-sm font-semibold uppercase tracking-wider">Loading campaign...</span>
+              <div className="flex-1 flex items-center justify-center py-24 animate-pulse">
+                <Target className="w-10 h-10 mr-3" style={{ color: "var(--gray3)" }} />
+                <span className="text-sm font-semibold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>Loading campaign...</span>
               </div>
             ) : (
               <>
                 {/* Panel Header */}
-                <div className="bg-gradient-to-r from-blue-700 to-indigo-700 px-6 py-5 text-white flex-shrink-0">
+                <div
+                  className="px-6 py-5 flex-shrink-0"
+                  style={{ background: "linear-gradient(135deg,rgba(37,99,235,0.3),rgba(220,20,60,0.15))", borderBottom: "1px solid var(--border)" }}
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <StatusBadge status={detail.status} />
-                        {detail.campaignType && <span className="text-blue-200 text-xs font-semibold">{detail.campaignType}</span>}
+                        {detail.campaignType && <span className="text-xs font-semibold" style={{ color: "var(--gray)" }}>{detail.campaignType}</span>}
                         {detail.isSentToAdvertiser && (
-                          <span className="flex items-center gap-1 bg-green-400/30 text-green-200 border border-green-300/40 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                          <span className="flex items-center gap-1 badge-done px-2 py-0.5 rounded-full text-[10px] font-bold">
                             <Check className="w-3 h-3" /> Sent to Advertiser
                           </span>
                         )}
                       </div>
-                      <h2 className="text-2xl font-extrabold leading-tight truncate">{detail.name}</h2>
-                      <p className="text-blue-200 text-sm mt-0.5 font-medium">{detail.advertiserName}</p>
+                      <h2 className="font-syne font-extrabold text-2xl text-white leading-tight truncate">{detail.name}</h2>
+                      <p className="text-sm mt-0.5" style={{ color: "var(--gray)" }}>{detail.advertiserName}</p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button
-                        onClick={handleSend}
-                        disabled={sending}
-                        className="flex items-center gap-1.5 bg-green-500/80 hover:bg-green-500 px-3 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-60"
-                        title="Generate a shareable link for the advertiser"
+                        onClick={handleSend} disabled={sending}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-60"
+                        style={{ background: "rgba(34,197,94,0.15)", color: "#4ADE80", border: "1px solid rgba(34,197,94,0.25)" }}
                       >
                         <Send className="w-3.5 h-3.5" />
                         {sending ? "Sending..." : "Send to Advertiser"}
                       </button>
-                      <button onClick={(e) => openEdit(detail, e)} className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                      <button
+                        onClick={(e) => openEdit(detail, e)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                        style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}
+                      >
                         <Edit2 className="w-3.5 h-3.5" /> Edit
                       </button>
-                      <button onClick={(e) => handleDelete(detail, e)} className="flex items-center gap-1.5 bg-red-500/80 hover:bg-red-500 px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                      <button
+                        onClick={(e) => handleDelete(detail, e)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                        style={{ background: "rgba(220,20,60,0.12)", color: "#F87171", border: "1px solid rgba(220,20,60,0.2)" }}
+                      >
                         <Trash2 className="w-3.5 h-3.5" /> Delete
                       </button>
-                      <button onClick={() => setPanel(false)} className="p-2 bg-white/20 hover:bg-white/30 rounded-lg transition">
+                      <button
+                        onClick={() => setPanel(false)}
+                        className="p-2 rounded-lg transition"
+                        style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}
+                      >
                         <X className="w-5 h-5" />
                       </button>
                     </div>
                   </div>
-
-                  {/* Info chips */}
-                  <div className="mt-4 flex flex-wrap gap-3 text-xs font-semibold text-blue-100">
-                    <span className="flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-lg">
-                      <Calendar className="w-3.5 h-3.5" /> {detail.startDate || "TBD"} → {detail.endDate || "TBD"}
-                    </span>
-                    <span className="flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-lg">
-                      <MapPin className="w-3.5 h-3.5" /> {detail.assignments?.length || 0} Sites
-                    </span>
-                    <span className="flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-lg">
-                      <IndianRupee className="w-3.5 h-3.5" /> ₹{Number(detail.totalCost || 0).toLocaleString("en-IN")}
-                    </span>
-                    {detail.internalOwner && (
-                      <span className="flex items-center gap-1.5 bg-white/10 px-3 py-1.5 rounded-lg">
-                        Owner: {detail.internalOwner}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Tabs */}
-                <div className="border-b border-gray-200 flex-shrink-0">
-                  <div className="flex gap-1 px-4 pt-2">
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
                     {[
-                      { id: "sites", label: "Linked Sites", icon: <LayoutList className="w-4 h-4" />, count: detail.assignments?.length },
-                      { id: "add", label: "Add Sites", icon: <PlusCircle className="w-4 h-4" /> },
-                    ].map(tab => (
-                      <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-lg border-b-2 transition ${activeTab === tab.id ? "border-blue-600 text-blue-700 bg-blue-50" : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`}
-                      >
-                        {tab.icon}
-                        {tab.label}
-                        {tab.count !== undefined && (
-                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${activeTab === tab.id ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600"}`}>
-                            {tab.count}
-                          </span>
-                        )}
-                      </button>
+                      { icon: <Calendar className="w-3.5 h-3.5"/>, text: `${detail.startDate || "TBD"} → ${detail.endDate || "TBD"}` },
+                      { icon: <MapPin className="w-3.5 h-3.5"/>, text: `${detail.assignments?.length || 0} Sites` },
+                      { icon: <IndianRupee className="w-3.5 h-3.5"/>, text: `₹${Number(detail.totalCost || 0).toLocaleString("en-IN")}` },
+                    ].map((chip, i) => (
+                      <span key={i} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{ background: "rgba(255,255,255,0.06)", color: "var(--gray)" }}>
+                        {chip.icon}{chip.text}
+                      </span>
                     ))}
                   </div>
                 </div>
 
+                {/* Tabs */}
+                <div className="flex gap-1 px-4 pt-2 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+                  {[
+                    { id: "sites", label: "Linked Sites", icon: <LayoutList className="w-4 h-4" />, count: detail.assignments?.length },
+                    { id: "add", label: "Add Sites", icon: <PlusCircle className="w-4 h-4" /> },
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-t-lg border-b-2 transition"
+                      style={activeTab === tab.id
+                        ? { borderColor: "#2563EB", color: "#3B82F6" }
+                        : { borderColor: "transparent", color: "var(--gray2)" }}
+                    >
+                      {tab.icon}{tab.label}
+                      {tab.count !== undefined && (
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold" style={activeTab === tab.id ? { background: "#2563EB", color: "#fff" } : { background: "rgba(255,255,255,0.1)", color: "var(--gray)" }}>
+                          {tab.count}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
                 {/* Tab Content */}
                 <div className="flex-1 overflow-y-auto">
-                  {/* Linked Sites Tab */}
                   {activeTab === "sites" && (
                     <div className="p-4 space-y-2">
                       {detail.assignments?.length === 0 && (
-                        <div className="py-16 flex flex-col items-center text-gray-400">
-                          <MapPin className="w-10 h-10 mb-3 text-gray-300" />
-                          <p className="font-semibold text-sm">No sites linked yet.</p>
-                          <p className="text-xs mt-1 text-gray-400">Click "Add Sites" to assign sites to this campaign.</p>
+                        <div className="py-16 flex flex-col items-center">
+                          <MapPin className="w-10 h-10 mb-3" style={{ color: "var(--gray3)" }} />
+                          <p className="font-semibold text-sm text-white">No sites linked yet.</p>
+                          <p className="text-xs mt-1" style={{ color: "var(--gray2)" }}>Click "Add Sites" to assign sites to this campaign.</p>
                         </div>
                       )}
                       {(detail.assignments || []).map(a => (
@@ -492,119 +515,69 @@ export default function Campaigns() {
                     </div>
                   )}
 
-                  {/* Add Sites Tab */}
                   {activeTab === "add" && (
                     <div className="flex flex-col h-full">
-                      {/* Filter bar */}
-                      <div className="p-4 border-b border-gray-100 bg-gray-50 flex-shrink-0">
+                      <div className="p-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)", background: "rgba(255,255,255,0.02)" }}>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {[
+                            { key: "state", placeholder: "e.g. Maharashtra", label: "State" },
+                            { key: "city", placeholder: "e.g. Mumbai", label: "City" },
+                          ].map(f => (
+                            <div key={f.key}>
+                              <label className="text-[10px] font-bold uppercase tracking-wider block mb-1" style={{ color: "var(--gray2)" }}>{f.label}</label>
+                              <input
+                                value={siteFilters[f.key]}
+                                onChange={e => setSiteFilters(prev => ({ ...prev, [f.key]: e.target.value }))}
+                                placeholder={f.placeholder}
+                                className="tq-input py-2"
+                              />
+                            </div>
+                          ))}
                           <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">State</label>
-                            <input
-                              value={siteFilters.state}
-                              onChange={e => setSiteFilters(f => ({ ...f, state: e.target.value }))}
-                              placeholder="e.g. Maharashtra"
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">City</label>
-                            <input
-                              value={siteFilters.city}
-                              onChange={e => setSiteFilters(f => ({ ...f, city: e.target.value }))}
-                              placeholder="e.g. Mumbai"
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">Vendor</label>
-                            <select
-                              value={siteFilters.vendorId}
-                              onChange={e => setSiteFilters(f => ({ ...f, vendorId: e.target.value }))}
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                            >
+                            <label className="text-[10px] font-bold uppercase tracking-wider block mb-1" style={{ color: "var(--gray2)" }}>Vendor</label>
+                            <select value={siteFilters.vendorId} onChange={e => setSiteFilters(f => ({ ...f, vendorId: e.target.value }))} className="tq-input select py-2">
                               <option value="">All Vendors</option>
                               {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                             </select>
                           </div>
                           <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block mb-1">Type</label>
-                            <select
-                              value={siteFilters.siteType}
-                              onChange={e => setSiteFilters(f => ({ ...f, siteType: e.target.value }))}
-                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                            >
+                            <label className="text-[10px] font-bold uppercase tracking-wider block mb-1" style={{ color: "var(--gray2)" }}>Type</label>
+                            <select value={siteFilters.siteType} onChange={e => setSiteFilters(f => ({ ...f, siteType: e.target.value }))} className="tq-input select py-2">
                               <option value="">All Types</option>
-                              {["Billboard", "Hoarding", "Unipole", "LED", "Digital Screen", "Gantry", "Bus Shelter"].map(t => (
-                                <option key={t} value={t}>{t}</option>
-                              ))}
+                              {["Billboard","Hoarding","Unipole","LED","Digital Screen","Gantry","Bus Shelter"].map(t => <option key={t} value={t}>{t}</option>)}
                             </select>
                           </div>
                         </div>
                         <div className="mt-3 flex items-center gap-3">
-                          <button
-                            onClick={applyPickerFilters}
-                            disabled={pickerLoading}
-                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-60"
-                          >
-                            <Filter className="w-4 h-4" />
-                            {pickerLoading ? "Searching..." : "Apply Filters"}
+                          <button onClick={applyPickerFilters} disabled={pickerLoading} className="flex items-center gap-2 text-white px-4 py-2 rounded-xl text-sm font-semibold transition disabled:opacity-60" style={{ background: "#2563EB" }}>
+                            <Filter className="w-4 h-4" />{pickerLoading ? "Searching..." : "Apply Filters"}
                           </button>
-                          {pickerSearched && (
-                            <span className="text-sm text-gray-500 font-medium">
-                              {pickerSites.length} site{pickerSites.length !== 1 ? "s" : ""} found
-                              {unlinkedInPicker.length !== pickerSites.length && ` (${linkedSiteIds.size} already linked)`}
-                            </span>
-                          )}
+                          {pickerSearched && <span className="text-sm" style={{ color: "var(--gray2)" }}>{pickerSites.length} sites found</span>}
                           {unlinkedInPicker.length > 0 && (
-                            <button
-                              onClick={handleSelectAll}
-                              className="ml-auto text-xs font-bold text-blue-600 hover:text-blue-800 transition"
-                            >
+                            <button onClick={handleSelectAll} className="ml-auto text-xs font-bold transition" style={{ color: "#3B82F6" }}>
                               {selectedIds.size === unlinkedInPicker.length ? "Clear All" : `Select All (${unlinkedInPicker.length})`}
                             </button>
                           )}
                         </div>
                       </div>
 
-                      {/* Site list */}
                       <div className="flex-1 overflow-y-auto p-4 space-y-2 pb-20">
                         {!pickerSearched && (
-                          <div className="py-16 flex flex-col items-center text-gray-400">
-                            <Filter className="w-10 h-10 mb-3 text-gray-300" />
-                            <p className="font-semibold text-sm">Set filters and click Apply Filters</p>
-                            <p className="text-xs mt-1">Leave all fields empty to see all available sites.</p>
-                          </div>
-                        )}
-                        {pickerSearched && pickerSites.length === 0 && !pickerLoading && (
-                          <div className="py-16 flex flex-col items-center text-gray-400">
-                            <MapPin className="w-10 h-10 mb-3 text-gray-300" />
-                            <p className="font-semibold text-sm">No sites match these filters.</p>
+                          <div className="py-16 flex flex-col items-center">
+                            <Filter className="w-10 h-10 mb-3" style={{ color: "var(--gray3)" }} />
+                            <p className="font-semibold text-sm text-white">Set filters and click Apply Filters</p>
                           </div>
                         )}
                         {pickerSites.map(s => {
                           const isLinked = linkedSiteIds.has(s.id);
                           const isSelected = selectedIds.has(s.id);
-                          return (
-                            <PickerSiteRow
-                              key={s.id}
-                              site={s}
-                              isLinked={isLinked}
-                              isSelected={isSelected}
-                              onToggle={() => togglePickerSite(s.id, isLinked)}
-                            />
-                          );
+                          return <PickerSiteRow key={s.id} site={s} isLinked={isLinked} isSelected={isSelected} onToggle={() => togglePickerSite(s.id, isLinked)} />;
                         })}
                       </div>
 
-                      {/* Sticky add button */}
                       {selectedIds.size > 0 && (
-                        <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 shadow-lg">
-                          <button
-                            onClick={handleAddSelected}
-                            disabled={adding}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition disabled:opacity-60 flex items-center justify-center gap-2"
-                          >
+                        <div className="p-4" style={{ borderTop: "1px solid var(--border)", background: "rgba(255,255,255,0.02)" }}>
+                          <button onClick={handleAddSelected} disabled={adding} className="w-full text-white font-bold py-3 rounded-xl text-sm transition disabled:opacity-60 flex items-center justify-center gap-2" style={{ background: "linear-gradient(135deg,#2563EB,#1d50c8)" }}>
                             <Plus className="w-4 h-4" />
                             {adding ? "Adding..." : `Add ${selectedIds.size} Selected Site${selectedIds.size !== 1 ? "s" : ""}`}
                           </button>
@@ -621,47 +594,34 @@ export default function Campaigns() {
 
       {/* Send-to-Advertiser Link Modal */}
       {sendModal && sentLink && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-            <div className="bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-5 text-white flex items-start justify-between">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="rounded-2xl w-full max-w-lg overflow-hidden" style={{ background: "#0D1428", border: "1px solid var(--border)" }}>
+            <div className="px-6 py-5 flex items-start justify-between" style={{ background: "rgba(34,197,94,0.1)", borderBottom: "1px solid var(--border)" }}>
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <Send className="w-5 h-5" />
-                  <h3 className="text-lg font-bold">Campaign Link Generated</h3>
-                </div>
-                <p className="text-green-100 text-sm">Share this link with the advertiser to give them access.</p>
+                <div className="flex items-center gap-2 mb-1"><Send className="w-5 h-5" style={{ color: "#4ADE80" }} /><h3 className="text-lg font-bold text-white">Campaign Link Generated</h3></div>
+                <p className="text-sm" style={{ color: "var(--gray)" }}>Share this link with the advertiser to give them access.</p>
               </div>
-              <button onClick={() => { setSendModal(false); setSentLink(null); setCopied(false); }} className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition">
+              <button onClick={() => { setSendModal(false); setSentLink(null); setCopied(false); }} className="p-1.5 rounded-lg transition" style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}>
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-2">Advertiser Access Link</label>
-                <div className="flex gap-2">
-                  <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono text-gray-700 break-all select-all">
-                    {sentLink.accessUrl}
-                  </div>
+                <label className="text-xs font-bold uppercase tracking-wider block mb-2" style={{ color: "var(--gray2)" }}>Advertiser Access Link</label>
+                <div className="px-4 py-3 rounded-xl text-sm font-mono break-all select-all" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", color: "#9CA3AF" }}>
+                  {sentLink.accessUrl}
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={handleCopyLink}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition ${copied ? "bg-green-100 text-green-700 border border-green-200" : "bg-blue-600 text-white hover:bg-blue-700"}`}
-                  >
+                  <button onClick={handleCopyLink} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold text-white transition" style={{ background: copied ? "rgba(34,197,94,0.2)" : "#2563EB", color: copied ? "#4ADE80" : "#fff" }}>
                     {copied ? <><Check className="w-4 h-4" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Link</>}
                   </button>
-                  <a
-                    href={sentLink.accessUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
-                  >
+                  <a href={sentLink.accessUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold transition" style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}>
                     <ExternalLink className="w-4 h-4" /> Preview
                   </a>
                 </div>
               </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700 font-medium">
-                ⏳ This link expires on <span className="font-bold">{new Date(sentLink.expiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</span>. You can generate a new link anytime.
+              <div className="px-4 py-3 rounded-xl text-xs" style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)", color: "#FCD34D" }}>
+                Link expires on <span className="font-bold">{new Date(sentLink.expiresAt).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</span>. You can generate a new link anytime.
               </div>
             </div>
           </div>
@@ -670,121 +630,102 @@ export default function Campaigns() {
 
       {/* Edit/Create Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-              <h2 className="text-xl font-bold tracking-tight text-gray-900 flex items-center gap-2">
-                <Target className="w-5 h-5 text-blue-600" /> {editing ? "Edit Campaign" : "New Campaign"}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <form onSubmit={handleSubmit} className="rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col" style={{ maxHeight: "90vh", background: "#0D1428", border: "1px solid var(--border)" }}>
+            <div className="px-6 py-5 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+              <h2 className="font-syne font-bold text-xl text-white flex items-center gap-2">
+                <Target className="w-5 h-5" style={{ color: "#2563EB" }} /> {editing ? "Edit Campaign" : "New Campaign"}
               </h2>
-              <button type="button" onClick={() => { setShowModal(false); setEditing(null); }} className="p-2 bg-white rounded-full hover:bg-gray-200 shadow-sm border border-gray-200 transition text-gray-500">✕</button>
+              <button type="button" onClick={() => { setShowModal(false); setEditing(null); }} className="p-2 rounded-xl transition text-white" style={{ background: "rgba(255,255,255,0.08)" }}>✕</button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 space-y-5">
-              <div className="grid md:grid-cols-2 gap-5">
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Campaign Name *</label>
-                  <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="e.g. Summer Mega Sale" required />
+                  <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Campaign Name *</label>
+                  <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="tq-input" placeholder="e.g. Summer Mega Sale" required />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Advertiser *</label>
-                  <select value={form.advertiserId} onChange={e => setForm({ ...form, advertiserId: e.target.value })} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer" required>
+                  <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Advertiser *</label>
+                  <select value={form.advertiserId} onChange={e => setForm({ ...form, advertiserId: e.target.value })} className="tq-input" required>
                     <option value="">Select advertiser...</option>
                     {advertisers.map(a => <option key={a.id} value={a.id}>{a.companyName}</option>)}
                   </select>
                 </div>
               </div>
-
-              <div className="grid md:grid-cols-2 gap-5">
+              <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Start Date</label>
-                  <input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" />
+                  <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Start Date</label>
+                  <input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} className="tq-input" />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">End Date</label>
-                  <input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" />
+                  <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>End Date</label>
+                  <input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} className="tq-input" />
                 </div>
               </div>
-
-              <div className="grid md:grid-cols-2 gap-5">
+              <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Total Cost (₹)</label>
-                  <div className="relative">
-                    <IndianRupee className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input type="number" value={form.totalCost} onChange={e => setForm({ ...form, totalCost: e.target.value })} className="w-full border-gray-300 rounded-xl pl-10 pr-4 py-3 bg-gray-50 focus:bg-white text-sm font-semibold focus:ring-2 focus:ring-blue-500 outline-none transition" />
-                  </div>
+                  <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Total Cost (₹)</label>
+                  <input type="number" value={form.totalCost} onChange={e => setForm({ ...form, totalCost: e.target.value })} className="tq-input" />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Campaign Status</label>
-                  <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm font-bold uppercase focus:ring-2 focus:ring-blue-500 outline-none transition cursor-pointer">
-                    {["DRAFT", "PLANNED", "LIVE", "COMPLETED", "CANCELLED"].map(s => <option key={s} value={s}>{s}</option>)}
+                  <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Status</label>
+                  <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} className="tq-input">
+                    {["DRAFT","PLANNED","LIVE","COMPLETED","CANCELLED"].map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               </div>
-
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Campaign Type</label>
-                <input value={form.campaignType} onChange={e => setForm({ ...form, campaignType: e.target.value })} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="e.g. Billboard, Digital, Print" />
+                <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Campaign Type</label>
+                <input value={form.campaignType} onChange={e => setForm({ ...form, campaignType: e.target.value })} className="tq-input" placeholder="e.g. Billboard, Digital, Print" />
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Internal Owner</label>
-                <input value={form.internalOwner} onChange={e => setForm({ ...form, internalOwner: e.target.value })} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Team member name" />
+                <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Internal Owner</label>
+                <input value={form.internalOwner} onChange={e => setForm({ ...form, internalOwner: e.target.value })} className="tq-input" placeholder="Team member name" />
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">Notes & Remarks</label>
-                <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full border-gray-300 rounded-xl px-4 py-3 bg-gray-50 focus:bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none transition" rows={3} placeholder="Add any details or instructions here..." />
+                <label className="text-xs font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Notes</label>
+                <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="tq-input resize-none" rows={3} placeholder="Add any details or instructions..." />
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-4">
-              <button type="button" onClick={() => { setShowModal(false); setEditing(null); }} className="flex-1 px-5 py-3 rounded-xl text-sm font-bold bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 transition shadow-sm">Cancel</button>
-              <button type="submit" className="flex-1 px-5 py-3 rounded-xl text-sm font-bold bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg transition shadow-blue-600/30">{editing ? "Update Campaign" : "Create Campaign"}</button>
+            <div className="p-5 flex gap-3 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
+              <button type="button" onClick={() => { setShowModal(false); setEditing(null); }} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition" style={{ background: "rgba(255,255,255,0.06)", color: "var(--gray)", border: "1px solid var(--border)" }}>Cancel</button>
+              <button type="submit" className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition" style={{ background: "linear-gradient(135deg,#2563EB,#1d50c8)" }}>{editing ? "Update Campaign" : "Create Campaign"}</button>
             </div>
           </form>
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }
 
 function LinkedSiteRow({ a, onRemove }) {
-  const [hovered, setHovered] = useState(false);
   return (
     <div
-      className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 bg-gray-50 hover:bg-white hover:border-gray-200 hover:shadow-sm transition group"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="flex items-center gap-3 p-3 rounded-xl group transition"
+      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"}
+      onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
     >
       {a.imageUrl ? (
-        <img src={a.imageUrl} alt={a.siteName} className="w-14 h-10 rounded-lg object-cover flex-shrink-0 border border-gray-200" />
+        <img src={a.imageUrl} alt={a.siteName} className="w-14 h-10 rounded-lg object-cover flex-shrink-0" style={{ border: "1px solid var(--border)" }} />
       ) : (
-        <div className="w-14 h-10 rounded-lg bg-gray-200 flex items-center justify-center flex-shrink-0">
-          <ImageIcon className="w-5 h-5 text-gray-400" />
+        <div className="w-14 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,255,255,0.05)" }}>
+          <ImageIcon className="w-5 h-5" style={{ color: "var(--gray2)" }} />
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <div className="font-semibold text-sm text-gray-900 truncate">{a.siteName}</div>
-        <div className="text-xs text-gray-500 font-medium">
+        <div className="font-semibold text-sm text-white truncate">{a.siteName}</div>
+        <div className="text-xs mt-0.5" style={{ color: "var(--gray2)" }}>
           {[a.siteState, a.siteCity].filter(Boolean).join(", ")}
-          {a.vendorName && <span className="text-gray-400"> · {a.vendorName}</span>}
+          {a.vendorName && <span> · {a.vendorName}</span>}
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        {a.siteType && (
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100">
-            {a.siteType}{a.lightingType ? ` (${a.lightingType})` : ""}
-          </span>
-        )}
-        {a.siteSize && (
-          <span className="text-[10px] font-semibold text-gray-500">{a.siteSize}</span>
-        )}
-        {a.potentialMonthly > 0 && (
-          <span className="text-xs font-bold text-green-700">₹{Number(a.potentialMonthly).toLocaleString("en-IN")}</span>
-        )}
-        <button
-          onClick={onRemove}
-          className={`p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition ${hovered ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-          title="Remove site"
-        >
+        {a.siteType && <span className="text-[10px] font-bold px-2 py-0.5 rounded badge-planned">{a.siteType}</span>}
+        {a.potentialMonthly > 0 && <span className="text-xs font-bold" style={{ color: "#4ADE80" }}>₹{Number(a.potentialMonthly).toLocaleString("en-IN")}</span>}
+        <button onClick={onRemove} className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition" style={{ color: "#F87171", background: "rgba(220,20,60,0.1)" }}>
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -796,46 +737,40 @@ function PickerSiteRow({ site, isLinked, isSelected, onToggle }) {
   return (
     <div
       onClick={onToggle}
-      className={`flex items-center gap-3 p-3 rounded-xl border transition cursor-pointer ${
-        isLinked
-          ? "border-green-200 bg-green-50 opacity-70 cursor-default"
-          : isSelected
-          ? "border-blue-400 bg-blue-50 shadow-sm"
-          : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"
-      }`}
+      className="flex items-center gap-3 p-3 rounded-xl transition cursor-pointer"
+      style={{
+        background: isLinked ? "rgba(34,197,94,0.05)" : isSelected ? "rgba(37,99,235,0.12)" : "rgba(255,255,255,0.04)",
+        border: `1px solid ${isLinked ? "rgba(34,197,94,0.2)" : isSelected ? "rgba(37,99,235,0.4)" : "var(--border)"}`,
+        cursor: isLinked ? "default" : "pointer",
+        opacity: isLinked ? 0.7 : 1,
+      }}
     >
       <div className="flex-shrink-0">
         {isLinked ? (
-          <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-green-100 text-green-700 border border-green-200">Added</span>
+          <span className="text-[10px] font-bold px-2 py-1 rounded badge-done">Added</span>
         ) : isSelected ? (
-          <CheckSquare className="w-5 h-5 text-blue-600" />
+          <CheckSquare className="w-5 h-5" style={{ color: "#3B82F6" }} />
         ) : (
-          <Square className="w-5 h-5 text-gray-400" />
+          <Square className="w-5 h-5" style={{ color: "var(--gray2)" }} />
         )}
       </div>
       {site.imageUrl ? (
-        <img src={site.imageUrl} alt={site.name} className="w-12 h-9 rounded-lg object-cover flex-shrink-0 border border-gray-200" />
+        <img src={site.imageUrl} alt={site.name} className="w-12 h-9 rounded-lg object-cover flex-shrink-0" style={{ border: "1px solid var(--border)" }} />
       ) : (
-        <div className="w-12 h-9 rounded-lg bg-gray-200 flex items-center justify-center flex-shrink-0">
-          <ImageIcon className="w-4 h-4 text-gray-400" />
+        <div className="w-12 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,255,255,0.05)" }}>
+          <ImageIcon className="w-4 h-4" style={{ color: "var(--gray2)" }} />
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <div className="font-semibold text-sm text-gray-900 truncate">{site.name}</div>
-        <div className="text-xs text-gray-500">
+        <div className="font-semibold text-sm text-white truncate">{site.name}</div>
+        <div className="text-xs mt-0.5" style={{ color: "var(--gray2)" }}>
           {[site.state, site.city].filter(Boolean).join(", ")}
-          {site.owner?.name && <span className="text-gray-400"> · {site.owner.name}</span>}
+          {site.owner?.name && <span> · {site.owner.name}</span>}
         </div>
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0 text-right">
-        {site.type && (
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-600 border border-gray-200">
-            {site.type}{site.lightingType ? ` (${site.lightingType})` : ""}
-          </span>
-        )}
-        {site.potentialMonthly > 0 && (
-          <span className="text-xs font-bold text-green-700 min-w-[60px]">₹{Number(site.potentialMonthly).toLocaleString("en-IN")}</span>
-        )}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {site.type && <span className="text-[10px] font-bold px-2 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}>{site.type}</span>}
+        {site.potentialMonthly > 0 && <span className="text-xs font-bold" style={{ color: "#4ADE80" }}>₹{Number(site.potentialMonthly).toLocaleString("en-IN")}</span>}
       </div>
     </div>
   );
