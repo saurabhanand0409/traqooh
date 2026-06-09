@@ -152,6 +152,28 @@ def delete_employee_alias(user_id: int, db: Session = Depends(get_db)):
 
 # --- Admin account creation ---
 
+@router.post("/create-super-admin")
+def create_super_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
+    """Create a SUPER_ADMIN (master) account."""
+    from main import hash_password
+    existing = db.query(models.UserAccount).filter(
+        models.UserAccount.email.ilike(req.email.strip())
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+    user = models.UserAccount(
+        email=req.email.lower().strip(),
+        password_hash=hash_password(req.password),
+        role="SUPER_ADMIN",
+        display_name=req.displayName or "Master Admin",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "email": user.email, "role": user.role, "displayName": user.display_name}
+
+
 @router.post("/create-admin")
 def create_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
     """Create an ADMIN account (for initial setup)."""

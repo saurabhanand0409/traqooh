@@ -236,11 +236,31 @@ def health_check():
 def read_root():
     return {"message": "Welcome to the TraqOOH API v2.0!"}
 
-# --- TEMP: List all users (DELETE AFTER USE) ---
+# --- TEMP: List all users ---
 @app.get("/api/temp/list-users")
 def temp_list_users(db: Session = Depends(get_db)):
-    users = db.query(models.UserAccount).all()
-    return [{"id": u.id, "email": u.email, "role": u.role} for u in users]
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT id, email, role FROM user_accounts ORDER BY id"))
+            rows = result.fetchall()
+        return [{"id": r[0], "email": r[1], "role": r[2]} for r in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- TEMP: Safe user creation with full error detail ---
+@app.post("/api/temp/create-user")
+def temp_create_user(email: str, password: str, role: str, display_name: str = "User", db: Session = Depends(get_db)):
+    try:
+        with engine.connect() as conn:
+            from sqlalchemy import text as t
+            conn.execute(t(
+                "INSERT INTO user_accounts (email, password_hash, role, display_name, is_active) "
+                "VALUES (:email, :pw, :role, :dn, TRUE)"
+            ), {"email": email.lower().strip(), "pw": hash_password(password), "role": role.upper(), "dn": display_name})
+            conn.commit()
+        return {"success": True, "email": email, "role": role}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- TEMP: Fix admin by ID — clean email + reset password (DELETE AFTER USE) ---
 @app.put("/api/temp/fix-admin")
