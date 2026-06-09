@@ -25,10 +25,18 @@ class VendorCreate(BaseModel):
 
 def vendor_to_dict(v, db: Session = None):
     media_user_count = 0
+    admin_user = None
+    employee_count = 0
     if db:
-        media_user_count = db.query(models.UserAccount).filter(
+        users = db.query(models.UserAccount).filter(
             models.UserAccount.vendor_id == v.id
-        ).count()
+        ).all()
+        media_user_count = len(users)
+        for u in users:
+            if u.role == "ADMIN":
+                admin_user = {"id": u.id, "email": u.email, "displayName": u.display_name, "isActive": u.is_active}
+            elif u.role in ("EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER"):
+                employee_count += 1
     return {
         "id": v.id, "name": v.name, "contactPerson": v.contact_person,
         "phone": v.phone, "email": v.email, "gstNumber": v.gst_number,
@@ -37,6 +45,8 @@ def vendor_to_dict(v, db: Session = None):
         "createdAt": str(v.created_at) if v.created_at else None,
         "siteCount": len(v.sites) if v.sites else 0,
         "mediaUserCount": media_user_count,
+        "adminUser": admin_user,
+        "employeeCount": employee_count,
     }
 
 
@@ -134,6 +144,106 @@ def delete_vendor(vendor_id: int, db: Session = Depends(get_db)):
     db.commit()
     log_activity(db, f"Deleted vendor '{vendor_name}'", "vendor", vendor_id)
     return {"message": f"Vendor '{vendor_name}' deleted successfully"}
+
+
+class SetAdminRequest(BaseModel):
+    email: str
+    password: str
+    displayName: Optional[str] = None
+
+
+class CreateEmployeeRequest(BaseModel):
+    email: str
+    password: str
+    displayName: Optional[str] = None
+
+
+@router.post("/{vendor_id}/set-admin")
+def set_vendor_admin(vendor_id: int, req: SetAdminRequest, db: Session = Depends(get_db)):
+    """Create or replace the admin login for a company."""
+    from main import hash_password
+
+    v = db.query(models.Company).filter(models.Company.id == vendor_id).first()
+    if not v:
+        raise HTTPException(404, "Company not found")
+
+    # Check if email is already used by someone else
+    existing = db.query(models.UserAccount).filter(
+        models.UserAccount.email.ilike(req.email.strip()),
+        models.UserAccount.vendor_id != vendor_id
+    ).first()
+    if existing:
+        raise HTTPException(409, "Email already in use by another account")
+
+    # If admin already exists for this company, update it
+    current_admin = db.query(models.UserAccount).filter(
+        models.UserAccount.vendor_id == vendor_id,
+        models.UserAccount.role == "ADMIN"
+    ).first()
+
+    if current_admin:
+        current_admin.email = req.email.lower().strip()
+        current_admin.password_hash = hash_password(req.password)
+        if req.displayName:
+            current_admin.display_name = req.displayName
+        db.commit()
+        db.refresh(current_admin)
+        log_activity(db, "Updated admin login", "vendor", vendor_id, v.name)
+        return {"id": current_admin.id, "email": current_admin.email, "role": "ADMIN", "updated": True}
+    else:
+        new_admin = models.UserAccount(
+            email=req.email.lower().strip(),
+            password_hash=hash_password(req.password),
+            role="ADMIN",
+            display_name=req.displayName or req.email.split("@")[0],
+            vendor_id=vendor_id,
+            is_active=True,
+        )
+        db.add(new_admin)
+        db.commit()
+        db.refresh(new_admin)
+        log_activity(db, "Created admin login", "vendor", vendor_id, v.name)
+        return {"id": new_admin.id, "email": new_admin.email, "role": "ADMIN", "updated": False}
+
+
+@router.get("/{vendor_id}/employees")
+def get_vendor_employees(vendor_id: int, db: Session = Depends(get_db)):
+    """List all employees for a company."""
+    employees = db.query(models.UserAccount).filter(
+        models.UserAccount.vendor_id == vendor_id,
+        models.UserAccount.role.in_(["EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER"])
+    ).order_by(models.UserAccount.id).all()
+    return [{"id": u.id, "email": u.email, "displayName": u.display_name, "isActive": u.is_active, "role": u.role} for u in employees]
+
+
+@router.post("/{vendor_id}/employees")
+def add_vendor_employee(vendor_id: int, req: CreateEmployeeRequest, db: Session = Depends(get_db)):
+    """Add an employee to a company."""
+    from main import hash_password
+
+    v = db.query(models.Company).filter(models.Company.id == vendor_id).first()
+    if not v:
+        raise HTTPException(404, "Company not found")
+
+    existing = db.query(models.UserAccount).filter(
+        models.UserAccount.email.ilike(req.email.strip())
+    ).first()
+    if existing:
+        raise HTTPException(409, "Email already registered")
+
+    emp = models.UserAccount(
+        email=req.email.lower().strip(),
+        password_hash=hash_password(req.password),
+        role="EMPLOYEE",
+        display_name=req.displayName or req.email.split("@")[0],
+        vendor_id=vendor_id,
+        is_active=True,
+    )
+    db.add(emp)
+    db.commit()
+    db.refresh(emp)
+    log_activity(db, "Added employee", "vendor", vendor_id, req.email)
+    return {"id": emp.id, "email": emp.email, "displayName": emp.display_name, "role": "EMPLOYEE"}
 
 
 @router.get("/{vendor_id}/sites")
