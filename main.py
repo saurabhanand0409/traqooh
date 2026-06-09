@@ -127,6 +127,20 @@ def run_migrations():
                     if col not in act_cols:
                         conn.execute(text(f"ALTER TABLE campaign_activities ADD COLUMN {col} {typ}"))
                         conn.commit()
+        # OTP tokens table
+        if not inspector.has_table("otp_tokens"):
+            conn.execute(text("""
+                CREATE TABLE otp_tokens (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR NOT NULL,
+                    otp VARCHAR(6) NOT NULL,
+                    expires_at TIMESTAMP NOT NULL,
+                    used BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """))
+            conn.commit()
+            logger.info("Created otp_tokens table")
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
@@ -322,6 +336,144 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         companyName=company_name, advertiserId=user.advertiser_id,
         displayName=user.display_name, token="token-placeholder", success=True
     )
+
+# --- OTP Auth (Mobile App) ---
+import random
+import string
+
+def generate_otp(length=6):
+    return ''.join(random.choices(string.digits, k=length))
+
+def send_otp_email(email: str, otp: str, name: str = None):
+    """Send OTP via Resend if API key is configured, else log to console."""
+    resend_key = os.environ.get("RESEND_API_KEY", "")
+    from_email = os.environ.get("OTP_FROM_EMAIL", "noreply@brandsculpt.com")
+    greeting = f"Hi {name}," if name else "Hi,"
+
+    if resend_key:
+        try:
+            import httpx
+            resp = httpx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                json={
+                    "from": f"TraqOOH <{from_email}>",
+                    "to": [email],
+                    "subject": f"{otp} — Your TraqOOH login code",
+                    "html": f"""
+                    <div style="font-family:sans-serif;max-width:400px;margin:auto;padding:32px;background:#070C1A;border-radius:16px;color:#fff;">
+                      <div style="font-size:24px;font-weight:900;margin-bottom:8px;">
+                        <span style="color:#2563EB;">traq</span><span style="color:#DC143C;">OOH</span>
+                      </div>
+                      <p style="color:#9CA3AF;font-size:13px;margin-bottom:24px;">by BrandSculpt</p>
+                      <p style="color:#E5E7EB;">{greeting}</p>
+                      <p style="color:#E5E7EB;">Your login code is:</p>
+                      <div style="font-size:40px;font-weight:900;letter-spacing:12px;color:#2563EB;margin:24px 0;padding:16px;background:rgba(37,99,235,0.1);border-radius:12px;text-align:center;">
+                        {otp}
+                      </div>
+                      <p style="color:#6B7280;font-size:12px;">Valid for 10 minutes. Do not share this code.</p>
+                    </div>
+                    """
+                },
+                timeout=10
+            )
+            logger.info(f"OTP email sent to {email} via Resend. Status: {resp.status_code}")
+        except Exception as e:
+            logger.error(f"Failed to send OTP email: {e}")
+    else:
+        logger.warning(f"[OTP] No RESEND_API_KEY set. OTP for {email}: {otp}")
+
+
+class SendOtpRequest(BaseModel):
+    email: str
+
+class VerifyOtpRequest(BaseModel):
+    email: str
+    otp: str
+
+@app.post("/api/auth/send-otp")
+def send_otp(req: SendOtpRequest, db: Session = Depends(get_db)):
+    """Generate and send OTP to the user's email. User must already exist."""
+    email = req.email.lower().strip()
+    user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(email)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="No account found with this email. Please contact your admin.")
+    if user.is_active is False:
+        raise HTTPException(status_code=403, detail="Your account is deactivated. Contact your admin.")
+
+    # Invalidate any existing OTPs for this email
+    db.query(models.OtpToken).filter(models.OtpToken.email == email).update({"used": True})
+    db.commit()
+
+    otp = generate_otp()
+    expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=10)
+    token = models.OtpToken(email=email, otp=otp, expires_at=expires_at)
+    db.add(token)
+    db.commit()
+
+    send_otp_email(email, otp, user.display_name)
+    return {"success": True, "message": f"OTP sent to {email}"}
+
+
+@app.post("/api/auth/verify-otp")
+def verify_otp(req: VerifyOtpRequest, db: Session = Depends(get_db)):
+    """Verify OTP and return user session."""
+    email = req.email.lower().strip()
+    otp_record = db.query(models.OtpToken).filter(
+        models.OtpToken.email == email,
+        models.OtpToken.otp == req.otp.strip(),
+        models.OtpToken.used == False,
+        models.OtpToken.expires_at > datetime.datetime.utcnow()
+    ).first()
+
+    if not otp_record:
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP. Please request a new one.")
+
+    # Mark OTP as used
+    otp_record.used = True
+    db.commit()
+
+    user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(email)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    role = user.role
+    if role in ("MEDIA_OWNER", "TEAM_MEMBER"):
+        role = "EMPLOYEE"
+
+    company_id = user.vendor_id
+    company_name = None
+    if company_id:
+        company = db.query(models.Company).filter(models.Company.id == company_id).first()
+        if company:
+            company_name = company.name
+
+    log_activity(db, "User logged in via OTP", "user", user.id, user.email)
+    return {
+        "success": True,
+        "userId": user.id,
+        "email": user.email,
+        "role": role,
+        "displayName": user.display_name,
+        "companyId": company_id,
+        "companyName": company_name,
+        "token": f"otp-token-{user.id}-{datetime.datetime.utcnow().timestamp()}"
+    }
+
+
+# --- Nearby Sites (Mobile App) ---
+@app.get("/api/sites/nearby")
+def get_nearby_sites(city: str = None, state: str = None, db: Session = Depends(get_db)):
+    """Return sites filtered by city (and optionally state). Used by mobile app."""
+    from utils import site_to_dict
+    q = db.query(models.Site)
+    if city:
+        q = q.filter(models.Site.city.ilike(f"%{city}%"))
+    if state:
+        q = q.filter(models.Site.state.ilike(f"%{state}%"))
+    sites = q.order_by(models.Site.id.desc()).all()
+    return [site_to_dict(s) for s in sites]
+
 
 @app.post("/api/auth/register")
 @app.post("/api/media-owners")
