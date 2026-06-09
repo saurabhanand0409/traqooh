@@ -4,12 +4,12 @@ import { useNavigate, Link } from "react-router-dom";
 const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
 export default function AdvertiserLogin() {
-  const [email, setEmail]       = useState("");
-  const [pwd, setPwd]           = useState("");
-  const [showPwd, setShowPwd]   = useState(false);
-  const [err, setErr]           = useState("");
-  const [loading, setLoading]   = useState(false);
-  const [warming, setWarming]   = useState(false);
+  const [email, setEmail]     = useState("");
+  const [pwd, setPwd]         = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+  const [err, setErr]         = useState("");
+  const [loading, setLoading] = useState(false);
+  const [warming, setWarming] = useState(false);
   const navigate = useNavigate();
 
   // Wake up Render free-tier backend on mount
@@ -40,14 +40,14 @@ export default function AdvertiserLogin() {
         throw new Error("This portal is for advertisers only. Use the correct login for your role.");
       }
       localStorage.setItem("tq_user", JSON.stringify({
-        userId:      data.userId,
-        email:       data.email,
-        role:        "ADVERTISER",
-        token:       data.token,
-        gstId:       data.gstRegistrationId,
-        companyId:   data.companyId,
+        userId:       data.userId,
+        email:        data.email,
+        role:         "ADVERTISER",
+        token:        data.token,
+        gstId:        data.gstRegistrationId,
+        companyId:    data.companyId,
         advertiserId: data.advertiserId,
-        displayName: data.displayName || data.email?.split("@")[0],
+        displayName:  data.displayName || data.email?.split("@")[0],
       }));
       navigate("/dashboard/advertiser");
     } catch (error) {
@@ -60,75 +60,85 @@ export default function AdvertiserLogin() {
   return (
     <div
       className="min-h-screen flex items-center justify-center overflow-hidden relative"
-      style={{ background: "#070C1A" }}
+      style={{ background: "var(--bg)" }}
     >
-      {/* Background orbs — purple + blue (distinct from employee's blue+red) */}
+      {/* Same gradient orb background as employee login */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div
-          className="absolute rounded-full blur-[140px] opacity-25"
-          style={{ width: 560, height: 560, left: "-10%", top: "-15%", background: "#7C3AED" }}
+          className="absolute rounded-full blur-[140px] opacity-30"
+          style={{ width: 600, height: 600, left: "-15%", top: "-20%", background: "#2563EB" }}
         />
         <div
           className="absolute rounded-full blur-[140px] opacity-20"
-          style={{ width: 480, height: 480, right: "-8%", bottom: "-8%", background: "#2563EB" }}
+          style={{ width: 500, height: 500, right: "-10%", bottom: "-10%", background: "#DC143C" }}
         />
-        <div
-          className="absolute rounded-full blur-[120px] opacity-10"
-          style={{ width: 300, height: 300, left: "40%", bottom: "10%", background: "#A78BFA" }}
-        />
-        {/* Grid */}
         <svg className="absolute inset-0 w-full h-full opacity-[0.04]" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <pattern id="agrid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <pattern id="lgrid2" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5"/>
             </pattern>
           </defs>
-          <rect width="100%" height="100%" fill="url(#agrid)" />
+          <rect width="100%" height="100%" fill="url(#lgrid2)" />
         </svg>
       </div>
 
-      {/* Card */}
+      {/* Blurred mock bg */}
+      <div
+        className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-10 blur-sm scale-110"
+        style={{ filter: "blur(4px) saturate(0.5)" }}
+      >
+        <div className="flex gap-4 w-full max-w-5xl px-10 pt-10">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="flex-1 h-24 rounded-2xl glass" />
+          ))}
+        </div>
+      </div>
+
+      {/* Card — identical style to LoginForm */}
       <form
         onSubmit={submit}
         className="relative z-10 w-full max-w-[420px] mx-4 rounded-2xl p-8"
         style={{
-          background: "rgba(13,10,30,0.92)",
-          border: "1px solid rgba(167,139,250,0.15)",
+          background: "rgba(13,20,40,0.9)",
+          border: "1px solid rgba(255,255,255,0.10)",
           backdropFilter: "blur(20px)",
-          boxShadow: "0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,58,237,0.08)",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
         }}
       >
-        {/* Icon + Branding */}
+        {/* Same tq logo */}
         <div className="flex flex-col items-center mb-7">
-          {/* Billboard icon */}
           <div
-            className="flex items-center justify-center rounded-2xl mb-3"
+            className="flex items-center justify-center rounded-2xl font-syne font-black text-white mb-3"
             style={{
-              width: 56, height: 56,
-              background: "linear-gradient(135deg,#7C3AED,#A78BFA)",
-              boxShadow: "0 8px 32px rgba(124,58,237,0.45)",
+              width: 56, height: 56, fontSize: "1.1rem",
+              background: "linear-gradient(135deg,#2563EB,#DC143C)",
+              boxShadow: "0 8px 32px rgba(37,99,235,0.4)",
             }}
           >
-            <svg width="28" height="28" fill="none" viewBox="0 0 24 24">
-              <rect x="2" y="3" width="20" height="13" rx="2" stroke="white" strokeWidth="1.8"/>
-              <path d="M12 16v5M8 21h8" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
-              <path d="M6 8h12M6 11h8" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity=".7"/>
-            </svg>
+            tq
           </div>
           <div className="text-center leading-none">
             <div className="font-syne font-extrabold text-xl">
-              <span style={{ color: "#A78BFA" }}>Advertiser</span>
-              <span style={{ color: "#7C3AED" }}> Portal</span>
+              <span style={{ color: "#2563EB" }}>traq</span><span style={{ color: "#DC143C" }}>OOH</span>
             </div>
-            <div className="text-[0.5rem] font-bold uppercase tracking-widest mt-1" style={{ color: "#4B5563" }}>
+            <div className="text-[0.5rem] font-bold uppercase tracking-widest mt-0.5" style={{ color: "#4B5563" }}>
               by <span style={{ color: "#2563EB" }}>BRAND</span><span style={{ color: "#DC143C" }}>SCULPT</span>
-              {" · "}
-              <span style={{ color: "#7C3AED" }}>traq</span><span style={{ color: "#A78BFA" }}>OOH</span>
             </div>
           </div>
         </div>
 
-        {/* Heading */}
+        {/* Advertiser badge — replaces the Employee/Admin tab switcher */}
+        <div
+          className="flex items-center justify-center gap-2 rounded-xl py-2.5 mb-6"
+          style={{ background: "rgba(255,255,255,0.05)" }}
+        >
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ color: "#3B82F6" }}>
+            <rect x="2" y="3" width="20" height="13" rx="2" strokeLinecap="round"/>
+            <path d="M12 16v5M8 21h8" strokeLinecap="round"/>
+          </svg>
+          <span className="text-sm font-semibold" style={{ color: "#fff" }}>Advertiser Portal</span>
+        </div>
+
         <p className="text-center text-sm mb-6" style={{ color: "#9CA3AF" }}>
           Sign in to view your campaign proposals
         </p>
@@ -137,7 +147,7 @@ export default function AdvertiserLogin() {
         {err && (
           <div
             className="mb-4 px-4 py-2.5 rounded-xl text-sm"
-            style={{ background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.3)", color: "#C4B5FD" }}
+            style={{ background: "rgba(220,20,60,0.12)", border: "1px solid rgba(220,20,60,0.3)", color: "#F87171" }}
           >
             {err}
           </div>
@@ -145,9 +155,7 @@ export default function AdvertiserLogin() {
 
         {/* Email */}
         <div className="mb-4">
-          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "#6B7280" }}>
-            Email
-          </label>
+          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "#6B7280" }}>Email</label>
           <div className="relative">
             <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: "#4B5563" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
@@ -158,20 +166,16 @@ export default function AdvertiserLogin() {
               onChange={e => setEmail(e.target.value)}
               placeholder="your@email.com"
               className="tq-input pl-10"
-              style={{ borderColor: "rgba(167,139,250,0.15)" }}
             />
           </div>
         </div>
 
         {/* Password */}
         <div className="mb-6">
-          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "#6B7280" }}>
-            Password
-          </label>
+          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: "#6B7280" }}>Password</label>
           <div className="relative">
             <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: "#4B5563" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <rect x="5" y="11" width="14" height="8" rx="2" strokeLinecap="round"/>
-              <path strokeLinecap="round" d="M8 11V8a4 4 0 118 0v3"/>
+              <rect x="5" y="11" width="14" height="8" rx="2" strokeLinecap="round"/><path strokeLinecap="round" d="M8 11V8a4 4 0 118 0v3"/>
             </svg>
             <input
               type={showPwd ? "text" : "password"}
@@ -179,7 +183,6 @@ export default function AdvertiserLogin() {
               onChange={e => setPwd(e.target.value)}
               placeholder="••••••••"
               className="tq-input pl-10 pr-10"
-              style={{ borderColor: "rgba(167,139,250,0.15)" }}
             />
             <button
               type="button"
@@ -196,17 +199,17 @@ export default function AdvertiserLogin() {
           </div>
         </div>
 
-        {/* Submit */}
+        {/* Submit — same gradient button */}
         <button
           type="submit"
           disabled={loading}
           className="w-full py-3 rounded-xl font-bold text-sm text-white transition-all duration-200 disabled:opacity-60"
           style={{
-            background: "linear-gradient(135deg,#7C3AED,#A78BFA)",
-            boxShadow: loading ? "none" : "0 8px 24px rgba(124,58,237,0.4)",
+            background: "linear-gradient(135deg,#2563EB,#DC143C)",
+            boxShadow: loading ? "none" : "0 8px 24px rgba(37,99,235,0.35)",
           }}
-          onMouseEnter={e => { if (!loading) e.currentTarget.style.boxShadow = "0 12px 32px rgba(124,58,237,0.55)"; }}
-          onMouseLeave={e => { e.currentTarget.style.boxShadow = loading ? "none" : "0 8px 24px rgba(124,58,237,0.4)"; }}
+          onMouseEnter={e => { if (!loading) e.currentTarget.style.boxShadow = "0 12px 32px rgba(37,99,235,0.5)"; }}
+          onMouseLeave={e => { e.currentTarget.style.boxShadow = loading ? "none" : "0 8px 24px rgba(37,99,235,0.35)"; }}
         >
           {loading ? (
             <span className="flex items-center justify-center gap-2">
@@ -221,7 +224,7 @@ export default function AdvertiserLogin() {
 
         {/* Backend warm-up indicator */}
         {warming && (
-          <div className="mt-4 flex items-center justify-center gap-2 text-xs" style={{ color: "#6B7280" }}>
+          <div className="mt-4 flex items-center justify-center gap-2 text-xs" style={{ color: "var(--gray2)" }}>
             <svg className="w-3 h-3 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
@@ -230,23 +233,14 @@ export default function AdvertiserLogin() {
           </div>
         )}
 
-        {/* Divider */}
-        <div className="my-6 flex items-center gap-3">
-          <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }}/>
-          <span className="text-xs" style={{ color: "#4B5563" }}>or</span>
-          <div className="flex-1 h-px" style={{ background: "rgba(255,255,255,0.06)" }}/>
-        </div>
-
-        {/* Proposal link CTA */}
+        {/* Proposal link hint */}
         <div
-          className="rounded-xl px-4 py-3 text-center"
-          style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.18)" }}
+          className="mt-5 rounded-xl px-4 py-3 text-center"
+          style={{ background: "rgba(37,99,235,0.07)", border: "1px solid rgba(37,99,235,0.18)" }}
         >
-          <p className="text-xs mb-1.5" style={{ color: "#9CA3AF" }}>
-            Received a proposal link from your agency?
-          </p>
-          <p className="text-xs font-semibold" style={{ color: "#A78BFA" }}>
-            Use that link directly — no login needed.
+          <p className="text-xs" style={{ color: "#9CA3AF" }}>
+            Received a proposal link from your agency?{" "}
+            <span className="font-semibold" style={{ color: "#3B82F6" }}>Use that link directly — no login needed.</span>
           </p>
         </div>
 
@@ -254,24 +248,16 @@ export default function AdvertiserLogin() {
         <div className="mt-6 text-center space-y-2">
           <p className="text-xs" style={{ color: "#4B5563" }}>
             Internal team?{" "}
-            <Link
-              to="/employeelogin"
-              className="font-semibold transition-colors"
-              style={{ color: "#7C3AED" }}
-              onMouseEnter={e => e.currentTarget.style.color = "#A78BFA"}
-              onMouseLeave={e => e.currentTarget.style.color = "#7C3AED"}
-            >
+            <Link to="/employeelogin" className="font-semibold transition-colors" style={{ color: "#3B82F6" }}
+              onMouseEnter={e => e.currentTarget.style.color = "#93C5FD"}
+              onMouseLeave={e => e.currentTarget.style.color = "#3B82F6"}>
               Employee login here
             </Link>
           </p>
           <p className="text-xs">
-            <Link
-              to="/"
-              className="transition-colors"
-              style={{ color: "#4B5563" }}
+            <Link to="/" className="transition-colors" style={{ color: "#4B5563" }}
               onMouseEnter={e => e.currentTarget.style.color = "#9CA3AF"}
-              onMouseLeave={e => e.currentTarget.style.color = "#4B5563"}
-            >
+              onMouseLeave={e => e.currentTarget.style.color = "#4B5563"}>
               ← Back to home
             </Link>
           </p>
