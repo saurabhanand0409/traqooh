@@ -72,7 +72,8 @@ export default function LoginForm({ defaultTab = "employee", allowedRoles = [] }
         displayName: data.displayName || data.email?.split("@")[0],
       }));
 
-      if (normalizedRole === "ADMIN" || role === "SUPER_ADMIN") navigate("/dashboard/admin");
+      if (role === "SUPER_ADMIN") navigate("/dashboard/master");
+      else if (normalizedRole === "ADMIN") navigate("/dashboard/admin");
       else if (normalizedRole === "ADVERTISER") navigate("/dashboard/advertiser");
       else navigate("/dashboard/employee");
 
@@ -154,27 +155,43 @@ export default function LoginForm({ defaultTab = "employee", allowedRoles = [] }
           </div>
         </div>
 
-        {/* Tabs */}
-        <div
-          className="flex rounded-xl p-1 mb-6 gap-1"
-          style={{ background: "rgba(255,255,255,0.05)" }}
-        >
-          {[{ key: "employee", label: "Employee" }, { key: "admin", label: "Admin" }].map(t => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => { setTab(t.key); setErr(""); }}
-              className="flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200"
-              style={tab === t.key ? {
-                background: "linear-gradient(135deg,#2563EB,#1d50c8)",
-                color: "#fff",
-                boxShadow: "0 4px 12px rgba(37,99,235,0.3)",
-              } : { color: "#6B7280" }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Tabs — always show Employee/Admin switcher (except Master login) */}
+        {allowedRoles.includes("SUPER_ADMIN") ? (
+          /* Master login page: Master badge only */
+          <div
+            className="flex items-center justify-center rounded-xl py-2.5 mb-6"
+            style={{ background: "rgba(255,255,255,0.05)" }}
+          >
+            <span className="text-sm font-semibold" style={{ color: "#fff" }}>Master Login</span>
+          </div>
+        ) : (
+          /* Employee / Admin pages: tabs navigate between login pages */
+          <div
+            className="flex rounded-xl p-1 mb-6 gap-1"
+            style={{ background: "rgba(255,255,255,0.05)" }}
+          >
+            {[{ key: "employee", label: "Employee", path: "/employeelogin" }, { key: "admin", label: "Admin", path: "/adminlogin" }].map(t => {
+              const isActive = allowedRoles.includes(t.key.toUpperCase()) ||
+                (t.key === "admin" && allowedRoles.includes("ADMIN")) ||
+                (t.key === "employee" && allowedRoles.includes("EMPLOYEE"));
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => { if (!isActive) navigate(t.path); }}
+                  className="flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200"
+                  style={isActive ? {
+                    background: "linear-gradient(135deg,#2563EB,#1d50c8)",
+                    color: "#fff",
+                    boxShadow: "0 4px 12px rgba(37,99,235,0.3)",
+                  } : { color: "#6B7280", cursor: "pointer" }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <p className="text-center text-sm mb-6" style={{ color: "#9CA3AF" }}>
           Sign in to your {tab === "admin" ? "admin" : "employee"} account
@@ -282,7 +299,7 @@ export default function LoginForm({ defaultTab = "employee", allowedRoles = [] }
               </Link>
             </p>
           )}
-          {!allowedRoles.includes("SUPER_ADMIN") && (
+          {!allowedRoles.includes("SUPER_ADMIN") && !allowedRoles.includes("ADMIN") && (
             <p className="text-xs" style={{ color: "#4B5563" }}>
               Admin?{" "}
               <Link to="/adminlogin" className="font-semibold transition-colors" style={{ color: "#3B82F6" }}
@@ -293,11 +310,11 @@ export default function LoginForm({ defaultTab = "employee", allowedRoles = [] }
             </p>
           )}
           <p className="text-xs">
-            <Link to="/" className="transition-colors" style={{ color: "#4B5563" }}
+            <a href="https://traqooh.brandsculpt.com" className="transition-colors" style={{ color: "#4B5563" }}
               onMouseEnter={e => e.currentTarget.style.color = "#9CA3AF"}
               onMouseLeave={e => e.currentTarget.style.color = "#4B5563"}>
               ← Back to home
-            </Link>
+            </a>
           </p>
         </div>
       </form>

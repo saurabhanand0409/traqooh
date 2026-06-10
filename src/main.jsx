@@ -15,7 +15,8 @@ import AdvertiserCreate from "./pages/AdvertiserCreate.jsx";
 import GetStarted from "./pages/GetStarted.jsx";
 // Dashboards
 import Dashboard from "./pages/Dashboard.jsx";          // Employee dashboard
-import AdminDashboard from "./pages/AdminDashboard.jsx"; // Admin dashboard
+import AdminDashboard from "./pages/AdminDashboard.jsx";  // Admin dashboard
+import MasterDashboard from "./pages/MasterDashboard.jsx"; // Master (SUPER_ADMIN) dashboard
 // Internal pages (employee + admin)
 import Inventory from "./pages/Inventory.jsx";
 import Vendors from "./pages/Vendors.jsx";
@@ -29,12 +30,17 @@ import Payment from "./pages/Payment.jsx";
 import Pricing from "./pages/Pricing.jsx";
 import AccessView from "./pages/AccessView.jsx";
 
+function RedirectExternal({ to }) {
+  React.useEffect(() => { window.location.replace(to); }, [to]);
+  return null;
+}
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* Homepage */}
-        <Route path="/" element={<App />} />
+        {/* Root — redirect to marketing site */}
+        <Route path="/" element={<RedirectExternal to="https://traqooh.brandsculpt.com" />} />
 
         {/* Login routes */}
         <Route path="/login" element={<AdvertiserLogin />} />
@@ -51,6 +57,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 
         {/* Role-based dashboard routes */}
         <Route path="/dashboard/employee" element={<Dashboard />} />
+        <Route path="/dashboard/master" element={<MasterDashboard />} />
         <Route path="/dashboard/admin" element={<AdminDashboard />} />
         <Route path="/dashboard/advertiser" element={<Navigate to="/dashboard/employee" replace />} />
         {/* Legacy dashboard redirect — detect role and route */}

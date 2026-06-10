@@ -255,11 +255,11 @@ export default function AdvertiserLogin() {
             </Link>
           </p>
           <p className="text-xs">
-            <Link to="/" className="transition-colors" style={{ color: "#4B5563" }}
+            <a href="https://traqooh.brandsculpt.com" className="transition-colors" style={{ color: "#4B5563" }}
               onMouseEnter={e => e.currentTarget.style.color = "#9CA3AF"}
               onMouseLeave={e => e.currentTarget.style.color = "#4B5563"}>
               ← Back to home
-            </Link>
+            </a>
           </p>
         </div>
       </form>

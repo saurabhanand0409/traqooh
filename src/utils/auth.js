@@ -21,16 +21,18 @@ export function getRole() {
   const r = (u.role || "").toUpperCase();
   // Normalize legacy roles
   if (r === "MEDIA_OWNER" || r === "TEAM_MEMBER" || r === "EMPLOYEE") return "EMPLOYEE";
-  if (r === "SUPER_ADMIN" || r === "ADMIN") return "ADMIN";
+  if (r === "SUPER_ADMIN") return "SUPER_ADMIN";
+  if (r === "ADMIN") return "ADMIN";
   if (r === "ADVERTISER") return "ADVERTISER";
   return r;
 }
 
 export function dashboardRoute() {
   const role = getRole();
+  if (role === "SUPER_ADMIN") return "/dashboard/master";
   if (role === "ADMIN") return "/dashboard/admin";
   if (role === "ADVERTISER") return "/dashboard/advertiser";
-  return "/dashboard/employee"; // EMPLOYEE + default
+  return "/dashboard/employee";
 }
 
 export function requireAuth(navigate, allowedRoles = []) {
