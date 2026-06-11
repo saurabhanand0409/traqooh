@@ -121,7 +121,7 @@ export default function AdvertiserLogin() {
             <div className="font-syne font-extrabold text-xl">
               <span style={{ color: "#2563EB" }}>traq</span><span style={{ color: "#DC143C" }}>OOH</span>
             </div>
-            <div className="text-[0.5rem] font-bold uppercase tracking-widest mt-0.5" style={{ color: "#4B5563" }}>
+            <div className="text-[0.5rem] font-light uppercase tracking-widest mt-0.5" style={{ color: "#4B5563" }}>
               by <span style={{ color: "#2563EB" }}>BRAND</span><span style={{ color: "#DC143C" }}>SCULPT</span>
             </div>
           </div>
