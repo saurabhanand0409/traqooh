@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import { Link, useNavigate } from "react-router-dom";
 import AppShell from "../components/AppShell";
 import { requireAuth } from "../utils/auth";
@@ -76,7 +77,7 @@ export default function Dashboard() {
       try {
         let url = `${API_BASE}/api/dashboard/summary`;
         if (user.companyId) url += `?ownerCompanyId=${user.companyId}`;
-        const [sRes, aRes] = await Promise.all([fetch(url), fetch(`${API_BASE}/api/dashboard/recent-activity`)]);
+        const [sRes, aRes] = await Promise.all([fetch(url), apiFetch(`/api/dashboard/recent-activity`)]);
         if (sRes.ok) setSummary(await sRes.json());
         if (aRes.ok) setRecent(await aRes.json());
       } catch { /* silent */ }

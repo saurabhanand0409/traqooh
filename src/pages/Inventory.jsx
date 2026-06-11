@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import AppShell from "../components/AppShell";
 import {
   Search, Plus, Maximize2, X, Calendar as CalendarIcon,
@@ -44,8 +45,8 @@ export default function Inventory() {
   const [error, setError] = useState("");
 
   const [vendors, setVendors] = useState([]);
-  const [currentOwnerId, setCurrentOwnerId] = useState(user.companyId || null);
   const isAdmin = user.role === "ADMIN";
+  const [currentOwnerId, setCurrentOwnerId] = useState(isAdmin ? null : (user.companyId || null));
 
   const emptyForm = {
     name: "", city: "", state: "", type: "Billboard", lightingType: "Lit",
@@ -106,7 +107,7 @@ export default function Inventory() {
 
   // Fetch vendors list for dropdown
   useEffect(() => {
-    fetch(`${API_BASE}/api/vendors`)
+    apiFetch(`/api/vendors`)
       .then(r => r.ok && r.json())
       .then(data => data && setVendors(data))
       .catch(() => {});
@@ -139,7 +140,7 @@ export default function Inventory() {
     formData.append("file", file);
     try {
       setUploading(true);
-      const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+      const res = await apiFetch(`/api/upload`, { method: "POST", body: formData });
       if (!res.ok) throw new Error("Upload failed");
       const data = await res.json();
       if (data.success) {
@@ -156,7 +157,7 @@ export default function Inventory() {
   // Delete Site
   const handleDeleteSite = async (site) => {
     if (!confirm(`Delete "${site.name}"? This cannot be undone.`)) return;
-    await fetch(`${API_BASE}/api/sites/${site.id}`, { method: "DELETE" });
+    await apiFetch(`/api/sites/${site.id}`, { method: "DELETE" });
     window.location.reload();
   };
 
@@ -177,7 +178,7 @@ export default function Inventory() {
         state: form.state || null,
         lightingType: form.lightingType || null,
       };
-      const res = await fetch(`${API_BASE}/api/sites`, {
+      const res = await apiFetch(`/api/sites`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to save site");
@@ -205,7 +206,7 @@ export default function Inventory() {
         state: editSite.state || null,
         lightingType: editSite.lightingType || null,
       };
-      const res = await fetch(`${API_BASE}/api/sites/${editSite.id}`, {
+      const res = await apiFetch(`/api/sites/${editSite.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Failed to update site");
@@ -239,8 +240,8 @@ export default function Inventory() {
     setGalleryLoading(true);
     try {
       const [bkRes, galRes] = await Promise.all([
-        fetch(`${API_BASE}/api/sites/${site.id}/bookings`),
-        fetch(`${API_BASE}/api/sites/${site.id}/gallery`),
+        apiFetch(`/api/sites/${site.id}/bookings`),
+        apiFetch(`/api/sites/${site.id}/gallery`),
       ]);
       if (bkRes.ok) setSiteBookings(await bkRes.json());
       if (galRes.ok) { const g = await galRes.json(); setSiteGallery(g.grouped || {}); }

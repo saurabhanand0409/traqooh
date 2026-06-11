@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import { Link, useSearchParams } from "react-router-dom";
 import AppShell from "../components/AppShell";
 import {
@@ -67,8 +68,8 @@ export default function Campaigns() {
   });
 
   useEffect(() => {
-    fetch(`${API}/api/advertisers`).then(r => r.json()).then(setAdvertisers).catch(() => {});
-    fetch(`${API}/api/vendors`).then(r => r.json()).then(setVendors).catch(() => {});
+    apiFetch(`/api/advertisers`).then(r => r.json()).then(setAdvertisers).catch(() => {});
+    apiFetch(`/api/vendors`).then(r => r.json()).then(setVendors).catch(() => {});
     fetchList();
   }, []);
 
@@ -81,7 +82,7 @@ export default function Campaigns() {
     if (advId) p.set("advertiserId", advId);
     // Employees only see their own campaigns; admins see all
     if (!isAdmin && user.userId) p.set("userId", user.userId);
-    const res = await fetch(`${API}/api/campaigns?${p.toString()}`);
+    const res = await apiFetch(`/api/campaigns?${p.toString()}`);
     if (res.ok) setList(await res.json());
     setLoading(false);
   };
@@ -95,14 +96,14 @@ export default function Campaigns() {
     setPickerSearched(false);
     setSelectedIds(new Set());
     setSiteFilters({ state: "", city: "", vendorId: "", siteType: "" });
-    const res = await fetch(`${API}/api/campaigns/${c.id}`);
+    const res = await apiFetch(`/api/campaigns/${c.id}`);
     if (res.ok) setDetail(await res.json());
     setDetailLoading(false);
   };
 
   const refreshDetail = async () => {
     if (!detail) return;
-    const res = await fetch(`${API}/api/campaigns/${detail.id}`);
+    const res = await apiFetch(`/api/campaigns/${detail.id}`);
     if (res.ok) {
       const updated = await res.json();
       setDetail(updated);
@@ -112,14 +113,14 @@ export default function Campaigns() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const url = editing ? `${API}/api/campaigns/${editing.id}` : `${API}/api/campaigns`;
+    const url = editing ? `/api/campaigns/${editing.id}` : "/api/campaigns";
     const payload = {
       ...form,
       advertiserId: Number(form.advertiserId),
       totalCost: Number(form.totalCost),
       ...(!editing && { createdByUserId: user.userId || null }),
     };
-    const res = await fetch(url, { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const res = await apiFetch(url, { method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (res.ok) {
       setShowModal(false);
       setEditing(null);
@@ -157,7 +158,7 @@ export default function Campaigns() {
       ? `Delete "${c.name}"?\n\nThis campaign has ${c.siteCount} linked site${c.siteCount !== 1 ? "s" : ""}. Those sites will be unlinked and marked as Available again.\n\nThis action cannot be undone.`
       : `Delete "${c.name}"?\n\nThis action cannot be undone.`;
     if (!window.confirm(msg)) return;
-    const res = await fetch(`${API}/api/campaigns/${c.id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/campaigns/${c.id}`, { method: "DELETE" });
     if (res.ok) {
       setList(prev => prev.filter(x => x.id !== c.id));
       if (panel && detail && detail.id === c.id) setPanel(false);
@@ -169,7 +170,7 @@ export default function Campaigns() {
 
   const handleRemoveSite = async (assignmentId) => {
     if (!window.confirm("Remove this site from the campaign?")) return;
-    const res = await fetch(`${API}/api/campaigns/${detail.id}/remove-site/${assignmentId}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/campaigns/${detail.id}/remove-site/${assignmentId}`, { method: "DELETE" });
     if (res.ok) refreshDetail();
     else alert("Failed to remove site");
   };
@@ -183,7 +184,7 @@ export default function Campaigns() {
     if (siteFilters.city) p.set("city", siteFilters.city);
     if (siteFilters.vendorId) p.set("vendorId", siteFilters.vendorId);
     if (siteFilters.siteType) p.set("siteType", siteFilters.siteType);
-    const res = await fetch(`${API}/api/sites?${p.toString()}`);
+    const res = await apiFetch(`/api/sites?${p.toString()}`);
     if (res.ok) setPickerSites(await res.json());
     setPickerLoading(false);
   };
@@ -210,7 +211,7 @@ export default function Campaigns() {
   const handleAddSelected = async () => {
     if (selectedIds.size === 0) return;
     setAdding(true);
-    const res = await fetch(`${API}/api/campaigns/${detail.id}/assign-sites-bulk`, {
+    const res = await apiFetch(`/api/campaigns/${detail.id}/assign-sites-bulk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ siteIds: Array.from(selectedIds) }),
@@ -230,7 +231,7 @@ export default function Campaigns() {
   const handleSend = async () => {
     if (!detail) return;
     setSending(true);
-    const res = await fetch(`${API}/api/advertisers/send-access-link`, {
+    const res = await apiFetch(`/api/advertisers/send-access-link`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ advertiserId: detail.advertiserId, campaignId: detail.id, expiryDays: 30 }),

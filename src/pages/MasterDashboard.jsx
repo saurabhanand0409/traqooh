@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import { useNavigate } from "react-router-dom";
 import { requireAuth, signOut } from "../utils/auth";
 
@@ -53,9 +54,9 @@ export default function MasterDashboard() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     const [compRes, siteRes, campRes] = await Promise.all([
-      fetch(`${API}/api/vendors`),
-      fetch(`${API}/api/sites`),
-      fetch(`${API}/api/campaigns`),
+      apiFetch(`/api/vendors`),
+      apiFetch(`/api/sites`),
+      apiFetch(`/api/campaigns`),
     ]);
     if (compRes.ok) setCompanies(await compRes.json());
     if (siteRes.ok) setSites(await siteRes.json());
@@ -68,7 +69,7 @@ export default function MasterDashboard() {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const fetchEmployees = async (companyId) => {
-    const res = await fetch(`${API}/api/vendors/${companyId}/employees`);
+    const res = await apiFetch(`/api/vendors/${companyId}/employees`);
     if (res.ok) {
       const data = await res.json();
       setEmployees(prev => ({ ...prev, [companyId]: data }));
@@ -100,9 +101,9 @@ export default function MasterDashboard() {
     e.preventDefault();
     if (!compForm.name.trim()) return setCompErr("Company name is required.");
     setCompSaving(true); setCompErr("");
-    const url = editCompany ? `${API}/api/vendors/${editCompany.id}` : `${API}/api/vendors`;
+    const url = editCompany ? `/api/vendors/${editCompany.id}` : "/api/vendors";
     const method = editCompany ? "PUT" : "POST";
-    const res = await fetch(url, { method, headers:{"Content-Type":"application/json"}, body: JSON.stringify({ ...compForm, status:"ACTIVE" }) });
+    const res = await apiFetch(url, { method, headers:{"Content-Type":"application/json"}, body: JSON.stringify({ ...compForm, status:"ACTIVE" }) });
     setCompSaving(false);
     if (res.ok) { setShowCompanyModal(false); fetchCompanies(); }
     else { const d = await res.json().catch(()=>{}); setCompErr(d?.detail || "Failed to save company"); }
@@ -110,7 +111,7 @@ export default function MasterDashboard() {
 
   const handleDeleteCompany = async (c) => {
     if (!confirm(`Delete "${c.name}"? All linked users will be unlinked.`)) return;
-    await fetch(`${API}/api/vendors/${c.id}`, { method:"DELETE" });
+    await apiFetch(`/api/vendors/${c.id}`, { method:"DELETE" });
     fetchCompanies();
   };
 
@@ -130,7 +131,7 @@ export default function MasterDashboard() {
     e.preventDefault();
     if (!adminForm.email || !adminForm.password) return setAdminErr("Email and password are required.");
     setAdminSaving(true); setAdminErr("");
-    const res = await fetch(`${API}/api/vendors/${adminTarget.id}/set-admin`, {
+    const res = await apiFetch(`/api/vendors/${adminTarget.id}/set-admin`, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify(adminForm),
     });
@@ -151,7 +152,7 @@ export default function MasterDashboard() {
     e.preventDefault();
     if (!empForm.email || !empForm.password) return setEmpErr("Email and password are required.");
     setEmpSaving(true); setEmpErr("");
-    const res = await fetch(`${API}/api/vendors/${empTarget.id}/employees`, {
+    const res = await apiFetch(`/api/vendors/${empTarget.id}/employees`, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify(empForm),
     });

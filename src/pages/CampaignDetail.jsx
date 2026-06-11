@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import { Link, useParams } from "react-router-dom";
 import AdminNav from "../components/AdminNav";
 import UserMenu from "../components/UserMenu";
@@ -29,7 +30,7 @@ export default function CampaignDetail() {
   useEffect(() => { fetchCampaign(); fetchSites(); fetchActivities(); }, [id]);
 
   const fetchActivities = async () => {
-    const res = await fetch(`${API}/api/activities?campaignId=${id}`);
+    const res = await apiFetch(`/api/activities?campaignId=${id}`);
     if (res.ok) setActivities(await res.json());
   };
 
@@ -37,7 +38,7 @@ export default function CampaignDetail() {
     e.preventDefault();
     setSavingActivity(true);
     try {
-      const res = await fetch(`${API}/api/activities`, {
+      const res = await apiFetch(`/api/activities`, {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
           ...activityForm,
@@ -52,7 +53,7 @@ export default function CampaignDetail() {
       if (activityFile) {
         const fd = new FormData();
         fd.append("file", activityFile);
-        await fetch(`${API}/api/activities/${created.id}/upload-image`, { method:"POST", body: fd });
+        await apiFetch(`/api/activities/${created.id}/upload-image`, { method:"POST", body: fd });
       }
       setShowActivity(false);
       setActivityFile(null);
@@ -63,24 +64,24 @@ export default function CampaignDetail() {
 
   const handleDeleteActivity = async (activityId) => {
     if (!confirm("Delete this activity?")) return;
-    await fetch(`${API}/api/activities/${activityId}`, { method:"DELETE" });
+    await apiFetch(`/api/activities/${activityId}`, { method:"DELETE" });
     fetchActivities();
   };
 
   const fetchCampaign = async () => {
     setLoading(true);
-    const res = await fetch(`${API}/api/campaigns/${id}`);
+    const res = await apiFetch(`/api/campaigns/${id}`);
     if (res.ok) setCampaign(await res.json());
     setLoading(false);
   };
   const fetchSites = async () => {
-    const res = await fetch(`${API}/api/sites?availabilityStatus=AVAILABLE`);
+    const res = await apiFetch(`/api/sites?availabilityStatus=AVAILABLE`);
     if (res.ok) setSites(await res.json());
   };
 
   const handleAssign = async (e) => {
     e.preventDefault();
-    const res = await fetch(`${API}/api/campaigns/${id}/assign-site`, {
+    const res = await apiFetch(`/api/campaigns/${id}/assign-site`, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ ...assignForm, siteId:Number(assignForm.siteId), agreedCost:Number(assignForm.agreedCost) }),
     });
@@ -90,13 +91,13 @@ export default function CampaignDetail() {
 
   const handleRemoveSite = async (assignmentId) => {
     if (!confirm("Remove this site from campaign?")) return;
-    await fetch(`${API}/api/campaigns/${id}/remove-site/${assignmentId}`, { method:"DELETE" });
+    await apiFetch(`/api/campaigns/${id}/remove-site/${assignmentId}`, { method:"DELETE" });
     fetchCampaign(); fetchSites();
   };
 
   const handleCreateAudit = async (e) => {
     e.preventDefault();
-    const res = await fetch(`${API}/api/audits`, {
+    const res = await apiFetch(`/api/audits`, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ ...auditForm, campaignId:Number(id), siteId:Number(auditForm.siteId) }),
     });

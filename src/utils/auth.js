@@ -50,5 +50,6 @@ export function requireAuth(navigate, allowedRoles = []) {
 
 export function signOut(navigate) {
   localStorage.removeItem("tq_user");
+  localStorage.removeItem("tq_token");
   navigate("/");
 }

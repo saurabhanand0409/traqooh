@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../utils/apiFetch";
 import { Link, useNavigate } from "react-router-dom";
 import UserMenu from "../components/UserMenu";
 
@@ -32,7 +33,7 @@ export default function Account() {
                 setError("");
 
                 // Fetch media owner data by email
-                const res = await fetch(`${API_BASE}/api/media-owners?email=${encodeURIComponent(user.email)}`);
+                const res = await apiFetch(`/api/media-owners?email=${encodeURIComponent(user.email)}`);
                 if (!res.ok) throw new Error("Failed to load account details");
                 const data = await res.json();
 
@@ -77,7 +78,7 @@ export default function Account() {
                 primaryPhone: editData.primaryPhone,
             };
 
-            const res = await fetch(`${API_BASE}/api/media-owners/${accountData.id}`, {
+            const res = await apiFetch(`/api/media-owners/${accountData.id}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(updatePayload),
@@ -89,7 +90,7 @@ export default function Account() {
             setEditMode(false);
 
             // Refresh data
-            const refreshRes = await fetch(`${API_BASE}/api/media-owners?email=${encodeURIComponent(user.email)}`);
+            const refreshRes = await apiFetch(`/api/media-owners?email=${encodeURIComponent(user.email)}`);
             if (refreshRes.ok) {
                 setAccountData(await refreshRes.json());
             }

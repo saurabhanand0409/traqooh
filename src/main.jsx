@@ -17,6 +17,7 @@ import GetStarted from "./pages/GetStarted.jsx";
 import Dashboard from "./pages/Dashboard.jsx";          // Employee dashboard
 import AdminDashboard from "./pages/AdminDashboard.jsx";  // Admin dashboard
 import MasterDashboard from "./pages/MasterDashboard.jsx"; // Master (SUPER_ADMIN) dashboard
+import AdvertiserDashboard from "./pages/AdvertiserDashboard.jsx"; // Advertiser portal
 // Internal pages (employee + admin)
 import Inventory from "./pages/Inventory.jsx";
 import Vendors from "./pages/Vendors.jsx";
@@ -59,7 +60,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/dashboard/employee" element={<Dashboard />} />
         <Route path="/dashboard/master" element={<MasterDashboard />} />
         <Route path="/dashboard/admin" element={<AdminDashboard />} />
-        <Route path="/dashboard/advertiser" element={<Navigate to="/dashboard/employee" replace />} />
+        <Route path="/dashboard/advertiser" element={<AdvertiserDashboard />} />
         {/* Legacy dashboard redirect — detect role and route */}
         <Route path="/dashboard" element={<Dashboard />} />
 
