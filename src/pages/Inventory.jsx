@@ -27,6 +27,9 @@ export default function Inventory() {
   const [detailSite, setDetailSite] = useState(null);
   const [siteBookings, setSiteBookings] = useState([]);
   const [loadingBookings, setLoadingBookings] = useState(false);
+  const [detailTab, setDetailTab] = useState("bookings"); // "bookings" | "photos"
+  const [siteGallery, setSiteGallery] = useState({});
+  const [galleryLoading, setGalleryLoading] = useState(false);
 
   // Hover popup state
   const [hoverSite, setHoverSite] = useState(null);
@@ -226,21 +229,24 @@ export default function Inventory() {
      setShowEdit(true);
   };
 
-  // View Details & Fetch Bookings (mobile / manual trigger)
+  // View Details — fetch bookings + gallery simultaneously
   const openDetails = async (site) => {
     setDetailSite(site);
+    setDetailTab("bookings");
     setSiteBookings([]);
+    setSiteGallery({});
     setLoadingBookings(true);
+    setGalleryLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/sites/${site.id}/bookings`);
-      if (res.ok) {
-        const bk = await res.json();
-        setSiteBookings(bk);
-      }
-    } catch (err) {
-      console.error(err);
-    }
+      const [bkRes, galRes] = await Promise.all([
+        fetch(`${API_BASE}/api/sites/${site.id}/bookings`),
+        fetch(`${API_BASE}/api/sites/${site.id}/gallery`),
+      ]);
+      if (bkRes.ok) setSiteBookings(await bkRes.json());
+      if (galRes.ok) { const g = await galRes.json(); setSiteGallery(g.grouped || {}); }
+    } catch (err) { console.error(err); }
     setLoadingBookings(false);
+    setGalleryLoading(false);
   };
 
   // Hover popup handlers
@@ -530,35 +536,94 @@ export default function Inventory() {
               <button onClick={() => setDetailSite(null)} className="hidden md:flex absolute top-4 right-4 w-8 h-8 rounded-full items-center justify-center transition z-10" style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}>
                 <X className="w-5 h-5"/>
               </button>
-              <div className="p-5" style={{ borderBottom: "1px solid var(--border)" }}>
-                <h3 className="font-syne font-bold text-lg text-white flex items-center gap-2">
-                  <CalendarIcon className="w-5 h-5" style={{ color: "#2563EB" }}/> Booking Schedule
-                </h3>
+              {/* Tab bar */}
+              <div className="flex" style={{ borderBottom: "1px solid var(--border)" }}>
+                {[
+                  { id: "bookings", label: "📅 Bookings" },
+                  { id: "photos", label: `📷 Photos${Object.values(siteGallery).flat().length > 0 ? ` (${Object.values(siteGallery).flat().length})` : ""}` },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setDetailTab(t.id)}
+                    className="px-5 py-4 text-sm font-semibold border-b-2 transition"
+                    style={detailTab === t.id
+                      ? { borderColor: "#2563EB", color: "#3B82F6" }
+                      : { borderColor: "transparent", color: "var(--gray2)" }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
               </div>
-              <div className="flex-1 p-5 overflow-y-auto">
-                {loadingBookings ? (
-                  <div className="flex items-center justify-center h-full" style={{ color: "var(--gray2)" }}><Clock className="w-5 h-5 animate-spin mr-2"/> Loading...</div>
-                ) : siteBookings.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center p-6 rounded-2xl" style={{ border: "2px dashed var(--border)" }}>
-                    <CheckCircle className="w-10 h-10 mb-3" style={{ color: "#22C55E" }}/>
-                    <h4 className="font-bold text-white">Site is vacant</h4>
-                    <p className="text-sm mt-1" style={{ color: "var(--gray2)" }}>Ready for a new campaign.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {siteBookings.map((bk) => (
-                      <div key={bk.assignmentId} className="p-4 rounded-xl relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
-                        <div className="absolute top-0 left-0 w-1 h-full" style={{ background: bk.status === "ACTIVE" ? "#DC143C" : "#8B5CF6" }}/>
-                        <div className="pl-2">
-                          <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "var(--gray2)" }}>{bk.bookedFrom} → {bk.bookedTill}</div>
-                          <div className="font-bold text-sm text-white">{bk.campaignName}</div>
-                          <div className="text-xs mt-0.5" style={{ color: "var(--gray)" }}>{bk.advertiserName}</div>
+
+              {/* Bookings panel */}
+              {detailTab === "bookings" && (
+                <div className="flex-1 p-5 overflow-y-auto">
+                  {loadingBookings ? (
+                    <div className="flex items-center justify-center h-full" style={{ color: "var(--gray2)" }}><Clock className="w-5 h-5 animate-spin mr-2"/> Loading...</div>
+                  ) : siteBookings.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-6 rounded-2xl" style={{ border: "2px dashed var(--border)" }}>
+                      <CheckCircle className="w-10 h-10 mb-3" style={{ color: "#22C55E" }}/>
+                      <h4 className="font-bold text-white">Site is vacant</h4>
+                      <p className="text-sm mt-1" style={{ color: "var(--gray2)" }}>Ready for a new campaign.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {siteBookings.map((bk) => (
+                        <div key={bk.assignmentId} className="p-4 rounded-xl relative overflow-hidden" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
+                          <div className="absolute top-0 left-0 w-1 h-full" style={{ background: bk.status === "ACTIVE" ? "#DC143C" : "#8B5CF6" }}/>
+                          <div className="pl-2">
+                            <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: "var(--gray2)" }}>{bk.bookedFrom} → {bk.bookedTill}</div>
+                            <div className="font-bold text-sm text-white">{bk.campaignName}</div>
+                            <div className="text-xs mt-0.5" style={{ color: "var(--gray)" }}>{bk.advertiserName}</div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Photos panel */}
+              {detailTab === "photos" && (
+                <div className="flex-1 p-5 overflow-y-auto">
+                  {galleryLoading ? (
+                    <div className="flex items-center justify-center h-full" style={{ color: "var(--gray2)" }}><Clock className="w-5 h-5 animate-spin mr-2"/> Loading photos...</div>
+                  ) : Object.keys(siteGallery).length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-6 rounded-2xl" style={{ border: "2px dashed var(--border)" }}>
+                      <span className="text-4xl mb-3">📷</span>
+                      <h4 className="font-bold text-white">No photos yet</h4>
+                      <p className="text-sm mt-1" style={{ color: "var(--gray2)" }}>Field workers log activity photos from the mobile app.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      {Object.entries(siteGallery).map(([label, photos]) => (
+                        <div key={label}>
+                          <div className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: "var(--gray2)" }}>
+                            {label} <span className="ml-1 font-normal normal-case">({photos.length})</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            {photos.map((p, i) => (
+                              <div key={i} className="group relative">
+                                <img
+                                  src={p.url}
+                                  alt={label}
+                                  className="w-full aspect-square object-cover rounded-xl cursor-pointer hover:opacity-80 transition"
+                                  onClick={() => setEnlargedImage(p.url)}
+                                />
+                                {(p.performedBy || p.activityDate) && (
+                                  <div className="absolute bottom-0 left-0 right-0 rounded-b-xl px-2 py-1 opacity-0 group-hover:opacity-100 transition"
+                                    style={{ background: "rgba(0,0,0,0.7)", fontSize: "9px", color: "#fff" }}>
+                                    {p.performedBy && <div className="truncate">{p.performedBy}</div>}
+                                    {p.activityDate && <div className="text-gray-400">{p.activityDate}</div>}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

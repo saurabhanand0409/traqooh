@@ -30,6 +30,13 @@ export default function AdminDashboard() {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Field pins state
+  const [fieldPins, setFieldPins] = useState([]);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinForm, setPinForm] = useState({ workerName: "", vendorId: "" });
+  const [pinErr, setPinErr] = useState("");
+  const [newPinResult, setNewPinResult] = useState(null); // shows generated PIN after creation
+
   // Media user modal state
   const [showMUModal, setShowMUModal] = useState(false);
   const [editMU, setEditMU] = useState(null);
@@ -58,13 +65,14 @@ export default function AdminDashboard() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [sumRes, muRes, vendRes, invRes, advRes, campRes] = await Promise.all([
+      const [sumRes, muRes, vendRes, invRes, advRes, campRes, pinsRes] = await Promise.all([
         fetch(`${API}/api/dashboard/summary`),
         fetch(`${API}/api/admin/media-users`),
         fetch(`${API}/api/vendors`),
         fetch(`${API}/api/sites`),
         fetch(`${API}/api/advertisers`),
         fetch(`${API}/api/campaigns`),
+        fetch(`${API}/api/admin/field-pins${user.email ? `?admin_email=${encodeURIComponent(user.email)}` : ""}`),
       ]);
       if (sumRes.ok) setSummary(await sumRes.json());
       if (muRes.ok) setMediaUsers(await muRes.json());
@@ -72,6 +80,7 @@ export default function AdminDashboard() {
       if (invRes.ok) setInventory(await invRes.json());
       if (advRes.ok) setAdvertisers(await advRes.json());
       if (campRes.ok) setCampaigns(await campRes.json());
+      if (pinsRes.ok) setFieldPins(await pinsRes.json());
     } catch {}
     setLoading(false);
   }, []);
@@ -181,6 +190,43 @@ export default function AdminDashboard() {
     else alert("Failed to delete advertiser");
   };
 
+  // ---- Field PIN handlers ----
+  const openCreatePin = () => {
+    setPinForm({ workerName: "", vendorId: "" });
+    setPinErr("");
+    setNewPinResult(null);
+    setShowPinModal(true);
+  };
+
+  const handleCreatePin = async (e) => {
+    e.preventDefault();
+    setPinErr("");
+    if (!pinForm.workerName.trim()) return setPinErr("Worker name is required.");
+    const res = await fetch(`${API}/api/admin/field-pins`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workerName: pinForm.workerName.trim(),
+        vendorId: pinForm.vendorId ? Number(pinForm.vendorId) : null,
+        adminEmail: user.email || "",
+      }),
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setNewPinResult(created);
+      fetchAll();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setPinErr(d.detail || "Failed to create PIN");
+    }
+  };
+
+  const handleRevokePin = async (id, workerName) => {
+    if (!confirm(`Revoke PIN for "${workerName}"? They will be logged out immediately.`)) return;
+    await fetch(`${API}/api/admin/field-pins/${id}`, { method: "DELETE" });
+    fetchAll();
+  };
+
   // ---- Filtered lists ----
   const filteredMU = mediaUsers.filter(u =>
     (u.displayName || "").toLowerCase().includes(muSearch.toLowerCase()) ||
@@ -211,6 +257,7 @@ export default function AdminDashboard() {
     { id: "inventory", label: "Inventory", icon: "📍" },
     { id: "advertisers", label: "Advertisers", icon: "📢" },
     { id: "campaigns", label: "Campaigns", icon: "🎯" },
+    { id: "field-access", label: "Field Access", icon: "🔑" },
   ];
 
   return (
@@ -556,6 +603,74 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* ==================== FIELD ACCESS TAB ==================== */}
+        {activeTab === "field-access" && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold">Field Access</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Generate 4-digit PINs for field workers to log into the mobile app. PINs expire automatically in 72 hours.
+                </p>
+              </div>
+              <button onClick={openCreatePin} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 shrink-0">
+                + Generate PIN
+              </button>
+            </div>
+
+            <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider text-left">
+                  <tr>
+                    <th className="px-4 py-3">Worker Name</th>
+                    <th className="px-4 py-3">PIN</th>
+                    <th className="px-4 py-3">Vendor</th>
+                    <th className="px-4 py-3">Created</th>
+                    <th className="px-4 py-3">Expires In</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {fieldPins.map(p => {
+                    const expired = p.hoursLeft === 0;
+                    const statusLabel = !p.isActive ? "Revoked" : expired ? "Expired" : "Active";
+                    const statusColor = !p.isActive ? "bg-red-100 text-red-700" : expired ? "bg-gray-200 text-gray-600" : "bg-green-100 text-green-700";
+                    return (
+                      <tr key={p.id} className={`hover:bg-gray-50 ${(!p.isActive || expired) ? "opacity-60" : ""}`}>
+                        <td className="px-4 py-3 font-medium">{p.workerName || "—"}</td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-lg font-bold tracking-widest text-blue-700">{p.pin}</span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500">{p.vendorName || "—"}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">
+                          {p.createdAt ? new Date(p.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-xs">
+                          {(!p.isActive || expired) ? "—" : `${p.hoursLeft}h`}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusColor}`}>{statusLabel}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {p.isActive && !expired && (
+                            <button onClick={() => handleRevokePin(p.id, p.workerName)} className="text-red-500 text-xs hover:underline">Revoke</button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {fieldPins.length === 0 && (
+                    <tr><td colSpan={7} className="text-center py-8 text-gray-400">
+                      No PINs generated yet. Click "+ Generate PIN" to create one for a field worker.
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* ==================== CAMPAIGNS TAB (READ-ONLY) ==================== */}
         {activeTab === "campaigns" && (
           <div className="space-y-4">
@@ -727,6 +842,69 @@ export default function AdminDashboard() {
           </form>
         </div>
       )}
+      {/* ==================== FIELD PIN MODAL ==================== */}
+      {showPinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          {newPinResult ? (
+            // After creation: show the PIN prominently
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4 text-center">
+              <div className="text-4xl">🔑</div>
+              <h2 className="text-xl font-bold">PIN Generated!</h2>
+              <p className="text-sm text-gray-500">Share this PIN with <strong>{newPinResult.workerName}</strong></p>
+              <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl py-6">
+                <div className="text-5xl font-black tracking-[0.3em] text-blue-700 font-mono">{newPinResult.pin}</div>
+                <div className="text-xs text-gray-500 mt-2">Valid for 72 hours</div>
+              </div>
+              <p className="text-xs text-gray-400">This PIN will not be shown again. Note it down before closing.</p>
+              <button
+                onClick={() => { setShowPinModal(false); setNewPinResult(null); }}
+                className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-semibold hover:bg-blue-700"
+              >
+                Done
+              </button>
+            </div>
+          ) : (
+            // Create form
+            <form onSubmit={handleCreatePin} className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+              <h2 className="text-xl font-bold">Generate Field PIN</h2>
+              <p className="text-sm text-gray-500">A random 4-digit PIN will be generated for this worker. Expires in 72 hours.</p>
+              {pinErr && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{pinErr}</div>}
+
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Worker Name *</label>
+                <input
+                  value={pinForm.workerName}
+                  onChange={e => setPinForm({ ...pinForm, workerName: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  placeholder="e.g. Ramesh Kumar"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Assign to Vendor (optional)</label>
+                <select
+                  value={pinForm.vendorId}
+                  onChange={e => setPinForm({ ...pinForm, vendorId: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">No Vendor</option>
+                  {vendors.map(v => <option key={v.id} value={v.id}>{v.name}{v.city ? ` — ${v.city}` : ""}</option>)}
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700">
+                  Generate
+                </button>
+                <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 border py-2 rounded-lg text-gray-600">Cancel</button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+
     </AppShell>
   );
 }
