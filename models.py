@@ -274,7 +274,7 @@ class CampaignActivity(Base):
     __tablename__ = "campaign_activities"
 
     id = Column(Integer, primary_key=True, index=True)
-    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=False, index=True)
+    campaign_id = Column(Integer, ForeignKey("campaigns.id"), nullable=True, index=True)
     site_id = Column(Integer, ForeignKey("sites.id"), nullable=False, index=True)
     assignment_id = Column(Integer, ForeignKey("campaign_site_assignments.id"), nullable=True, index=True)
 
@@ -304,4 +304,18 @@ class ActivityLog(Base):
     entity_type = Column(String, nullable=True)  # vendor, site, campaign, audit, advertiser
     entity_id = Column(Integer, nullable=True)
     details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class FieldPin(Base):
+    """Admin-created 4-digit PIN for field workers (laborers) to log into the mobile app."""
+    __tablename__ = "field_pins"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pin = Column(String(4), nullable=False)
+    vendor_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
+    created_by_admin_email = Column(String, nullable=False)
+    worker_name = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime, nullable=False)  # 72 hours from creation
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

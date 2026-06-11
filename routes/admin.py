@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+import datetime
+import random
 from database import get_db
 import models
 from utils import log_activity
@@ -197,3 +199,84 @@ def create_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
     db.refresh(user)
     log_activity(db, "Created admin account", "user", user.id, req.email)
     return media_user_to_dict(user, db)
+
+
+# --- Field PIN Management ---
+
+class CreateFieldPinRequest(BaseModel):
+    workerName: str
+    vendorId: Optional[int] = None
+    adminEmail: str
+
+
+def field_pin_to_dict(fp, db: Session = None):
+    company_name = None
+    if fp.vendor_id and db:
+        c = db.query(models.Company).filter(models.Company.id == fp.vendor_id).first()
+        company_name = c.name if c else None
+    now = datetime.datetime.utcnow()
+    hours_left = max(0, round((fp.expires_at - now).total_seconds() / 3600, 1)) if fp.expires_at > now else 0
+    return {
+        "id": fp.id,
+        "pin": fp.pin,
+        "workerName": fp.worker_name,
+        "vendorId": fp.vendor_id,
+        "vendorName": company_name,
+        "isActive": fp.is_active,
+        "expiresAt": fp.expires_at.isoformat(),
+        "hoursLeft": hours_left,
+        "createdAt": fp.created_at.isoformat() if fp.created_at else None,
+        "createdByAdminEmail": fp.created_by_admin_email,
+    }
+
+
+@router.get("/field-pins")
+def list_field_pins(admin_email: Optional[str] = None, db: Session = Depends(get_db)):
+    """List all field PINs, optionally filtered by admin email."""
+    q = db.query(models.FieldPin)
+    if admin_email:
+        q = q.filter(models.FieldPin.created_by_admin_email == admin_email)
+    pins = q.order_by(models.FieldPin.created_at.desc()).all()
+    return [field_pin_to_dict(p, db) for p in pins]
+
+
+@router.post("/field-pins")
+def create_field_pin(req: CreateFieldPinRequest, db: Session = Depends(get_db)):
+    """Generate a random 4-digit PIN for a field worker. Expires in 72 hours."""
+    # Generate a PIN unique among currently active PINs for this admin
+    for _ in range(100):
+        pin = "".join([str(random.randint(0, 9)) for _ in range(4)])
+        conflict = db.query(models.FieldPin).filter(
+            models.FieldPin.pin == pin,
+            models.FieldPin.is_active == True,
+            models.FieldPin.expires_at > datetime.datetime.utcnow()
+        ).first()
+        if not conflict:
+            break
+
+    expires_at = datetime.datetime.utcnow() + datetime.timedelta(hours=72)
+    fp = models.FieldPin(
+        pin=pin,
+        vendor_id=req.vendorId,
+        created_by_admin_email=req.adminEmail,
+        worker_name=req.workerName,
+        is_active=True,
+        expires_at=expires_at,
+    )
+    db.add(fp)
+    db.commit()
+    db.refresh(fp)
+    log_activity(db, f"Admin created field PIN for '{req.workerName}'", "field_pin", fp.id, req.adminEmail)
+    return field_pin_to_dict(fp, db)
+
+
+@router.delete("/field-pins/{pin_id}")
+def revoke_field_pin(pin_id: int, db: Session = Depends(get_db)):
+    """Revoke (deactivate) a field PIN immediately."""
+    fp = db.query(models.FieldPin).filter(models.FieldPin.id == pin_id).first()
+    if not fp:
+        raise HTTPException(status_code=404, detail="PIN not found")
+    fp.is_active = False
+    db.commit()
+    log_activity(db, f"Field PIN revoked for '{fp.worker_name}'", "field_pin", fp.id, fp.created_by_admin_email)
+    return {"success": True, "message": "PIN revoked"}

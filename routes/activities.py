@@ -123,7 +123,7 @@ def create_activity(req: ActivityCreate, db: Session = Depends(get_db)):
         raise HTTPException(400, f"Invalid status. Must be one of {sorted(VALID_STATUS)}")
 
     # validate campaign + site exist
-    if not db.query(models.Campaign).filter(models.Campaign.id == req.campaignId).first():
+    if req.campaignId and not db.query(models.Campaign).filter(models.Campaign.id == req.campaignId).first():
         raise HTTPException(404, f"Campaign #{req.campaignId} not found")
     if not db.query(models.Site).filter(models.Site.id == req.siteId).first():
         raise HTTPException(404, f"Site #{req.siteId} not found")
@@ -238,9 +238,9 @@ def campaign_timeline(campaign_id: int, db: Session = Depends(get_db)):
 # ---------- Mobile combined create + photo (one shot) ----------
 @router.post("/mobile/log")
 async def mobile_log_activity(
-    campaignId: int = Form(...),
     siteId: int = Form(...),
     activityType: str = Form(...),
+    campaignId: Optional[int] = Form(None),
     assignmentId: Optional[int] = Form(None),
     performedBy: Optional[str] = Form(None),
     activityDate: Optional[str] = Form(None),
@@ -251,11 +251,27 @@ async def mobile_log_activity(
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
-    """One-shot endpoint for the mobile app: create an activity AND attach a photo
-    in a single multipart request (field staff snapping a photo on-site)."""
+    """One-shot endpoint for the mobile app: create an activity AND attach a photo.
+    campaignId is optional — if omitted the backend auto-discovers the active campaign
+    for the site, or logs a standalone activity (no campaign)."""
     at = (activityType or "").upper()
     if at not in VALID_TYPES:
         raise HTTPException(400, f"Invalid activityType. Must be one of {sorted(VALID_TYPES)}")
+
+    # Auto-discover campaign if not supplied
+    if campaignId is None:
+        from sqlalchemy import or_
+        assignment = (
+            db.query(models.CampaignSiteAssignment)
+            .filter(
+                models.CampaignSiteAssignment.site_id == siteId,
+                models.CampaignSiteAssignment.status.in_(["ACTIVE", "PLANNED"]),
+            )
+            .first()
+        )
+        if assignment:
+            campaignId = assignment.campaign_id
+            assignmentId = assignmentId or assignment.id
 
     a = models.CampaignActivity(
         campaign_id=campaignId,
