@@ -8,3 +8,6 @@ bcrypt
 python-dotenv
 python-multipart
 boto3
+httpx
+python-jose[cryptography]
+slowapi

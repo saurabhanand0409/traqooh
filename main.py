@@ -1,5 +1,5 @@
-# TraqOOH Backend v2.0
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+# TraqOOH Backend v2.1
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
@@ -16,6 +16,10 @@ import shutil
 import hashlib
 import bcrypt
 from utils import log_activity, site_to_dict, upload_to_r2
+from jwt_utils import create_access_token, get_current_user, get_current_user_optional, require_roles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -169,10 +173,19 @@ def run_migrations():
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
 
 # --- App Setup ---
-app = FastAPI(title="TraqOOH API", version="2.0.0")
+limiter = Limiter(key_func=get_remote_address)
+app = FastAPI(title="TraqOOH API", version="2.1.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(CORSMiddleware,
-                   allow_origins=["*"],
-                   allow_credentials=False,
+                   allow_origins=[
+                       "https://app.brandsculpt.com",
+                       "https://traqooh.brandsculpt.com",
+                       "http://localhost:5173",
+                       "http://localhost:3000",
+                       "http://127.0.0.1:5173",
+                   ],
+                   allow_credentials=True,
                    allow_methods=["*"],
                    allow_headers=["*"])
 
@@ -273,67 +286,11 @@ def health_check():
 def read_root():
     return {"message": "Welcome to the TraqOOH API v2.0!"}
 
-# --- TEMP: List all users ---
-@app.get("/api/temp/list-users")
-def temp_list_users(db: Session = Depends(get_db)):
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT id, email, role FROM user_accounts ORDER BY id"))
-            rows = result.fetchall()
-        return [{"id": r[0], "email": r[1], "role": r[2]} for r in rows]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- TEMP: Safe user creation with full error detail ---
-@app.post("/api/temp/create-user")
-def temp_create_user(email: str, password: str, role: str, display_name: str = "User", db: Session = Depends(get_db)):
-    try:
-        with engine.connect() as conn:
-            from sqlalchemy import text as t
-            conn.execute(t(
-                "INSERT INTO user_accounts (email, password_hash, role, display_name, is_active) "
-                "VALUES (:email, :pw, :role, :dn, TRUE)"
-            ), {"email": email.lower().strip(), "pw": hash_password(password), "role": role.upper(), "dn": display_name})
-            conn.commit()
-        return {"success": True, "email": email, "role": role}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# --- TEMP: Fix admin by ID — clean email + reset password (DELETE AFTER USE) ---
-@app.put("/api/temp/fix-admin")
-def temp_fix_admin(user_id: int, new_email: str, new_password: str, db: Session = Depends(get_db)):
-    user = db.query(models.UserAccount).filter(models.UserAccount.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    user.email = new_email.strip()
-    user.password_hash = hash_password(new_password)
-    db.commit()
-    return {"success": True, "email": user.email, "role": user.role}
-
-# --- TEMP: One-time email update utility (DELETE AFTER USE) ---
-@app.put("/api/temp/update-email")
-def temp_update_email(old_email: str, new_email: str, db: Session = Depends(get_db)):
-    user = db.query(models.UserAccount).filter(models.UserAccount.email == old_email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    user.email = new_email
-    db.commit()
-    return {"success": True, "message": f"Email updated from {old_email} to {new_email}"}
-
-# --- TEMP: One-time password reset utility (DELETE AFTER USE) ---
-@app.put("/api/temp/reset-password")
-def temp_reset_password(email: str, new_password: str, db: Session = Depends(get_db)):
-    user = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    user.password_hash = hash_password(new_password)
-    db.commit()
-    return {"success": True, "message": f"Password updated for {email}"}
-
 # --- Auth ---
 @app.post("/api/auth/login", response_model=LoginResponse)
 @app.post("/api/mobile/login", response_model=LoginResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.email.strip())).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -352,12 +309,20 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             company = db.query(models.Company).filter(models.Company.id == gst.company_id).first()
             if company:
                 company_name = company.name
+    token = create_access_token({
+        "sub": str(user.id),
+        "email": user.email,
+        "role": role,
+        "companyId": company_id,
+        "advertiserId": user.advertiser_id,
+        "displayName": user.display_name,
+    })
     log_activity(db, "User logged in", "user", user.id, user.email, user.email)
     return LoginResponse(
-        userId=user.id, email=user.email, role=role,  # normalized role
+        userId=user.id, email=user.email, role=role,
         gstRegistrationId=user.gst_registration_id, companyId=company_id,
         companyName=company_name, advertiserId=user.advertiser_id,
-        displayName=user.display_name, token="token-placeholder", success=True
+        displayName=user.display_name, token=token, success=True
     )
 
 # --- OTP Auth (Mobile App) ---
@@ -415,7 +380,8 @@ class VerifyOtpRequest(BaseModel):
     otp: str
 
 @app.post("/api/auth/send-otp")
-def send_otp(req: SendOtpRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def send_otp(request: Request, req: SendOtpRequest, db: Session = Depends(get_db)):
     """Generate and send OTP to the user's email. User must already exist."""
     email = req.email.lower().strip()
     user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(email)).first()
@@ -471,6 +437,13 @@ def verify_otp(req: VerifyOtpRequest, db: Session = Depends(get_db)):
         if company:
             company_name = company.name
 
+    token = create_access_token({
+        "sub": str(user.id),
+        "email": user.email,
+        "role": role,
+        "companyId": company_id,
+        "displayName": user.display_name,
+    })
     log_activity(db, "User logged in via OTP", "user", user.id, user.email)
     return {
         "success": True,
@@ -480,7 +453,7 @@ def verify_otp(req: VerifyOtpRequest, db: Session = Depends(get_db)):
         "displayName": user.display_name,
         "companyId": company_id,
         "companyName": company_name,
-        "token": f"otp-token-{user.id}-{datetime.datetime.utcnow().timestamp()}"
+        "token": token,
     }
 
 
@@ -489,7 +462,8 @@ class FieldLoginRequest(BaseModel):
     pin: str
 
 @app.post("/api/auth/field-login")
-def field_login(req: FieldLoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def field_login(request: Request, req: FieldLoginRequest, db: Session = Depends(get_db)):
     """Login with a 4-digit field PIN generated by an admin. Used by field workers (laborers)."""
     pin = req.pin.strip()
     fp = db.query(models.FieldPin).filter(
@@ -506,6 +480,12 @@ def field_login(req: FieldLoginRequest, db: Session = Depends(get_db)):
         if company:
             company_name = company.name
 
+    token = create_access_token({
+        "sub": f"pin-{fp.id}",
+        "role": "FIELD",
+        "vendorId": fp.vendor_id,
+        "workerName": fp.worker_name or "Field Worker",
+    })
     return {
         "success": True,
         "role": "FIELD",
@@ -514,7 +494,7 @@ def field_login(req: FieldLoginRequest, db: Session = Depends(get_db)):
         "vendorId": fp.vendor_id,
         "companyName": company_name,
         "expiresAt": fp.expires_at.isoformat(),
-        "token": f"field-{fp.id}-{datetime.datetime.utcnow().timestamp()}"
+        "token": token,
     }
 
 
@@ -668,7 +648,7 @@ def get_site_details(site_id: int, db: Session = Depends(get_db)):
     return result
 
 @app.post("/api/sites")
-def create_site(req: SiteCreate, db: Session = Depends(get_db)):
+def create_site(req: SiteCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     from datetime import date
     vendor_id = req.vendorId or req.ownerCompanyId  # vendorId takes precedence if provided
     site = models.Site(
@@ -693,7 +673,7 @@ def create_site(req: SiteCreate, db: Session = Depends(get_db)):
     return site_to_dict(site)
 
 @app.put("/api/sites/{site_id}")
-def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
+def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     from datetime import date
     site = db.query(models.Site).filter(models.Site.id == site_id).first()
     if not site:
@@ -721,7 +701,7 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db)):
     return site_to_dict(site)
 
 @app.delete("/api/sites/{site_id}")
-def delete_site(site_id: int, db: Session = Depends(get_db)):
+def delete_site(site_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     site = db.query(models.Site).filter(models.Site.id == site_id).first()
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
