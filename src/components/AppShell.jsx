@@ -74,7 +74,7 @@ export default function AppShell({ children, user = {} }) {
               <span className="font-syne font-extrabold text-[0.95rem] whitespace-nowrap">
                 <span style={{ color: "#2563EB" }}>traq</span><span style={{ color: "#DC143C" }}>OOH</span>
               </span>
-              <span className="text-[0.42rem] font-bold uppercase tracking-widest" style={{ color: "var(--gray2)" }}>
+              <span className="text-[0.42rem] uppercase tracking-widest" style={{ color: "var(--gray2)" }}>
                 by <span style={{ color: "#2563EB" }}>BRAND</span><span style={{ color: "#DC143C" }}>SCULPT</span>
               </span>
             </div>
