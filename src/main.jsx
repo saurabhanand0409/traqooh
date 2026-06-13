@@ -24,6 +24,9 @@ import Vendors from "./pages/Vendors.jsx";
 import Advertisers from "./pages/Advertisers.jsx";
 import Campaigns from "./pages/Campaigns.jsx";
 import CampaignDetail from "./pages/CampaignDetail.jsx";
+// Execution pages
+import Activities from "./pages/Activities.jsx";
+import Reports from "./pages/Reports.jsx";
 // Other pages
 import Account from "./pages/Account.jsx";
 import Contact from "./pages/Contact.jsx";
@@ -70,6 +73,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         <Route path="/advertisers" element={<Advertisers />} />
         <Route path="/campaigns" element={<Campaigns />} />
         <Route path="/campaigns/:id" element={<CampaignDetail />} />
+
+        {/* Execution pages */}
+        <Route path="/activities" element={<Activities />} />
+        <Route path="/reports" element={<Reports />} />
 
         {/* Secure advertiser access link */}
         <Route path="/access/:token" element={<AccessView />} />

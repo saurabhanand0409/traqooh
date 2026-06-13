@@ -5,6 +5,9 @@ import {
   Search, Plus, Maximize2, X, Calendar as CalendarIcon,
   MapPin, CheckCircle, XCircle, Clock, Image as ImageIcon, Target, Edit
 } from "lucide-react";
+import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import { compressImage } from "../utils/imageCompress";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
@@ -57,6 +60,7 @@ export default function Inventory() {
   };
   const [form, setForm] = useState(emptyForm);
   const [uploading, setUploading] = useState(false);
+  const [viewMode, setViewMode] = useState("list"); // "list" | "map"
 
   // Fetch Sites
   useEffect(() => {
@@ -134,8 +138,9 @@ export default function Inventory() {
 
   // Image Upload
   const handleFileUpload = async (e, isEdit = false) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const raw = e.target.files[0];
+    if (!raw) return;
+    const file = await compressImage(raw);
     const formData = new FormData();
     formData.append("file", file);
     try {
@@ -346,11 +351,62 @@ export default function Inventory() {
             <option value="Booked">Booked</option>
             <option value="Vacant Soon">Vacant Soon</option>
           </select>
+          {/* View toggle */}
+          <div className="flex rounded-lg overflow-hidden flex-shrink-0" style={{ border: "1px solid var(--border)" }}>
+            {[["list","List"],["map","Map"]].map(([mode, label]) => (
+              <button key={mode} onClick={() => setViewMode(mode)}
+                className="px-3 py-2 text-xs font-bold transition-all"
+                style={viewMode === mode ? { background: "rgba(37,99,235,0.2)", color: "#60A5FA" } : { color: "var(--gray2)", background: "transparent" }}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      {/* Map View */}
+      {viewMode === "map" && (
+        <div className="glass rounded-2xl overflow-hidden mb-6" style={{ height: 480 }}>
+          {filteredSites.filter(s => s.latitude && s.longitude).length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-2">
+              <MapPin className="w-8 h-8" style={{ color: "var(--gray2)" }} />
+              <p className="text-sm text-white">No sites with GPS coordinates</p>
+              <p className="text-xs" style={{ color: "var(--gray2)" }}>Add latitude/longitude to sites to see them on the map.</p>
+            </div>
+          ) : (
+            <MapContainer
+              center={[filteredSites.find(s => s.latitude && s.longitude)?.latitude || 20.5937, filteredSites.find(s => s.latitude && s.longitude)?.longitude || 78.9629]}
+              zoom={5} style={{ width: "100%", height: "100%" }}
+              className="rounded-2xl"
+            >
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              />
+              {filteredSites.filter(s => s.latitude && s.longitude).map(s => {
+                const color = s.computedStatus === "Vacant" ? "#22C55E" : s.computedStatus === "Vacant Soon" ? "#F59E0B" : "#DC143C";
+                return (
+                  <CircleMarker key={s.id} center={[s.latitude, s.longitude]} radius={10}
+                    pathOptions={{ fillColor: color, color: color, fillOpacity: 0.85, weight: 2 }}>
+                    <Popup>
+                      <div style={{ minWidth: 160 }}>
+                        <p style={{ fontWeight: 700, fontSize: 13 }}>{s.name}</p>
+                        <p style={{ fontSize: 12, color: "#6B7280" }}>{s.city}, {s.state}</p>
+                        <p style={{ fontSize: 12, marginTop: 4 }}>{s.type} · {s.size}</p>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: color }}>{s.computedStatus}</p>
+                        {s.potentialMonthly && <p style={{ fontSize: 12 }}>₹{Number(s.potentialMonthly).toLocaleString("en-IN")}/mo</p>}
+                      </div>
+                    </Popup>
+                  </CircleMarker>
+                );
+              })}
+            </MapContainer>
+          )}
+        </div>
+      )}
+
       {/* Sites Table */}
-      <div className="glass rounded-2xl overflow-hidden">
+      {viewMode === "list" && <div className="glass rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
@@ -439,7 +495,7 @@ export default function Inventory() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
       {/* --- HOVER POPUP (desktop) --- */}
       {hoverSite && (
