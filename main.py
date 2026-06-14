@@ -131,93 +131,105 @@ def run_migrations():
                     if col not in act_cols:
                         conn.execute(text(f"ALTER TABLE campaign_activities ADD COLUMN {col} {typ}"))
                         conn.commit()
-        # OTP tokens table
-        if not inspector.has_table("otp_tokens"):
-            conn.execute(text("""
-                CREATE TABLE otp_tokens (
-                    id SERIAL PRIMARY KEY,
-                    email VARCHAR NOT NULL,
-                    otp VARCHAR(6) NOT NULL,
-                    expires_at TIMESTAMP NOT NULL,
-                    used BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            conn.commit()
-            logger.info("Created otp_tokens table")
-        # Make campaign_id nullable on campaign_activities (field workers don't always have a campaign)
-        if inspector.has_table("campaign_activities"):
+        # NOTE: the original `with engine.connect() as conn:` block ended here.
+        # The following migrations were previously OUTSIDE that block and silently
+        # failed because `conn` was already closed — that's why advertiser columns
+        # never got added and SELECTs against advertisers/campaigns crashed.
+        # All these self-heal steps now use a fresh, properly-scoped connection.
+        with engine.connect() as conn:
+            inspector = inspect(engine)
+            # OTP tokens table
+            if not inspector.has_table("otp_tokens"):
+                conn.execute(text("""
+                    CREATE TABLE otp_tokens (
+                        id SERIAL PRIMARY KEY,
+                        email VARCHAR NOT NULL,
+                        otp VARCHAR(6) NOT NULL,
+                        expires_at TIMESTAMP NOT NULL,
+                        used BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                conn.commit()
+                logger.info("Created otp_tokens table")
+            # Make campaign_id nullable on campaign_activities (field workers don't always have a campaign)
+            if inspector.has_table("campaign_activities"):
+                try:
+                    conn.execute(text("ALTER TABLE campaign_activities ALTER COLUMN campaign_id DROP NOT NULL"))
+                    conn.commit()
+                except Exception:
+                    pass  # already nullable
+            # Field pins table (admin-created 4-digit PINs for field workers)
+            if not inspector.has_table("field_pins"):
+                conn.execute(text("""
+                    CREATE TABLE field_pins (
+                        id SERIAL PRIMARY KEY,
+                        pin VARCHAR(4) NOT NULL,
+                        vendor_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+                        created_by_admin_email VARCHAR NOT NULL,
+                        worker_name VARCHAR,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        expires_at TIMESTAMP NOT NULL,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+                conn.commit()
+                logger.info("Created field_pins table")
+            # Campaign shares table (admin shares a campaign with specific employees)
+            if not inspector.has_table("campaign_shares"):
+                conn.execute(text("""
+                    CREATE TABLE campaign_shares (
+                        id SERIAL PRIMARY KEY,
+                        campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                        user_id INTEGER NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+                        shared_by_email VARCHAR,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(campaign_id, user_id)
+                    )
+                """))
+                conn.commit()
+                logger.info("Created campaign_shares table")
+            # Advertiser ownership + sharing — CRITICAL: each ALTER wrapped so a single
+            # failure doesn't poison the connection for subsequent statements
+            adv_cols = [c["name"] for c in inspector.get_columns("advertisers")]
+            for col, typ in [
+                ("created_by_user_id", "INTEGER"),  # plain int, no FK (circular ref)
+                ("vendor_company_id", "INTEGER REFERENCES companies(id) ON DELETE SET NULL"),
+            ]:
+                if col not in adv_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE advertisers ADD COLUMN {col} {typ}"))
+                        conn.commit()
+                        logger.info(f"Added column advertisers.{col}")
+                    except Exception as e:
+                        conn.rollback()
+                        logger.error(f"Failed to add advertisers.{col}: {e}")
+            if not inspector.has_table("advertiser_shares"):
+                conn.execute(text("""
+                    CREATE TABLE advertiser_shares (
+                        id SERIAL PRIMARY KEY,
+                        advertiser_id INTEGER NOT NULL REFERENCES advertisers(id) ON DELETE CASCADE,
+                        user_id INTEGER NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+                        shared_by_email VARCHAR,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(advertiser_id, user_id)
+                    )
+                """))
+                conn.commit()
+                logger.info("Created advertiser_shares table")
+            # Advertiser ↔ Company many-to-many link table (backfill is idempotent)
             try:
-                conn.execute(text("ALTER TABLE campaign_activities ALTER COLUMN campaign_id DROP NOT NULL"))
+                conn.execute(text("""
+                    INSERT INTO advertiser_company_links (advertiser_id, company_id)
+                    SELECT id, vendor_company_id FROM advertisers
+                    WHERE vendor_company_id IS NOT NULL
+                    ON CONFLICT DO NOTHING
+                """))
                 conn.commit()
-            except Exception:
-                pass  # already nullable
-        # Field pins table (admin-created 4-digit PINs for field workers)
-        if not inspector.has_table("field_pins"):
-            conn.execute(text("""
-                CREATE TABLE field_pins (
-                    id SERIAL PRIMARY KEY,
-                    pin VARCHAR(4) NOT NULL,
-                    vendor_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
-                    created_by_admin_email VARCHAR NOT NULL,
-                    worker_name VARCHAR,
-                    is_active BOOLEAN DEFAULT TRUE,
-                    expires_at TIMESTAMP NOT NULL,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            conn.commit()
-            logger.info("Created field_pins table")
-        # Campaign shares table (admin shares a campaign with specific employees)
-        if not inspector.has_table("campaign_shares"):
-            conn.execute(text("""
-                CREATE TABLE campaign_shares (
-                    id SERIAL PRIMARY KEY,
-                    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
-                    user_id INTEGER NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
-                    shared_by_email VARCHAR,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    UNIQUE(campaign_id, user_id)
-                )
-            """))
-            conn.commit()
-            logger.info("Created campaign_shares table")
-        # Advertiser ownership + sharing
-        adv_cols = [c["name"] for c in inspector.get_columns("advertisers")]
-        for col, typ in [
-            ("created_by_user_id", "INTEGER REFERENCES user_accounts(id) ON DELETE SET NULL"),
-            ("vendor_company_id", "INTEGER REFERENCES companies(id) ON DELETE SET NULL"),
-        ]:
-            if col not in adv_cols:
-                conn.execute(text(f"ALTER TABLE advertisers ADD COLUMN {col} {typ}"))
-                conn.commit()
-        if not inspector.has_table("advertiser_shares"):
-            conn.execute(text("""
-                CREATE TABLE advertiser_shares (
-                    id SERIAL PRIMARY KEY,
-                    advertiser_id INTEGER NOT NULL REFERENCES advertisers(id) ON DELETE CASCADE,
-                    user_id INTEGER NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
-                    shared_by_email VARCHAR,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    UNIQUE(advertiser_id, user_id)
-                )
-            """))
-            conn.commit()
-            logger.info("Created advertiser_shares table")
-        # Advertiser ↔ Company many-to-many link table
-        # Note: create_all already creates the table via the ORM model,
-        # so we only need to ensure the backfill runs (idempotent — ON CONFLICT DO NOTHING)
-        try:
-            conn.execute(text("""
-                INSERT INTO advertiser_company_links (advertiser_id, company_id)
-                SELECT id, vendor_company_id FROM advertisers
-                WHERE vendor_company_id IS NOT NULL
-                ON CONFLICT DO NOTHING
-            """))
-            conn.commit()
-            logger.info("Backfilled advertiser_company_links from vendor_company_id")
-        except Exception as e:
-            logger.warning(f"advertiser_company_links backfill skipped: {e}")
+                logger.info("Backfilled advertiser_company_links from vendor_company_id")
+            except Exception as e:
+                conn.rollback()
+                logger.warning(f"advertiser_company_links backfill skipped: {e}")
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
