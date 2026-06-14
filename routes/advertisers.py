@@ -117,22 +117,8 @@ def list_advertisers(
             ))
         else:
             q = q.filter(models.Advertiser.created_by_user_id == userId)
-    elif r == "ADMIN" and vendorId:
-        # Admin sees: (1) advertisers in link table for their company,
-        # (2) advertisers directly tagged via vendor_company_id (legacy fallback),
-        # (3) untagged legacy advertisers (vendor_company_id IS NULL)
-        linked_rows = db.execute(
-            text("SELECT advertiser_id FROM advertiser_company_links WHERE company_id = :cid"),
-            {"cid": vendorId}
-        ).fetchall()
-        linked_ids = [row[0] for row in linked_rows]
-        conditions = [
-            models.Advertiser.vendor_company_id == vendorId,
-            models.Advertiser.vendor_company_id.is_(None),
-        ]
-        if linked_ids:
-            conditions.append(models.Advertiser.id.in_(linked_ids))
-        q = q.filter(or_(*conditions))
+    elif r == "ADMIN":
+        pass  # Admin sees all advertisers (company scoping via link table is future work)
     # SUPER_ADMIN (no params): sees all advertisers
 
     advs = q.all()
