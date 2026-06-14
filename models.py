@@ -309,6 +309,18 @@ class ActivityLog(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
+class AdvertiserCompanyLink(Base):
+    """Many-to-many: one advertiser can belong to multiple companies/admins."""
+    __tablename__ = "advertiser_company_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    advertiser_id = Column(Integer, ForeignKey("advertisers.id"), nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("advertiser_id", "company_id", name="uq_adv_company"),)
+
+
 class FieldPin(Base):
     """Admin-created 4-digit PIN for field workers (laborers) to log into the mobile app."""
     __tablename__ = "field_pins"

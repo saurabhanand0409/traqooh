@@ -204,6 +204,28 @@ def run_migrations():
             """))
             conn.commit()
             logger.info("Created advertiser_shares table")
+        # Advertiser ↔ Company many-to-many link table
+        if not inspector.has_table("advertiser_company_links"):
+            conn.execute(text("""
+                CREATE TABLE advertiser_company_links (
+                    id SERIAL PRIMARY KEY,
+                    advertiser_id INTEGER NOT NULL REFERENCES advertisers(id) ON DELETE CASCADE,
+                    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(advertiser_id, company_id)
+                )
+            """))
+            conn.commit()
+            logger.info("Created advertiser_company_links table")
+            # Migrate existing vendor_company_id values into the new table
+            conn.execute(text("""
+                INSERT INTO advertiser_company_links (advertiser_id, company_id)
+                SELECT id, vendor_company_id FROM advertisers
+                WHERE vendor_company_id IS NOT NULL
+                ON CONFLICT DO NOTHING
+            """))
+            conn.commit()
+            logger.info("Migrated vendor_company_id -> advertiser_company_links")
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")

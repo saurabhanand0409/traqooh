@@ -117,12 +117,20 @@ def list_advertisers(
             ))
         else:
             q = q.filter(models.Advertiser.created_by_user_id == userId)
-    elif r in ("ADMIN",) and vendorId:
-        # Admin sees advertisers tagged to their company OR untagged legacy ones
-        q = q.filter(or_(
-            models.Advertiser.vendor_company_id == vendorId,
-            models.Advertiser.vendor_company_id.is_(None),
-        ))
+    elif r == "ADMIN" and vendorId:
+        # Admin sees advertisers linked to their company (via many-to-many) OR legacy untagged ones
+        linked_rows = db.execute(
+            text("SELECT advertiser_id FROM advertiser_company_links WHERE company_id = :cid"),
+            {"cid": vendorId}
+        ).fetchall()
+        linked_ids = [row[0] for row in linked_rows]
+        if linked_ids:
+            q = q.filter(or_(
+                models.Advertiser.id.in_(linked_ids),
+                models.Advertiser.vendor_company_id.is_(None),
+            ))
+        else:
+            q = q.filter(models.Advertiser.vendor_company_id.is_(None))
     # SUPER_ADMIN (no params): sees all advertisers
 
     advs = q.all()
@@ -267,8 +275,13 @@ def create_advertiser(req: AdvertiserCreate, db: Session = Depends(get_db)):
     db.add(a)
     db.commit()
     db.refresh(a)
-    # If created by an employee, also auto-share with admin (so admin can see it)
-    # The admin sees it via vendor_company_id filter, so no extra share needed
+    # Link advertiser to the creator's company so admin can see it
+    if req.vendorCompanyId:
+        db.execute(
+            text("INSERT INTO advertiser_company_links (advertiser_id, company_id) VALUES (:aid, :cid) ON CONFLICT DO NOTHING"),
+            {"aid": a.id, "cid": req.vendorCompanyId}
+        )
+        db.commit()
     log_activity(db, "Created advertiser", "advertiser", a.id, a.company_name)
     return adv_to_dict(a)
 
@@ -396,6 +409,49 @@ def revoke_access_link(link_id: int, db: Session = Depends(get_db),
     db.commit()
     return {"message": "Access link revoked"}
 
+
+class CompanyLinkRequest(BaseModel):
+    companyId: int
+
+@router.get("/{adv_id}/company-links")
+def get_company_links(adv_id: int, db: Session = Depends(get_db)):
+    """List all companies this advertiser is linked to."""
+    rows = db.execute(
+        text("""
+            SELECT c.id, c.name, acl.created_at
+            FROM advertiser_company_links acl
+            JOIN companies c ON c.id = acl.company_id
+            WHERE acl.advertiser_id = :aid
+            ORDER BY c.name
+        """),
+        {"aid": adv_id}
+    ).fetchall()
+    return [{"companyId": r[0], "companyName": r[1], "linkedAt": str(r[2])} for r in rows]
+
+@router.post("/{adv_id}/link-company")
+def link_company(adv_id: int, req: CompanyLinkRequest, db: Session = Depends(get_db)):
+    """Link an advertiser to an additional company (so that company's admin can see it)."""
+    a = db.query(models.Advertiser).filter(models.Advertiser.id == adv_id).first()
+    if not a:
+        raise HTTPException(404, "Advertiser not found")
+    db.execute(
+        text("INSERT INTO advertiser_company_links (advertiser_id, company_id) VALUES (:aid, :cid) ON CONFLICT DO NOTHING"),
+        {"aid": adv_id, "cid": req.companyId}
+    )
+    db.commit()
+    log_activity(db, "Linked advertiser to company", "advertiser", adv_id, f"company #{req.companyId}")
+    return {"message": "Advertiser linked to company"}
+
+@router.delete("/{adv_id}/link-company/{company_id}")
+def unlink_company(adv_id: int, company_id: int, db: Session = Depends(get_db)):
+    """Remove a company link from an advertiser."""
+    db.execute(
+        text("DELETE FROM advertiser_company_links WHERE advertiser_id=:aid AND company_id=:cid"),
+        {"aid": adv_id, "cid": company_id}
+    )
+    db.commit()
+    log_activity(db, "Unlinked advertiser from company", "advertiser", adv_id, f"company #{company_id}")
+    return {"message": "Company link removed"}
 
 @router.post("/{adv_id}/share")
 def share_advertiser(adv_id: int, req: AdvertiserShareRequest, db: Session = Depends(get_db)):
