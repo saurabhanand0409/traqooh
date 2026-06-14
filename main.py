@@ -168,6 +168,20 @@ def run_migrations():
             """))
             conn.commit()
             logger.info("Created field_pins table")
+        # Campaign shares table (admin shares a campaign with specific employees)
+        if not inspector.has_table("campaign_shares"):
+            conn.execute(text("""
+                CREATE TABLE campaign_shares (
+                    id SERIAL PRIMARY KEY,
+                    campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+                    user_id INTEGER NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+                    shared_by_email VARCHAR,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(campaign_id, user_id)
+                )
+            """))
+            conn.commit()
+            logger.info("Created campaign_shares table")
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")

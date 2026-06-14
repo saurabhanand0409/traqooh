@@ -1,6 +1,7 @@
 """Campaign management routes."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import text
 from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db
@@ -96,8 +97,19 @@ def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = N
     if advertiserId:
         q = q.filter(models.Campaign.advertiser_id == advertiserId)
     if userId:
-        # Employee: only campaigns they created
-        q = q.filter(models.Campaign.created_by_user_id == userId)
+        # Employee: campaigns they created OR were shared with them by admin
+        from sqlalchemy import or_
+        shared_ids = db.execute(
+            text("SELECT campaign_id FROM campaign_shares WHERE user_id = :uid"), {"uid": userId}
+        ).fetchall()
+        shared_campaign_ids = [r[0] for r in shared_ids]
+        if shared_campaign_ids:
+            q = q.filter(or_(
+                models.Campaign.created_by_user_id == userId,
+                models.Campaign.id.in_(shared_campaign_ids)
+            ))
+        else:
+            q = q.filter(models.Campaign.created_by_user_id == userId)
     elif vendorId:
         # Admin: all campaigns created by any user in their company
         q = q.join(models.UserAccount, models.Campaign.created_by_user_id == models.UserAccount.id)\
@@ -299,6 +311,58 @@ def assign_sites_bulk(campaign_id: int, req: BulkAssignRequest, db: Session = De
     log_activity(db, f"Bulk assigned {added} sites to campaign", "campaign", campaign_id)
     return {"message": f"Added {added} sites, skipped {skipped} duplicates",
             "added": added, "skipped": skipped}
+
+
+class ShareRequest(BaseModel):
+    userIds: List[int]
+    sharedByEmail: Optional[str] = None
+
+@router.post("/{campaign_id}/share")
+def share_campaign(campaign_id: int, req: ShareRequest, db: Session = Depends(get_db)):
+    """Admin shares a campaign with one or more employees."""
+    c = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+    added = 0
+    for uid in req.userIds:
+        exists = db.execute(
+            text("SELECT 1 FROM campaign_shares WHERE campaign_id=:cid AND user_id=:uid"),
+            {"cid": campaign_id, "uid": uid}
+        ).first()
+        if not exists:
+            db.execute(
+                text("INSERT INTO campaign_shares (campaign_id, user_id, shared_by_email) VALUES (:cid, :uid, :email)"),
+                {"cid": campaign_id, "uid": uid, "email": req.sharedByEmail}
+            )
+            added += 1
+    db.commit()
+    log_activity(db, f"Shared campaign with {added} employees", "campaign", campaign_id)
+    return {"message": f"Shared with {added} employee(s)"}
+
+@router.delete("/{campaign_id}/share/{user_id}")
+def unshare_campaign(campaign_id: int, user_id: int, db: Session = Depends(get_db)):
+    """Remove an employee's access to a shared campaign."""
+    db.execute(
+        text("DELETE FROM campaign_shares WHERE campaign_id=:cid AND user_id=:uid"),
+        {"cid": campaign_id, "uid": user_id}
+    )
+    db.commit()
+    log_activity(db, "Removed campaign share", "campaign", campaign_id, f"user #{user_id}")
+    return {"message": "Access removed"}
+
+@router.get("/{campaign_id}/shares")
+def get_campaign_shares(campaign_id: int, db: Session = Depends(get_db)):
+    """Return list of employees this campaign is shared with."""
+    rows = db.execute(
+        text("""
+            SELECT u.id, u.display_name, u.email, cs.created_at
+            FROM campaign_shares cs
+            JOIN user_accounts u ON u.id = cs.user_id
+            WHERE cs.campaign_id = :cid
+        """),
+        {"cid": campaign_id}
+    ).fetchall()
+    return [{"userId": r[0], "displayName": r[1], "email": r[2], "sharedAt": str(r[3])} for r in rows]
 
 
 @router.delete("/{campaign_id}/remove-site/{assignment_id}")
