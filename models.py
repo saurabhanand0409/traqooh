@@ -154,6 +154,8 @@ class Advertiser(Base):
     gst_number = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     status = Column(String, default="ACTIVE")  # ACTIVE / INACTIVE
+    created_by_user_id = Column(Integer, ForeignKey("user_accounts.id"), nullable=True)
+    vendor_company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
