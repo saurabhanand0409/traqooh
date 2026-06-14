@@ -1,7 +1,7 @@
 """Campaign management routes."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import text
+from sqlalchemy import text, func
 from pydantic import BaseModel
 from typing import Optional, List
 from database import get_db
@@ -41,7 +41,7 @@ class BulkAssignRequest(BaseModel):
     agreedCost: Optional[float] = 0.0
 
 
-def campaign_to_dict(c):
+def campaign_to_dict(c, site_count: int = None):
     return {
         "id": c.id, "name": c.name, "advertiserId": c.advertiser_id,
         "advertiserName": c.advertiser.company_name if c.advertiser else None,
@@ -52,7 +52,7 @@ def campaign_to_dict(c):
         "totalCost": c.total_cost, "status": c.status,
         "notes": c.notes, "billingRemarks": c.billing_remarks,
         "createdAt": str(c.created_at) if c.created_at else None,
-        "siteCount": len(c.site_assignments) if c.site_assignments else 0,
+        "siteCount": site_count if site_count is not None else (len(c.site_assignments) if c.site_assignments else 0),
     }
 
 
@@ -90,14 +90,12 @@ def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = N
                    db: Session = Depends(get_db)):
     q = db.query(models.Campaign).options(
         joinedload(models.Campaign.advertiser),
-        joinedload(models.Campaign.site_assignments)
     )
     if status:
         q = q.filter(models.Campaign.status == status)
     if advertiserId:
         q = q.filter(models.Campaign.advertiser_id == advertiserId)
     if userId:
-        # Employee: campaigns they created OR were shared with them by admin
         from sqlalchemy import or_
         shared_ids = db.execute(
             text("SELECT campaign_id FROM campaign_shares WHERE user_id = :uid"), {"uid": userId}
@@ -111,10 +109,34 @@ def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = N
         else:
             q = q.filter(models.Campaign.created_by_user_id == userId)
     elif vendorId:
-        # Admin: all campaigns created by any user in their company
         q = q.join(models.UserAccount, models.Campaign.created_by_user_id == models.UserAccount.id)\
               .filter(models.UserAccount.vendor_id == vendorId)
-    return [campaign_to_dict(c) for c in q.order_by(models.Campaign.created_at.desc()).all()]
+
+    campaigns = q.order_by(models.Campaign.created_at.desc()).all()
+
+    # Batch-count site assignments in a single query instead of loading all rows
+    campaign_ids = [c.id for c in campaigns]
+    site_count_map = {}
+    if campaign_ids:
+        rows = db.query(
+            models.CampaignSiteAssignment.campaign_id,
+            func.count(models.CampaignSiteAssignment.id).label("cnt")
+        ).filter(models.CampaignSiteAssignment.campaign_id.in_(campaign_ids))\
+         .group_by(models.CampaignSiteAssignment.campaign_id).all()
+        site_count_map = {r[0]: r[1] for r in rows}
+
+    return [{
+        "id": c.id, "name": c.name, "advertiserId": c.advertiser_id,
+        "advertiserName": c.advertiser.company_name if c.advertiser else None,
+        "createdByUserId": c.created_by_user_id,
+        "internalOwner": c.internal_owner, "campaignType": c.campaign_type,
+        "startDate": str(c.start_date) if c.start_date else None,
+        "endDate": str(c.end_date) if c.end_date else None,
+        "totalCost": c.total_cost, "status": c.status,
+        "notes": c.notes, "billingRemarks": c.billing_remarks,
+        "createdAt": str(c.created_at) if c.created_at else None,
+        "siteCount": site_count_map.get(c.id, 0),
+    } for c in campaigns]
 
 
 @router.get("/{campaign_id}")
@@ -126,12 +148,15 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
     if not c:
         raise HTTPException(404, "Campaign not found")
     result = campaign_to_dict(c)
-    assignments = []
-    for a in c.site_assignments:
-        site = db.query(models.Site).options(
+    # Load all sites + their owners in a single query instead of N+1 per site
+    site_ids = [a.site_id for a in c.site_assignments]
+    sites_by_id = {}
+    if site_ids:
+        site_rows = db.query(models.Site).options(
             joinedload(models.Site.owner)
-        ).filter(models.Site.id == a.site_id).first()
-        assignments.append(assignment_to_dict(a, site))
+        ).filter(models.Site.id.in_(site_ids)).all()
+        sites_by_id = {s.id: s for s in site_rows}
+    assignments = [assignment_to_dict(a, sites_by_id.get(a.site_id)) for a in c.site_assignments]
     result["assignments"] = assignments
     audits = db.query(models.SiteAudit).filter(
         models.SiteAudit.campaign_id == campaign_id
