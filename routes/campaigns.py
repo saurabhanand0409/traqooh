@@ -85,7 +85,8 @@ def assignment_to_dict(a, site):
 
 @router.get("")
 def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = None,
-                   userId: Optional[int] = None, db: Session = Depends(get_db)):
+                   userId: Optional[int] = None, vendorId: Optional[int] = None,
+                   db: Session = Depends(get_db)):
     q = db.query(models.Campaign).options(
         joinedload(models.Campaign.advertiser),
         joinedload(models.Campaign.site_assignments)
@@ -95,8 +96,12 @@ def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = N
     if advertiserId:
         q = q.filter(models.Campaign.advertiser_id == advertiserId)
     if userId:
-        # Employee isolation: only show campaigns created by this user
+        # Employee: only campaigns they created
         q = q.filter(models.Campaign.created_by_user_id == userId)
+    elif vendorId:
+        # Admin: all campaigns created by any user in their company
+        q = q.join(models.UserAccount, models.Campaign.created_by_user_id == models.UserAccount.id)\
+              .filter(models.UserAccount.vendor_id == vendorId)
     return [campaign_to_dict(c) for c in q.order_by(models.Campaign.created_at.desc()).all()]
 
 
