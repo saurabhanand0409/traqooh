@@ -182,6 +182,28 @@ def run_migrations():
             """))
             conn.commit()
             logger.info("Created campaign_shares table")
+        # Advertiser ownership + sharing
+        adv_cols = [c["name"] for c in inspector.get_columns("advertisers")]
+        for col, typ in [
+            ("created_by_user_id", "INTEGER REFERENCES user_accounts(id) ON DELETE SET NULL"),
+            ("vendor_company_id", "INTEGER REFERENCES companies(id) ON DELETE SET NULL"),
+        ]:
+            if col not in adv_cols:
+                conn.execute(text(f"ALTER TABLE advertisers ADD COLUMN {col} {typ}"))
+                conn.commit()
+        if not inspector.has_table("advertiser_shares"):
+            conn.execute(text("""
+                CREATE TABLE advertiser_shares (
+                    id SERIAL PRIMARY KEY,
+                    advertiser_id INTEGER NOT NULL REFERENCES advertisers(id) ON DELETE CASCADE,
+                    user_id INTEGER NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+                    shared_by_email VARCHAR,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(advertiser_id, user_id)
+                )
+            """))
+            conn.commit()
+            logger.info("Created advertiser_shares table")
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
@@ -323,6 +345,12 @@ def login(request: Request, req: LoginRequest, db: Session = Depends(get_db)):
             company = db.query(models.Company).filter(models.Company.id == gst.company_id).first()
             if company:
                 company_name = company.name
+    # Fallback: use vendor_id if no company found via GST (covers admin/employee users set up directly)
+    if not company_id and user.vendor_id:
+        company_id = user.vendor_id
+        company = db.query(models.Company).filter(models.Company.id == user.vendor_id).first()
+        if company:
+            company_name = company.name
     token = create_access_token({
         "sub": str(user.id),
         "email": user.email,

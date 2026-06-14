@@ -1,8 +1,9 @@
 """Advertiser management routes."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text, or_
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from database import get_db
 import models
 import datetime
@@ -62,6 +63,13 @@ class AdvertiserCreate(BaseModel):
     gstNumber: Optional[str] = None
     notes: Optional[str] = None
     status: Optional[str] = "ACTIVE"
+    createdByUserId: Optional[int] = None
+    vendorCompanyId: Optional[int] = None
+
+
+class AdvertiserShareRequest(BaseModel):
+    userIds: List[int]
+    sharedByEmail: Optional[str] = None
 
 
 class AdvertiserLoginCreate(BaseModel):
@@ -87,8 +95,42 @@ def adv_to_dict(a):
 
 
 @router.get("")
-def list_advertisers(db: Session = Depends(get_db)):
-    advs = db.query(models.Advertiser).order_by(models.Advertiser.company_name).all()
+def list_advertisers(
+    role: Optional[str] = None,
+    userId: Optional[int] = None,
+    vendorId: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    q = db.query(models.Advertiser).order_by(models.Advertiser.company_name)
+    r = (role or "").upper()
+
+    if r == "EMPLOYEE" and userId:
+        # Employee sees only advertisers they created + ones explicitly shared with them
+        shared_rows = db.execute(
+            text("SELECT advertiser_id FROM advertiser_shares WHERE user_id = :uid"), {"uid": userId}
+        ).fetchall()
+        shared_ids = [row[0] for row in shared_rows]
+        if shared_ids:
+            q = q.filter(or_(
+                models.Advertiser.created_by_user_id == userId,
+                models.Advertiser.id.in_(shared_ids)
+            ))
+        else:
+            q = q.filter(models.Advertiser.created_by_user_id == userId)
+    elif r in ("ADMIN",) and vendorId:
+        # Admin sees all advertisers belonging to their company (by vendor_company_id)
+        # plus advertisers created by any employee in their company
+        emp_rows = db.execute(
+            text("SELECT id FROM user_accounts WHERE vendor_id = :vid"), {"vid": vendorId}
+        ).fetchall()
+        emp_ids = [row[0] for row in emp_rows]
+        conditions = [models.Advertiser.vendor_company_id == vendorId]
+        if emp_ids:
+            conditions.append(models.Advertiser.created_by_user_id.in_(emp_ids))
+        q = q.filter(or_(*conditions))
+    # SUPER_ADMIN (no params): sees all advertisers
+
+    advs = q.all()
     login_ids = {
         row[0] for row in db.query(models.UserAccount.advertiser_id)
         .filter(models.UserAccount.advertiser_id.isnot(None)).all()
@@ -223,11 +265,15 @@ def create_advertiser(req: AdvertiserCreate, db: Session = Depends(get_db)):
     a = models.Advertiser(
         company_name=req.companyName, contact_person=req.contactPerson,
         email=req.email, phone=req.phone, billing_address=req.billingAddress,
-        gst_number=req.gstNumber, notes=req.notes, status=req.status or "ACTIVE"
+        gst_number=req.gstNumber, notes=req.notes, status=req.status or "ACTIVE",
+        created_by_user_id=req.createdByUserId,
+        vendor_company_id=req.vendorCompanyId,
     )
     db.add(a)
     db.commit()
     db.refresh(a)
+    # If created by an employee, also auto-share with admin (so admin can see it)
+    # The admin sees it via vendor_company_id filter, so no extra share needed
     log_activity(db, "Created advertiser", "advertiser", a.id, a.company_name)
     return adv_to_dict(a)
 
@@ -354,3 +400,52 @@ def revoke_access_link(link_id: int, db: Session = Depends(get_db),
     link.is_revoked = True
     db.commit()
     return {"message": "Access link revoked"}
+
+
+@router.post("/{adv_id}/share")
+def share_advertiser(adv_id: int, req: AdvertiserShareRequest, db: Session = Depends(get_db)):
+    """Admin shares an advertiser with one or more employees."""
+    a = db.query(models.Advertiser).filter(models.Advertiser.id == adv_id).first()
+    if not a:
+        raise HTTPException(404, "Advertiser not found")
+    added = 0
+    for uid in req.userIds:
+        exists = db.execute(
+            text("SELECT 1 FROM advertiser_shares WHERE advertiser_id=:aid AND user_id=:uid"),
+            {"aid": adv_id, "uid": uid}
+        ).first()
+        if not exists:
+            db.execute(
+                text("INSERT INTO advertiser_shares (advertiser_id, user_id, shared_by_email) VALUES (:aid, :uid, :email)"),
+                {"aid": adv_id, "uid": uid, "email": req.sharedByEmail}
+            )
+            added += 1
+    db.commit()
+    log_activity(db, f"Shared advertiser with {added} employees", "advertiser", adv_id)
+    return {"message": f"Shared with {added} employee(s)"}
+
+
+@router.delete("/{adv_id}/share/{user_id}")
+def unshare_advertiser(adv_id: int, user_id: int, db: Session = Depends(get_db)):
+    """Remove an employee's access to a shared advertiser."""
+    db.execute(
+        text("DELETE FROM advertiser_shares WHERE advertiser_id=:aid AND user_id=:uid"),
+        {"aid": adv_id, "uid": user_id}
+    )
+    db.commit()
+    return {"message": "Access removed"}
+
+
+@router.get("/{adv_id}/shares")
+def get_advertiser_shares(adv_id: int, db: Session = Depends(get_db)):
+    """Return employees this advertiser is shared with."""
+    rows = db.execute(
+        text("""
+            SELECT u.id, u.display_name, u.email, s.created_at
+            FROM advertiser_shares s
+            JOIN user_accounts u ON u.id = s.user_id
+            WHERE s.advertiser_id = :aid
+        """),
+        {"aid": adv_id}
+    ).fetchall()
+    return [{"userId": r[0], "displayName": r[1], "email": r[2], "sharedAt": str(r[3])} for r in rows]
