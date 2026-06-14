@@ -118,21 +118,11 @@ def list_advertisers(
         else:
             q = q.filter(models.Advertiser.created_by_user_id == userId)
     elif r in ("ADMIN",) and vendorId:
-        # Admin sees:
-        # 1. Advertisers tagged to their company (vendor_company_id = their company)
-        # 2. Advertisers created by any employee in their company
-        # 3. Legacy/untagged advertisers (vendor_company_id IS NULL) — pre-existing data
-        emp_rows = db.execute(
-            text("SELECT id FROM user_accounts WHERE vendor_id = :vid"), {"vid": vendorId}
-        ).fetchall()
-        emp_ids = [row[0] for row in emp_rows]
-        conditions = [
+        # Admin sees advertisers tagged to their company OR untagged legacy ones
+        q = q.filter(or_(
             models.Advertiser.vendor_company_id == vendorId,
-            models.Advertiser.vendor_company_id.is_(None),  # legacy records
-        ]
-        if emp_ids:
-            conditions.append(models.Advertiser.created_by_user_id.in_(emp_ids))
-        q = q.filter(or_(*conditions))
+            models.Advertiser.vendor_company_id.is_(None),
+        ))
     # SUPER_ADMIN (no params): sees all advertisers
 
     advs = q.all()

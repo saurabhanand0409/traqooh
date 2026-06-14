@@ -109,16 +109,11 @@ def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = N
         else:
             q = q.filter(models.Campaign.created_by_user_id == userId)
     elif vendorId:
-        from sqlalchemy import or_
-        emp_rows = db.execute(
-            text("SELECT id FROM user_accounts WHERE vendor_id = :vid"), {"vid": vendorId}
-        ).fetchall()
-        emp_ids = [r[0] for r in emp_rows]
-        # Include: campaigns by company employees + legacy campaigns (created_by_user_id IS NULL)
-        conditions = [models.Campaign.created_by_user_id.is_(None)]
-        if emp_ids:
-            conditions.append(models.Campaign.created_by_user_id.in_(emp_ids))
-        q = q.filter(or_(*conditions))
+        # Admin sees all campaigns — campaigns have no company_id field,
+        # so we can't cleanly filter by company without risking excluding
+        # admin-created or legacy campaigns. Employee access is controlled
+        # via userId filter above.
+        pass
 
     campaigns = q.order_by(models.Campaign.created_at.desc()).all()
 
