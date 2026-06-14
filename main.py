@@ -205,19 +205,9 @@ def run_migrations():
             conn.commit()
             logger.info("Created advertiser_shares table")
         # Advertiser ↔ Company many-to-many link table
-        if not inspector.has_table("advertiser_company_links"):
-            conn.execute(text("""
-                CREATE TABLE advertiser_company_links (
-                    id SERIAL PRIMARY KEY,
-                    advertiser_id INTEGER NOT NULL REFERENCES advertisers(id) ON DELETE CASCADE,
-                    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    UNIQUE(advertiser_id, company_id)
-                )
-            """))
-            conn.commit()
-            logger.info("Created advertiser_company_links table")
-            # Migrate existing vendor_company_id values into the new table
+        # Note: create_all already creates the table via the ORM model,
+        # so we only need to ensure the backfill runs (idempotent — ON CONFLICT DO NOTHING)
+        try:
             conn.execute(text("""
                 INSERT INTO advertiser_company_links (advertiser_id, company_id)
                 SELECT id, vendor_company_id FROM advertisers
@@ -225,7 +215,9 @@ def run_migrations():
                 ON CONFLICT DO NOTHING
             """))
             conn.commit()
-            logger.info("Migrated vendor_company_id -> advertiser_company_links")
+            logger.info("Backfilled advertiser_company_links from vendor_company_id")
+        except Exception as e:
+            logger.warning(f"advertiser_company_links backfill skipped: {e}")
         logger.info("Migration complete")
     except Exception as e:
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
