@@ -860,6 +860,7 @@ def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) ->
         "size": size_str,
         "vendorName": site.owner.name if site and site.owner else None,
         "baseRate": float(site.potential_monthly or site.base_rate or 0) if site else 0,
+        "agreedCost": float(a.agreed_cost or 0),
         "imageUrl": site.image_url if site else None,
         "availabilityStatus": site.availability_status if site else None,
         "remarks": site.remarks if site else None,
