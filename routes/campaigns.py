@@ -238,39 +238,44 @@ def update_campaign(campaign_id: int, req: CampaignCreate, db: Session = Depends
 
 @router.delete("/{campaign_id}")
 def delete_campaign(campaign_id: int, db: Session = Depends(get_db)):
-    """Delete campaign and safely clean up all linked records."""
-    c = db.query(models.Campaign).options(
-        joinedload(models.Campaign.site_assignments)
-    ).filter(models.Campaign.id == campaign_id).first()
-    if not c:
+    """Delete campaign and all linked records using raw SQL to avoid ORM session conflicts."""
+    row = db.execute(
+        text("SELECT id, name FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+    ).fetchone()
+    if not row:
         raise HTTPException(404, "Campaign not found")
-    campaign_name = c.name
-    site_count = len(c.site_assignments)
-    # Reset availability for sites that have this campaign as current
-    for a in c.site_assignments:
-        site = db.query(models.Site).filter(models.Site.id == a.site_id).first()
-        if site and site.current_campaign_id == campaign_id:
-            site.availability_status = "AVAILABLE"
-            site.current_campaign_id = None
-            site.occupied_from = None
-            site.occupied_till = None
-    # Nullify campaign_id on advertiser access links (don't delete them)
-    db.query(models.AdvertiserAccessLink).filter(
-        models.AdvertiserAccessLink.campaign_id == campaign_id
-    ).update({"campaign_id": None}, synchronize_session=False)
-    # Delete activities, assignments and audits
-    db.query(models.CampaignActivity).filter(
-        models.CampaignActivity.campaign_id == campaign_id
-    ).delete(synchronize_session=False)
-    db.query(models.CampaignSiteAssignment).filter(
-        models.CampaignSiteAssignment.campaign_id == campaign_id
-    ).delete(synchronize_session=False)
-    db.query(models.SiteAudit).filter(
-        models.SiteAudit.campaign_id == campaign_id
-    ).delete(synchronize_session=False)
-    db.flush()
-    db.delete(c)
+    campaign_name = row.name
+
+    site_count = db.execute(
+        text("SELECT COUNT(*) FROM campaign_site_assignments WHERE campaign_id = :cid"),
+        {"cid": campaign_id}
+    ).scalar()
+
+    # Reset availability for sites that had this campaign as current
+    db.execute(text("""
+        UPDATE sites
+        SET availability_status = 'AVAILABLE',
+            current_campaign_id  = NULL,
+            occupied_from        = NULL,
+            occupied_till        = NULL
+        WHERE current_campaign_id = :cid
+    """), {"cid": campaign_id})
+
+    # Nullify FK on access links (keep the link records themselves)
+    db.execute(
+        text("UPDATE advertiser_access_links SET campaign_id = NULL WHERE campaign_id = :cid"),
+        {"cid": campaign_id}
+    )
+
+    # Delete child records in dependency order
+    db.execute(text("DELETE FROM campaign_activities       WHERE campaign_id = :cid"), {"cid": campaign_id})
+    db.execute(text("DELETE FROM campaign_site_assignments WHERE campaign_id = :cid"), {"cid": campaign_id})
+    db.execute(text("DELETE FROM site_audits              WHERE campaign_id = :cid"), {"cid": campaign_id})
+    # campaign_shares has ON DELETE CASCADE — handled automatically by Postgres
+
+    db.execute(text("DELETE FROM campaigns WHERE id = :cid"), {"cid": campaign_id})
     db.commit()
+
     log_activity(db, f"Deleted campaign '{campaign_name}'", "campaign", campaign_id,
                  f"{site_count} sites unlinked")
     return {"message": f"Campaign '{campaign_name}' deleted", "unlinkedSites": site_count}
