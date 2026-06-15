@@ -77,8 +77,13 @@ def assignment_to_dict(a, site):
         "vendorName": site.owner.name if site and site.owner else None,
         "bookedFrom": str(a.booked_from) if a.booked_from else None,
         "bookedTill": str(a.booked_till) if a.booked_till else None,
-        "agreedCost": a.agreed_cost,
-        "unitCost": a.unit_cost,
+        "agreedCost": float(a.agreed_cost or 0),
+        "unitCost": float(a.unit_cost or 0),
+        "printingType": a.printing_type,
+        "printingCost": float(a.printing_cost or 0),
+        "mountingCost": float(a.mounting_cost or 0),
+        "otherCost": float(a.other_cost or 0),
+        "executionRemarks": a.execution_remarks,
         "status": a.status,
         "notes": a.notes,
     }
@@ -339,6 +344,33 @@ def assign_sites_bulk(campaign_id: int, req: BulkAssignRequest, db: Session = De
     log_activity(db, f"Bulk assigned {added} sites to campaign", "campaign", campaign_id)
     return {"message": f"Added {added} sites, skipped {skipped} duplicates",
             "added": added, "skipped": skipped}
+
+
+class UpdateAssignmentRequest(BaseModel):
+    agreedCost: Optional[float] = None
+    printingType: Optional[str] = None
+    printingCost: Optional[float] = None
+    mountingCost: Optional[float] = None
+    otherCost: Optional[float] = None
+    executionRemarks: Optional[str] = None
+
+@router.put("/{campaign_id}/assignment/{assignment_id}")
+def update_assignment(campaign_id: int, assignment_id: int, req: UpdateAssignmentRequest, db: Session = Depends(get_db)):
+    """Update cost breakdown for a site assignment."""
+    a = db.query(models.CampaignSiteAssignment).filter(
+        models.CampaignSiteAssignment.id == assignment_id,
+        models.CampaignSiteAssignment.campaign_id == campaign_id,
+    ).first()
+    if not a:
+        raise HTTPException(404, "Assignment not found")
+    if req.agreedCost is not None: a.agreed_cost = req.agreedCost
+    if req.printingType is not None: a.printing_type = req.printingType
+    if req.printingCost is not None: a.printing_cost = req.printingCost
+    if req.mountingCost is not None: a.mounting_cost = req.mountingCost
+    if req.otherCost is not None: a.other_cost = req.otherCost
+    if req.executionRemarks is not None: a.execution_remarks = req.executionRemarks
+    db.commit()
+    return {"message": "Updated"}
 
 
 class ShareRequest(BaseModel):
