@@ -258,7 +258,10 @@ def delete_campaign(campaign_id: int, db: Session = Depends(get_db)):
     db.query(models.AdvertiserAccessLink).filter(
         models.AdvertiserAccessLink.campaign_id == campaign_id
     ).update({"campaign_id": None}, synchronize_session=False)
-    # Delete assignments and audits
+    # Delete activities, assignments and audits
+    db.query(models.CampaignActivity).filter(
+        models.CampaignActivity.campaign_id == campaign_id
+    ).delete(synchronize_session=False)
     db.query(models.CampaignSiteAssignment).filter(
         models.CampaignSiteAssignment.campaign_id == campaign_id
     ).delete(synchronize_session=False)
