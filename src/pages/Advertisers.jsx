@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { apiFetch } from "../utils/apiFetch";
 import { Link } from "react-router-dom";
 import AppShell from "../components/AppShell";
+import { Share2, X } from "lucide-react";
 
 const API = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
@@ -47,14 +48,63 @@ export default function Advertisers() {
 
   const [search, setSearch] = useState("");
   const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+  const role = (user.role || "").toUpperCase();
+  const companyId = user.companyId || user.vendorId;
 
-  useEffect(() => { fetchList(); }, []);
+  // Share modal state
+  const [shareAdv, setShareAdv] = useState(null);
+  const [shareEmployees, setShareEmployees] = useState([]);
+  const [advShares, setAdvShares] = useState([]);
+  const [shareSearch, setShareSearch] = useState("");
+  const [sharing, setSharing] = useState(false);
+
+  useEffect(() => {
+    fetchList();
+    if (isAdmin && companyId) {
+      apiFetch(`/api/vendors/${companyId}/employees`).then(r => r.json()).then(d => setShareEmployees(Array.isArray(d) ? d : [])).catch(() => {});
+    }
+  }, []);
 
   const fetchList = async () => {
     setLoading(true);
-    const res = await apiFetch(`/api/advertisers`);
-    if (res.ok) setList(await res.json());
-    setLoading(false);
+    try {
+      const p = new URLSearchParams({ role });
+      if (role === "EMPLOYEE" && user.userId) p.set("userId", user.userId);
+      else if (role === "ADMIN" && companyId) p.set("vendorId", companyId);
+      const res = await apiFetch(`/api/advertisers?${p.toString()}`);
+      if (res.ok) setList(await res.json());
+    } catch (err) {
+      console.error("Failed to load advertisers:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openShareModal = async (a) => {
+    setShareAdv(a);
+    setShareSearch("");
+    const res = await apiFetch(`/api/advertisers/${a.id}/shares`);
+    if (res.ok) setAdvShares(await res.json());
+    else setAdvShares([]);
+  };
+
+  const handleShareAdv = async (emp) => {
+    if (sharing) return;
+    setSharing(true);
+    const res = await apiFetch(`/api/advertisers/${shareAdv.id}/share`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userIds: [emp.userId || emp.id], sharedByEmail: user.email }),
+    });
+    if (res.ok) {
+      const r = await apiFetch(`/api/advertisers/${shareAdv.id}/shares`);
+      if (r.ok) setAdvShares(await r.json());
+    }
+    setSharing(false);
+  };
+
+  const handleUnshareAdv = async (userId) => {
+    await apiFetch(`/api/advertisers/${shareAdv.id}/share/${userId}`, { method: "DELETE" });
+    setAdvShares(prev => prev.filter(s => s.userId !== userId));
   };
 
   // ── Add advertiser (two modes) ──────────────────────────────────────────────
@@ -82,6 +132,8 @@ export default function Advertisers() {
           contactPerson: addForm.contactPerson || addForm.displayName || "",
           email: addForm.email,
           phone: addForm.phone || "",
+          createdByUserId: user.userId || null,
+          vendorCompanyId: companyId || null,
         }),
       });
       if (!advRes.ok) {
@@ -234,6 +286,9 @@ export default function Advertisers() {
                           <button onClick={() => { setSelectedAdv(a); setLoginForm({ email: a.email || "", password: "", displayName: a.contactPerson || "" }); setShowLoginModal(true); }} className="text-xs font-medium" style={{ color: "#34D399" }} onMouseEnter={e => e.target.style.color = "#6EE7B7"} onMouseLeave={e => e.target.style.color = "#34D399"}>+ Login</button>
                         )}
                         <button onClick={() => { setSelectedAdv(a); setLinkResult(null); setShowLinkModal(true); }} className="text-xs font-medium" style={{ color: "#A78BFA" }} onMouseEnter={e => e.target.style.color = "#C4B5FD"} onMouseLeave={e => e.target.style.color = "#A78BFA"}>Link</button>
+                        <button onClick={() => openShareModal(a)} className="flex items-center gap-1 text-xs font-medium" style={{ color: "#F59E0B" }} onMouseEnter={e => e.currentTarget.style.color = "#FCD34D"} onMouseLeave={e => e.currentTarget.style.color = "#F59E0B"}>
+                          <Share2 className="w-3 h-3" />Share
+                        </button>
                         <Link to={`/campaigns?advertiserId=${a.id}`} className="text-xs font-medium" style={{ color: "var(--gray2)" }} onMouseEnter={e => e.target.style.color = "#fff"} onMouseLeave={e => e.target.style.color = "var(--gray2)"}>Campaigns →</Link>
                       </div>
                     </td>
@@ -496,6 +551,71 @@ export default function Advertisers() {
             </div>
             <div className="px-6 pb-5">
               <button onClick={() => { setShowLinkModal(false); setLinkResult(null); }} className="w-full py-2.5 rounded-xl font-bold text-sm" style={{ background: "rgba(255,255,255,0.06)", color: "var(--gray)", border: "1px solid var(--border)" }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Share Advertiser Modal (admin) ──────────────────────────────────── */}
+      {shareAdv && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="rounded-2xl w-full max-w-md flex flex-col" style={{ background: "#0D1428", border: "1px solid var(--border)", maxHeight: "85vh" }}>
+            <div className="px-6 pt-5 pb-4 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div>
+                <h2 className="font-syne font-bold text-lg text-white">Share Advertiser</h2>
+                <p className="text-xs mt-0.5" style={{ color: "var(--gray2)" }}>{shareAdv.companyName}</p>
+              </div>
+              <button onClick={() => setShareAdv(null)} className="p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}><X className="w-4 h-4" /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Currently shared */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--gray2)" }}>Shared With ({advShares.length})</p>
+                {advShares.length === 0
+                  ? <p className="text-sm py-3 text-center" style={{ color: "var(--gray2)" }}>Not shared with anyone yet.</p>
+                  : <div className="space-y-2">
+                    {advShares.map(s => (
+                      <div key={s.userId} className="flex items-center justify-between px-3 py-2.5 rounded-xl" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
+                        <div>
+                          <div className="text-sm font-semibold text-white">{s.displayName || s.email}</div>
+                          <div className="text-xs" style={{ color: "var(--gray2)" }}>{s.email}</div>
+                        </div>
+                        <button onClick={() => handleUnshareAdv(s.userId)} className="text-xs font-bold px-2 py-1 rounded-lg" style={{ background: "rgba(220,20,60,0.1)", color: "#F87171", border: "1px solid rgba(220,20,60,0.2)" }}>Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                }
+              </div>
+
+              {/* Add employees */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--gray2)" }}>Add Employee</p>
+                <input
+                  value={shareSearch} onChange={e => setShareSearch(e.target.value)}
+                  placeholder="Search employees..."
+                  className="tq-input mb-3"
+                />
+                <div className="space-y-2 max-h-52 overflow-y-auto">
+                  {shareEmployees
+                    .filter(e => !advShares.find(s => s.userId === (e.userId || e.id)))
+                    .filter(e => !shareSearch || (e.displayName || e.email || "").toLowerCase().includes(shareSearch.toLowerCase()))
+                    .map(emp => (
+                      <div key={emp.userId || emp.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
+                        <div>
+                          <div className="text-sm font-semibold text-white">{emp.displayName || emp.email}</div>
+                          <div className="text-xs" style={{ color: "var(--gray2)" }}>{emp.email}</div>
+                        </div>
+                        <button onClick={() => handleShareAdv(emp)} disabled={sharing} className="text-xs font-bold px-3 py-1.5 rounded-lg text-white disabled:opacity-60" style={{ background: "linear-gradient(135deg,#2563EB,#1d50c8)" }}>Share</button>
+                      </div>
+                    ))}
+                  {shareEmployees.filter(e => !advShares.find(s => s.userId === (e.userId || e.id))).length === 0 && (
+                    <p className="text-sm text-center py-3" style={{ color: "var(--gray2)" }}>
+                      {shareEmployees.length === 0 ? "No employees in your company yet." : "All employees already have access."}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

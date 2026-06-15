@@ -21,8 +21,17 @@ export default function MasterDashboard() {
   const [companies, setCompanies] = useState([]);
   const [sites, setSites] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+  const [advertisers, setAdvertisers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+
+  // Advertiser login modal (from master)
+  const [showAdvLogin, setShowAdvLogin] = useState(false);
+  const [advLoginTarget, setAdvLoginTarget] = useState(null);
+  const [advLoginForm, setAdvLoginForm] = useState({ email:"", password:"", displayName:"" });
+  const [advLoginErr, setAdvLoginErr] = useState("");
+  const [advLoginSaving, setAdvLoginSaving] = useState(false);
+  const [showAdvPwd, setShowAdvPwd] = useState(false);
 
   // Company modal
   const [showCompanyModal, setShowCompanyModal] = useState(false);
@@ -53,16 +62,38 @@ export default function MasterDashboard() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [compRes, siteRes, campRes] = await Promise.all([
+    const [compRes, siteRes, campRes, advRes] = await Promise.all([
       apiFetch(`/api/vendors`),
       apiFetch(`/api/sites`),
       apiFetch(`/api/campaigns`),
+      apiFetch(`/api/advertisers`),
     ]);
     if (compRes.ok) setCompanies(await compRes.json());
     if (siteRes.ok) setSites(await siteRes.json());
     if (campRes.ok) setCampaigns(await campRes.json());
+    if (advRes.ok) setAdvertisers(await advRes.json());
     setLoading(false);
   }, []);
+
+  const openAdvLogin = (adv) => {
+    setAdvLoginTarget(adv);
+    setAdvLoginForm({ email: adv.email || "", password: "", displayName: adv.contactPerson || adv.companyName || "" });
+    setAdvLoginErr(""); setShowAdvPwd(false);
+    setShowAdvLogin(true);
+  };
+
+  const handleSaveAdvLogin = async (e) => {
+    e.preventDefault();
+    if (!advLoginForm.email || !advLoginForm.password) return setAdvLoginErr("Email and password are required.");
+    setAdvLoginSaving(true); setAdvLoginErr("");
+    const res = await apiFetch("/api/advertisers/create-login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ advertiserId: advLoginTarget.id, ...advLoginForm }),
+    });
+    setAdvLoginSaving(false);
+    if (res.ok) { setShowAdvLogin(false); fetchAll(); }
+    else { const d = await res.json().catch(() => {}); setAdvLoginErr(d?.detail || "Failed to create login"); }
+  };
 
   const fetchCompanies = fetchAll; // alias for existing callers
 
@@ -208,9 +239,10 @@ export default function MasterDashboard() {
         <div className="flex items-center gap-1 mb-8 p-1 rounded-xl w-fit"
           style={{ background:"rgba(255,255,255,0.05)" }}>
           {[
-            { key:"companies", label:"Companies", count: companies.length },
-            { key:"inventory", label:"Inventory", count: sites.length },
-            { key:"campaigns", label:"Campaigns", count: campaigns.length },
+            { key:"companies",   label:"Companies",   count: companies.length },
+            { key:"inventory",   label:"Inventory",   count: sites.length },
+            { key:"campaigns",   label:"Campaigns",   count: campaigns.length },
+            { key:"advertisers", label:"Advertisers", count: advertisers.length },
           ].map(t => (
             <button key={t.key} onClick={() => { setActiveTab(t.key); setSearch(""); }}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
@@ -526,6 +558,114 @@ export default function MasterDashboard() {
           )}
         </>)}
 
+        {/* ── ADVERTISERS TAB ── */}
+        {activeTab === "advertisers" && (<>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Advertisers</h1>
+              <p className="text-sm mt-1" style={{ color:"#6B7280" }}>
+                {advertisers.length} advertiser{advertisers.length !== 1 ? "s" : ""} ·{" "}
+                <span style={{ color:"#22C55E" }}>{advertisers.filter(a => a.hasLogin).length} with login</span>
+                {" · "}
+                <span style={{ color:"#F59E0B" }}>{advertisers.filter(a => !a.hasLogin).length} link-only</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className="relative mb-6">
+            <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color:"#4B5563" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <circle cx="11" cy="11" r="8"/><path strokeLinecap="round" d="M21 21l-4.35-4.35"/>
+            </svg>
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search advertisers…"
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none"
+              style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", color:"#fff" }}/>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-20">
+              <svg className="w-6 h-6 animate-spin" style={{ color:"#2563EB" }} fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+            </div>
+          ) : advertisers.length === 0 ? (
+            <div className="text-center py-20" style={{ color:"#4B5563" }}>No advertisers yet.</div>
+          ) : (
+            <div className="rounded-2xl overflow-hidden" style={{ border:"1px solid rgba(255,255,255,0.07)" }}>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ background:"rgba(255,255,255,0.04)", borderBottom:"1px solid rgba(255,255,255,0.07)" }}>
+                    {["Company","Contact","Email / Phone","Campaigns","Login Status","Action"].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color:"#4B5563" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {advertisers.filter(a =>
+                    !search ||
+                    a.companyName?.toLowerCase().includes(search.toLowerCase()) ||
+                    a.contactPerson?.toLowerCase().includes(search.toLowerCase()) ||
+                    a.email?.toLowerCase().includes(search.toLowerCase())
+                  ).map((a, i) => {
+                    const campCount = campaigns.filter(c => c.advertiserName === a.companyName || c.advertiserId === a.id).length;
+                    return (
+                      <tr key={a.id}
+                        style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)", borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
+                        {/* Company */}
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-white">{a.companyName}</div>
+                          {a.gstNumber && <div className="text-xs mt-0.5" style={{ color:"#4B5563" }}>GST: {a.gstNumber}</div>}
+                        </td>
+                        {/* Contact */}
+                        <td className="px-4 py-3" style={{ color:"#9CA3AF" }}>{a.contactPerson || "—"}</td>
+                        {/* Email / Phone */}
+                        <td className="px-4 py-3">
+                          <div className="text-xs" style={{ color:"#9CA3AF" }}>{a.email || "—"}</div>
+                          <div className="text-xs mt-0.5" style={{ color:"#4B5563" }}>{a.phone || ""}</div>
+                        </td>
+                        {/* Campaigns */}
+                        <td className="px-4 py-3 text-center">
+                          <span className="text-sm font-semibold text-white">{campCount}</span>
+                        </td>
+                        {/* Login Status badge */}
+                        <td className="px-4 py-3">
+                          {a.hasLogin ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+                              style={{ background:"rgba(34,197,94,0.12)", color:"#22C55E", border:"1px solid rgba(34,197,94,0.25)" }}>
+                              <span className="w-1.5 h-1.5 rounded-full bg-current"/>
+                              Has Login
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+                              style={{ background:"rgba(245,158,11,0.12)", color:"#F59E0B", border:"1px solid rgba(245,158,11,0.25)" }}>
+                              <span className="w-1.5 h-1.5 rounded-full bg-current"/>
+                              Link Only
+                            </span>
+                          )}
+                        </td>
+                        {/* Action */}
+                        <td className="px-4 py-3">
+                          {!a.hasLogin && (
+                            <button onClick={() => openAdvLogin(a)}
+                              className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all"
+                              style={{ background:"rgba(37,99,235,0.12)", color:"#3B82F6", border:"1px solid rgba(37,99,235,0.25)" }}
+                              onMouseEnter={e => e.currentTarget.style.background="rgba(37,99,235,0.22)"}
+                              onMouseLeave={e => e.currentTarget.style.background="rgba(37,99,235,0.12)"}>
+                              Create Login
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>)}
+
       </main>
 
       {/* ── New/Edit Company Modal ── */}
@@ -660,6 +800,68 @@ export default function MasterDashboard() {
                 className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60"
                 style={{ background:"linear-gradient(135deg,#22C55E,#16a34a)" }}>
                 {adminSaving ? "Saving…" : adminTarget.adminUser ? "Update Admin" : "Create Admin Login"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── Create Advertiser Login Modal ── */}
+      {showAdvLogin && advLoginTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background:"rgba(0,0,0,0.7)", backdropFilter:"blur(4px)" }}>
+          <form onSubmit={handleSaveAdvLogin}
+            className="w-full max-w-md rounded-2xl p-6"
+            style={{ background:"#0D1428", border:"1px solid rgba(255,255,255,0.1)" }}>
+            <h2 className="text-lg font-bold text-white mb-1">Create Advertiser Login</h2>
+            <p className="text-sm mb-5" style={{ color:"#6B7280" }}>{advLoginTarget.companyName}</p>
+
+            {advLoginErr && <div className="mb-4 px-4 py-2.5 rounded-xl text-sm"
+              style={{ background:"rgba(220,20,60,0.12)", border:"1px solid rgba(220,20,60,0.3)", color:"#F87171" }}>{advLoginErr}</div>}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color:"#6B7280" }}>Display Name</label>
+                <input value={advLoginForm.displayName} onChange={e => setAdvLoginForm(f=>({...f, displayName:e.target.value}))}
+                  placeholder="Contact person name" className="tq-input"/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color:"#6B7280" }}>Email *</label>
+                <input type="email" value={advLoginForm.email} onChange={e => setAdvLoginForm(f=>({...f, email:e.target.value}))}
+                  placeholder="advertiser@company.com" className="tq-input"/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color:"#6B7280" }}>Password *</label>
+                <div className="relative">
+                  <input type={showAdvPwd ? "text" : "password"} value={advLoginForm.password}
+                    onChange={e => setAdvLoginForm(f=>({...f, password:e.target.value}))}
+                    placeholder="••••••••" className="tq-input pr-10"/>
+                  <button type="button" onClick={() => setShowAdvPwd(s=>!s)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1" style={{ color:"#6B7280" }}>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      {showAdvPwd
+                        ? <path strokeLinecap="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/>
+                        : <><path strokeLinecap="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></>
+                      }
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="px-3 py-2.5 rounded-xl text-xs" style={{ background:"rgba(37,99,235,0.08)", color:"#60A5FA", border:"1px solid rgba(37,99,235,0.2)" }}>
+                Advertiser will log in at <strong>app.brandsculpt.com/login</strong> with these credentials.
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button type="button" onClick={() => setShowAdvLogin(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background:"rgba(255,255,255,0.05)", color:"#9CA3AF" }}>
+                Cancel
+              </button>
+              <button type="submit" disabled={advLoginSaving}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-60"
+                style={{ background:"linear-gradient(135deg,#2563EB,#DC143C)" }}>
+                {advLoginSaving ? "Creating…" : "Create Login"}
               </button>
             </div>
           </form>
