@@ -189,6 +189,29 @@ def run_migrations():
                 """))
                 conn.commit()
                 logger.info("Created campaign_shares table")
+            # Monitoring assignment columns on campaign_site_assignments
+            if inspector.has_table("campaign_site_assignments"):
+                csa_cols = [c["name"] for c in inspector.get_columns("campaign_site_assignments")]
+                for col, typ in [
+                    ("monitor_worker_name", "VARCHAR"),
+                    ("monitor_field_pin_id", "INTEGER"),
+                ]:
+                    if col not in csa_cols:
+                        try:
+                            conn.execute(text(f"ALTER TABLE campaign_site_assignments ADD COLUMN {col} {typ}"))
+                            conn.commit()
+                            logger.info(f"Added column campaign_site_assignments.{col}")
+                        except Exception as e:
+                            conn.rollback()
+                            logger.error(f"Failed to add campaign_site_assignments.{col}: {e}")
+            # Rename legacy campaign statuses to the new workflow vocabulary
+            try:
+                conn.execute(text("UPDATE campaigns SET status='RUNNING'  WHERE status='LIVE'"))
+                conn.execute(text("UPDATE campaigns SET status='COMPLETE' WHERE status='COMPLETED'"))
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Failed to migrate campaign statuses: {e}")
             # Advertiser ownership + sharing — CRITICAL: each ALTER wrapped so a single
             # failure doesn't poison the connection for subsequent statements
             adv_cols = [c["name"] for c in inspector.get_columns("advertisers")]
@@ -698,6 +721,68 @@ def get_sites(ownerId: Optional[int] = None, vendorId: Optional[int] = None,
         query = query.filter(models.Site.type == siteType)
     return [site_to_dict(s) for s in query.order_by(models.Site.city).all()]
 
+@app.get("/api/mobile/my-sites")
+def get_my_assigned_sites(worker: str, db: Session = Depends(get_db)):
+    """Sites a specific field worker has been assigned to monitor.
+    Matched by worker name (stable across 72-hour PIN re-issues). Returns the
+    site + its campaign + how many Start/Mid/End photos already exist so the
+    app can show what's pending.
+    """
+    import json as _json
+    worker_name = (worker or "").strip()
+    if not worker_name:
+        return []
+    assigns = db.query(models.CampaignSiteAssignment).filter(
+        models.CampaignSiteAssignment.monitor_worker_name == worker_name
+    ).all()
+    if not assigns:
+        return []
+
+    site_ids = list({a.site_id for a in assigns})
+    campaign_ids = list({a.campaign_id for a in assigns})
+    sites_by_id = {s.id: s for s in db.query(models.Site).options(
+        joinedload(models.Site.owner)
+    ).filter(models.Site.id.in_(site_ids)).all()}
+    camps_by_id = {c.id: c for c in db.query(models.Campaign).filter(
+        models.Campaign.id.in_(campaign_ids)
+    ).all()}
+
+    # Count existing activity photos per (campaign, site)
+    acts = db.query(models.CampaignActivity).filter(
+        models.CampaignActivity.campaign_id.in_(campaign_ids)
+    ).all()
+    PHASE = {"START": ["START", "MOUNTING", "PRINT", "REPRINT"],
+             "MID": ["AUDIT", "MAINTENANCE"], "END": ["END", "TAKEDOWN"]}
+    def phase_of(t):
+        for ph, types in PHASE.items():
+            if t in types: return ph
+        return "MID"
+    counts = {}
+    for a in acts:
+        key = (a.campaign_id, a.site_id)
+        c = counts.setdefault(key, {"START": 0, "MID": 0, "END": 0})
+        imgs = _json.loads(a.image_urls) if a.image_urls else []
+        c[phase_of(a.activity_type)] += max(1, len(imgs)) if imgs else 1
+
+    out = []
+    for a in assigns:
+        site = sites_by_id.get(a.site_id)
+        camp = camps_by_id.get(a.campaign_id)
+        if not site:
+            continue
+        d = site_to_dict(site)
+        d["assignmentId"] = a.id
+        d["campaignId"] = a.campaign_id
+        d["campaignName"] = camp.name if camp else None
+        d["campaignStatus"] = camp.status if camp else None
+        d["campaignStart"] = str(camp.start_date) if camp and camp.start_date else None
+        d["campaignEnd"] = str(camp.end_date) if camp and camp.end_date else None
+        d["bookedFrom"] = str(a.booked_from) if a.booked_from else None
+        d["bookedTill"] = str(a.booked_till) if a.booked_till else None
+        d["photoCounts"] = counts.get((a.campaign_id, a.site_id), {"START": 0, "MID": 0, "END": 0})
+        out.append(d)
+    return out
+
 @app.get("/api/mobile/sites/{site_id}")
 @app.get("/api/sites/{site_id}")
 def get_site_details(site_id: int, db: Session = Depends(get_db)):
@@ -968,7 +1053,7 @@ class FinalizeRequest(BaseModel):
 
 @app.post("/api/access/{token}/finalize")
 def finalize_campaign(token: str, req: FinalizeRequest, db: Session = Depends(get_db)):
-    """Advertiser finalizes the campaign — moves status to PLANNED (approved)."""
+    """Advertiser finalizes the campaign — moves status to FINALIZED (sites approved)."""
     link = _validate_access_link(token, db)
     c = db.query(models.Campaign).filter(
         models.Campaign.id == req.campaignId,
@@ -976,9 +1061,9 @@ def finalize_campaign(token: str, req: FinalizeRequest, db: Session = Depends(ge
     ).first()
     if not c:
         raise HTTPException(404, "Campaign not found or access denied")
-    # Advance status: DRAFT → PLANNED
-    if c.status in ("DRAFT",):
-        c.status = "PLANNED"
+    # Advance status to FINALIZED once the advertiser locks in their shortlisted sites
+    if c.status in ("DRAFT", "PLANNED"):
+        c.status = "FINALIZED"
     db.commit()
     log_activity(db, "Advertiser finalized campaign", "campaign", c.id, c.name)
     return {"message": "Campaign finalized", "newStatus": c.status}

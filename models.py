@@ -226,6 +226,9 @@ class CampaignSiteAssignment(Base):
     mounting_cost = Column(Float, default=0.0)
     other_cost = Column(Float, default=0.0)
     execution_remarks = Column(Text, nullable=True)
+    # Field-worker monitoring assignment (which field PIN/worker monitors this site)
+    monitor_worker_name = Column(String, nullable=True)   # stable match key (survives PIN re-issue)
+    monitor_field_pin_id = Column(Integer, nullable=True)  # the field PIN chosen at assignment time
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     campaign = relationship("Campaign", back_populates="site_assignments")

@@ -41,6 +41,28 @@ class BulkAssignRequest(BaseModel):
     agreedCost: Optional[float] = 0.0
 
 
+def auto_advance_status(c, db) -> bool:
+    """Hybrid status workflow — forward-only auto transitions based on dates.
+    FINALIZED -> RUNNING once the start date arrives.
+    FINALIZED/RUNNING -> COMPLETE once the end date has passed.
+    Never touches DRAFT, PLANNED, COMPLETE or CANCELLED, so a manual override
+    set by an admin is always respected. Returns True if the status changed.
+    """
+    from datetime import date
+    today = date.today()
+    new_status = c.status
+    if c.status == "FINALIZED" and c.start_date and today >= c.start_date:
+        new_status = "RUNNING"
+    if c.status in ("FINALIZED", "RUNNING") and c.end_date and today > c.end_date:
+        new_status = "COMPLETE"
+    if new_status != c.status:
+        c.status = new_status
+        if db is not None:
+            db.commit()
+        return True
+    return False
+
+
 def campaign_to_dict(c, site_count: int = None):
     return {
         "id": c.id, "name": c.name, "advertiserId": c.advertiser_id,
@@ -86,6 +108,9 @@ def assignment_to_dict(a, site):
         "executionRemarks": a.execution_remarks,
         "status": a.status,
         "notes": a.notes,
+        "isShortlisted": bool(a.is_shortlisted),
+        "monitorWorkerName": a.monitor_worker_name,
+        "monitorFieldPinId": a.monitor_field_pin_id,
     }
 
 
@@ -122,6 +147,14 @@ def list_campaigns(status: Optional[str] = None, advertiserId: Optional[int] = N
 
     campaigns = q.order_by(models.Campaign.created_at.desc()).all()
 
+    # Hybrid status workflow: auto-advance RUNNING/COMPLETE based on dates
+    changed = False
+    for c in campaigns:
+        if auto_advance_status(c, None):
+            changed = True
+    if changed:
+        db.commit()
+
     # Batch-count site assignments in a single query instead of loading all rows
     campaign_ids = [c.id for c in campaigns]
     site_count_map = {}
@@ -155,6 +188,7 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
     ).filter(models.Campaign.id == campaign_id).first()
     if not c:
         raise HTTPException(404, "Campaign not found")
+    auto_advance_status(c, db)  # hybrid workflow: forward-only date-based transition
     result = campaign_to_dict(c)
     # Load all sites + their owners in a single query instead of N+1 per site
     site_ids = [a.site_id for a in c.site_assignments]
@@ -190,6 +224,131 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
         "createdAt": str(al.created_at),
     } for al in access_links]
     return result
+
+
+# Which activity types roll up into each monitoring phase
+_PHASE_MAP = {
+    "START": ["START", "MOUNTING", "PRINT", "REPRINT"],
+    "MID":   ["AUDIT", "MAINTENANCE"],
+    "END":   ["END", "TAKEDOWN"],
+}
+
+
+def _monitor_activity_dict(a):
+    import json
+    return {
+        "id": a.id,
+        "activityType": a.activity_type,
+        "status": a.status,  # PENDING / DONE / VERIFIED
+        "performedBy": a.performed_by,
+        "notes": a.notes,
+        "imageUrls": json.loads(a.image_urls) if a.image_urls else [],
+        "latitude": a.latitude,
+        "longitude": a.longitude,
+        "source": a.source,
+        "activityDate": str(a.activity_date) if a.activity_date else None,
+        "createdAt": str(a.created_at) if a.created_at else None,
+    }
+
+
+@router.get("/{campaign_id}/monitoring")
+def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
+    """Execution/monitoring board for a finalized campaign.
+    Returns each finalized (shortlisted) site with its Start / Mid / End photos
+    pulled from campaign_activities, the assigned field worker, and the list of
+    available field PINs for the assignment dropdown.
+    """
+    c = db.query(models.Campaign).options(
+        joinedload(models.Campaign.advertiser),
+        joinedload(models.Campaign.site_assignments),
+    ).filter(models.Campaign.id == campaign_id).first()
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+    auto_advance_status(c, db)
+
+    # Finalized sites = shortlisted assignments. If the advertiser never explicitly
+    # shortlisted (older campaigns), fall back to all assignments.
+    assigns = list(c.site_assignments)
+    shortlisted = [a for a in assigns if a.is_shortlisted]
+    finalized = shortlisted if shortlisted else assigns
+
+    site_ids = [a.site_id for a in finalized]
+    sites_by_id = {}
+    if site_ids:
+        for s in db.query(models.Site).options(joinedload(models.Site.owner)).filter(
+            models.Site.id.in_(site_ids)
+        ).all():
+            sites_by_id[s.id] = s
+
+    # All activities for this campaign, grouped by site
+    acts = db.query(models.CampaignActivity).filter(
+        models.CampaignActivity.campaign_id == campaign_id
+    ).order_by(models.CampaignActivity.created_at.asc()).all()
+    acts_by_site = {}
+    for a in acts:
+        acts_by_site.setdefault(a.site_id, []).append(a)
+
+    def phase_of(activity_type):
+        for phase, types in _PHASE_MAP.items():
+            if activity_type in types:
+                return phase
+        return "MID"
+
+    sites_out = []
+    for a in finalized:
+        site = sites_by_id.get(a.site_id)
+        size_str = None
+        if site:
+            if site.width and site.length:
+                size_str = f"{site.width}×{site.length} ft"
+            elif site.size:
+                size_str = site.size
+        phases = {"START": [], "MID": [], "END": []}
+        for act in acts_by_site.get(a.site_id, []):
+            phases[phase_of(act.activity_type)].append(_monitor_activity_dict(act))
+        sites_out.append({
+            "assignmentId": a.id,
+            "siteId": a.site_id,
+            "siteName": site.name if site else None,
+            "siteCity": site.city if site else None,
+            "siteState": site.state if site else None,
+            "siteType": site.type if site else None,
+            "siteSize": size_str,
+            "latitude": site.latitude if site else None,
+            "longitude": site.longitude if site else None,
+            "imageUrl": site.image_url if site else None,
+            "agreedCost": float(a.agreed_cost or 0),
+            "printingCost": float(a.printing_cost or 0),
+            "mountingCost": float(a.mounting_cost or 0),
+            "otherCost": float(a.other_cost or 0),
+            "monitorWorkerName": a.monitor_worker_name,
+            "monitorFieldPinId": a.monitor_field_pin_id,
+            "phases": phases,
+        })
+
+    # Available field workers (active, unexpired PINs) for the assignment dropdown
+    now = __import__("datetime").datetime.utcnow()
+    pins = db.query(models.FieldPin).filter(
+        models.FieldPin.is_active == True,
+        models.FieldPin.expires_at > now,
+    ).order_by(models.FieldPin.created_at.desc()).all()
+    workers = [{
+        "pinId": p.id,
+        "workerName": p.worker_name or "Field Worker",
+        "pin": p.pin,
+        "expiresAt": p.expires_at.isoformat() if p.expires_at else None,
+    } for p in pins]
+
+    return {
+        "campaign": {
+            "id": c.id, "name": c.name, "status": c.status,
+            "advertiserName": c.advertiser.company_name if c.advertiser else None,
+            "startDate": str(c.start_date) if c.start_date else None,
+            "endDate": str(c.end_date) if c.end_date else None,
+        },
+        "sites": sites_out,
+        "workers": workers,
+    }
 
 
 @router.post("")
@@ -361,6 +520,8 @@ class UpdateAssignmentRequest(BaseModel):
     mountingCost: Optional[float] = None
     otherCost: Optional[float] = None
     executionRemarks: Optional[str] = None
+    monitorWorkerName: Optional[str] = None
+    monitorFieldPinId: Optional[int] = None
 
 @router.put("/{campaign_id}/assignment/{assignment_id}")
 def update_assignment(campaign_id: int, assignment_id: int, req: UpdateAssignmentRequest, db: Session = Depends(get_db)):
@@ -377,6 +538,9 @@ def update_assignment(campaign_id: int, assignment_id: int, req: UpdateAssignmen
     if req.mountingCost is not None: a.mounting_cost = req.mountingCost
     if req.otherCost is not None: a.other_cost = req.otherCost
     if req.executionRemarks is not None: a.execution_remarks = req.executionRemarks
+    if req.monitorWorkerName is not None:
+        a.monitor_worker_name = req.monitorWorkerName.strip() or None
+        a.monitor_field_pin_id = req.monitorFieldPinId
     db.commit()
     return {"message": "Updated"}
 
