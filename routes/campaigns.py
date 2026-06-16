@@ -109,6 +109,7 @@ def assignment_to_dict(a, site):
         "status": a.status,
         "notes": a.notes,
         "isShortlisted": bool(a.is_shortlisted),
+        "pendingApproval": bool(getattr(a, "pending_approval", False)),
         "monitorWorkerName": a.monitor_worker_name,
         "monitorFieldPinId": a.monitor_field_pin_id,
     }
@@ -266,10 +267,10 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Campaign not found")
     auto_advance_status(c, db)
 
-    # Finalized sites = shortlisted assignments. If the advertiser never explicitly
-    # shortlisted (older campaigns), fall back to all assignments.
+    # Finalized sites = shortlisted assignments + any pending re-approval (newly added).
+    # If the advertiser never explicitly shortlisted (older campaigns), fall back to all.
     assigns = list(c.site_assignments)
-    shortlisted = [a for a in assigns if a.is_shortlisted]
+    shortlisted = [a for a in assigns if a.is_shortlisted or a.pending_approval]
     finalized = shortlisted if shortlisted else assigns
 
     site_ids = [a.site_id for a in finalized]
@@ -317,12 +318,14 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
             "latitude": site.latitude if site else None,
             "longitude": site.longitude if site else None,
             "imageUrl": site.image_url if site else None,
+            "potentialMonthly": float(site.potential_monthly or 0) if site else 0,
             "agreedCost": float(a.agreed_cost or 0),
             "printingCost": float(a.printing_cost or 0),
             "mountingCost": float(a.mounting_cost or 0),
             "otherCost": float(a.other_cost or 0),
             "monitorWorkerName": a.monitor_worker_name,
             "monitorFieldPinId": a.monitor_field_pin_id,
+            "pendingApproval": bool(getattr(a, "pending_approval", False)),
             "phases": phases,
         })
 
@@ -461,11 +464,14 @@ def assign_site(campaign_id: int, req: AssignSiteRequest, db: Session = Depends(
         if overlap:
             raise HTTPException(409,
                 f"Site already booked for overlapping dates (campaign #{overlap.campaign_id})")
+    # Sites added to an already-finalized/running campaign need advertiser re-approval
+    needs_approval = (c.status or "").upper() in ("FINALIZED", "RUNNING", "COMPLETE", "LIVE", "COMPLETED")
     assignment = models.CampaignSiteAssignment(
         campaign_id=campaign_id, site_id=req.siteId,
         booked_from=bk_from, booked_till=bk_till,
         agreed_cost=req.agreedCost or 0.0, unit_cost=req.unitCost or 0.0,
         notes=req.notes, status="PLANNED",
+        pending_approval=needs_approval,
     )
     db.add(assignment)
     if bk_from and bk_till:
@@ -487,6 +493,8 @@ def assign_sites_bulk(campaign_id: int, req: BulkAssignRequest, db: Session = De
     from datetime import date
     bk_from = date.fromisoformat(req.bookedFrom) if req.bookedFrom else None
     bk_till = date.fromisoformat(req.bookedTill) if req.bookedTill else None
+    # Sites added to an already-finalized/running campaign need advertiser re-approval
+    needs_approval = (c.status or "").upper() in ("FINALIZED", "RUNNING", "COMPLETE", "LIVE", "COMPLETED")
     added = 0
     skipped = 0
     for site_id in req.siteIds:
@@ -505,12 +513,13 @@ def assign_sites_bulk(campaign_id: int, req: BulkAssignRequest, db: Session = De
             campaign_id=campaign_id, site_id=site_id,
             booked_from=bk_from, booked_till=bk_till,
             agreed_cost=req.agreedCost or 0.0, status="PLANNED",
+            pending_approval=needs_approval,
         ))
         added += 1
     db.commit()
     log_activity(db, f"Bulk assigned {added} sites to campaign", "campaign", campaign_id)
     return {"message": f"Added {added} sites, skipped {skipped} duplicates",
-            "added": added, "skipped": skipped}
+            "added": added, "skipped": skipped, "needsApproval": needs_approval}
 
 
 class UpdateAssignmentRequest(BaseModel):

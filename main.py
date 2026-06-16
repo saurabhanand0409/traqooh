@@ -195,6 +195,7 @@ def run_migrations():
                 for col, typ in [
                     ("monitor_worker_name", "VARCHAR"),
                     ("monitor_field_pin_id", "INTEGER"),
+                    ("pending_approval", "BOOLEAN DEFAULT FALSE"),
                 ]:
                     if col not in csa_cols:
                         try:
@@ -921,8 +922,16 @@ def _validate_access_link(token: str, db: Session):
         raise HTTPException(403, "Invalid or expired access link")
     return link
 
+_ACCESS_PHASE_MAP = {
+    "START": "START", "MOUNTING": "START", "PRINT": "START", "REPRINT": "START",
+    "AUDIT": "MID", "MAINTENANCE": "MID",
+    "END": "END", "TAKEDOWN": "END",
+}
+
+
 def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) -> dict:
     """Return full site metadata + assignment fields for the advertiser access page."""
+    import json as _json
     site = db.query(models.Site).options(
         joinedload(models.Site.owner)
     ).filter(models.Site.id == a.site_id).first()
@@ -932,6 +941,32 @@ def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) ->
             size_str = f"{site.width}×{site.length} ft"
         elif site.size:
             size_str = site.size
+    # Execution proof photos grouped by phase (Start / Mid / End) for live tracking
+    proofs = {"START": [], "MID": [], "END": []}
+    acts = (db.query(models.CampaignActivity)
+              .filter(models.CampaignActivity.site_id == a.site_id,
+                      models.CampaignActivity.campaign_id == a.campaign_id,
+                      models.CampaignActivity.image_urls.isnot(None))
+              .order_by(models.CampaignActivity.created_at.desc()).all())
+    for act in acts:
+        try:
+            urls = _json.loads(act.image_urls) if act.image_urls else []
+        except Exception:
+            urls = []
+        phase = _ACCESS_PHASE_MAP.get(act.activity_type, "MID")
+        for url in urls:
+            proofs[phase].append({
+                "url": url,
+                "activityType": act.activity_type,
+                "status": act.status,
+                "performedBy": act.performed_by,
+                "date": str(act.activity_date) if act.activity_date else (str(act.created_at)[:10] if act.created_at else None),
+                "createdAt": str(act.created_at) if act.created_at else None,
+                "latitude": act.latitude,
+                "longitude": act.longitude,
+                "notes": act.notes,
+            })
+    proof_count = sum(len(v) for v in proofs.values())
     return {
         "assignmentId": a.id,
         "siteId": a.site_id,
@@ -954,6 +989,7 @@ def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) ->
         "bookedTill": str(a.booked_till) if a.booked_till else None,
         # advertiser shortlist fields
         "isShortlisted": bool(a.is_shortlisted),
+        "pendingApproval": bool(getattr(a, "pending_approval", False)),
         "finalStartDate": str(a.final_start_date) if a.final_start_date else None,
         "finalEndDate": str(a.final_end_date) if a.final_end_date else None,
         "printingType": a.printing_type,
@@ -961,6 +997,9 @@ def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) ->
         "mountingCost": float(a.mounting_cost or 0),
         "otherCost": float(a.other_cost or 0),
         "executionRemarks": a.execution_remarks,
+        # execution proof photos grouped by phase
+        "proofs": proofs,
+        "proofCount": proof_count,
     }
 
 # --- Access token validation (public, no auth) ---
@@ -1061,9 +1100,23 @@ def finalize_campaign(token: str, req: FinalizeRequest, db: Session = Depends(ge
     ).first()
     if not c:
         raise HTTPException(404, "Campaign not found or access denied")
-    # Advance status to FINALIZED once the advertiser locks in their shortlisted sites
+    # Advance status to FINALIZED once the advertiser locks in their shortlisted sites.
+    # For an already-running campaign, this is a re-approval of newly added sites —
+    # status is left untouched, we only clear the pending flag on approved sites.
     if c.status in ("DRAFT", "PLANNED"):
         c.status = "FINALIZED"
+    # Clear pending_approval on every shortlisted site; drop the flag on the rest too
+    # (an un-shortlisted pending site is effectively rejected and won't block execution).
+    assigns = db.query(models.CampaignSiteAssignment).filter(
+        models.CampaignSiteAssignment.campaign_id == c.id,
+        models.CampaignSiteAssignment.pending_approval == True,
+    ).all()
+    approved = 0
+    for a in assigns:
+        a.pending_approval = False
+        if a.is_shortlisted:
+            approved += 1
     db.commit()
-    log_activity(db, "Advertiser finalized campaign", "campaign", c.id, c.name)
-    return {"message": "Campaign finalized", "newStatus": c.status}
+    log_activity(db, "Advertiser finalized campaign", "campaign", c.id,
+                 f"{c.name}" + (f" (+{approved} new sites approved)" if approved else ""))
+    return {"message": "Campaign finalized", "newStatus": c.status, "newlyApproved": approved}

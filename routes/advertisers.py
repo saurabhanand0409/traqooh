@@ -19,12 +19,42 @@ OTP_FROM_EMAIL = os.environ.get("OTP_FROM_EMAIL", "noreply@brandsculpt.com")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://app.brandsculpt.com")
 
 
-def _send_access_link_email(to_email: str, advertiser_name: str, access_url: str, expires_at: datetime.datetime):
+# Email copy per purpose: proposal (review & finalize), live (track execution photos),
+# update (new sites added — review & approve)
+_EMAIL_COPY = {
+    "proposal": {
+        "subject": "Your Campaign Proposal — {name}",
+        "heading": "Your Campaign Proposal is Ready",
+        "body": "Hello {name}, your campaign proposal has been shared with you. Click below to view your sites and cost sheet, shortlist what you want, and finalize.",
+        "cta": "View Campaign Proposal",
+    },
+    "live": {
+        "subject": "Your Campaign is Now Live — {name}",
+        "heading": "Your Campaign is Now Live 🎉",
+        "body": "Hello {name}, your campaign is now live. Use the link below to track on-ground execution — start, mid and end photos for every site, with GPS and timestamps as our team completes the work.",
+        "cta": "Track Your Campaign",
+    },
+    "update": {
+        "subject": "New Sites Added — Please Review — {name}",
+        "heading": "New Sites Need Your Approval",
+        "body": "Hello {name}, new sites have been added to your campaign. Please open the link below to review and approve them so we can begin execution.",
+        "cta": "Review New Sites",
+    },
+}
+
+
+def _send_access_link_email(to_email: str, advertiser_name: str, access_url: str,
+                            expires_at: datetime.datetime, purpose: str = "proposal"):
     """Send access link email via Resend. Logs to console if RESEND_API_KEY not set."""
     full_url = f"{FRONTEND_URL}{access_url}" if access_url.startswith("/") else access_url
     expiry_str = expires_at.strftime("%d %B %Y")
+    copy = _EMAIL_COPY.get(purpose, _EMAIL_COPY["proposal"])
+    subject = copy["subject"].format(name=advertiser_name)
+    heading = copy["heading"]
+    body = copy["body"].format(name=advertiser_name)
+    cta = copy["cta"]
     if not RESEND_API_KEY:
-        print(f"[ACCESS LINK] No RESEND_API_KEY. Link for {to_email}: {full_url}")
+        print(f"[ACCESS LINK] No RESEND_API_KEY. ({purpose}) Link for {to_email}: {full_url}")
         return
     html = f"""
     <div style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto;background:#070C1A;color:#fff;border-radius:16px;overflow:hidden;">
@@ -33,9 +63,9 @@ def _send_access_link_email(to_email: str, advertiser_name: str, access_url: str
         <div style="font-size:14px;opacity:0.8;margin-top:4px;">by BrandSculpt</div>
       </div>
       <div style="padding:32px;">
-        <h2 style="margin:0 0 8px;font-size:20px;">Your Campaign Proposal is Ready</h2>
-        <p style="color:#9CA3AF;margin:0 0 24px;">Hello {advertiser_name}, your campaign proposal has been shared with you. Click the button below to view your sites and cost sheet.</p>
-        <a href="{full_url}" style="display:inline-block;background:linear-gradient(135deg,#2563EB,#DC143C);color:#fff;text-decoration:none;padding:14px 28px;border-radius:12px;font-weight:700;font-size:15px;">View Campaign Proposal</a>
+        <h2 style="margin:0 0 8px;font-size:20px;">{heading}</h2>
+        <p style="color:#9CA3AF;margin:0 0 24px;">{body}</p>
+        <a href="{full_url}" style="display:inline-block;background:linear-gradient(135deg,#2563EB,#DC143C);color:#fff;text-decoration:none;padding:14px 28px;border-radius:12px;font-weight:700;font-size:15px;">{cta}</a>
         <p style="color:#6B7280;font-size:12px;margin-top:24px;">This link expires on <strong style="color:#9CA3AF;">{expiry_str}</strong>. If you didn't expect this email, you can safely ignore it.</p>
         <p style="color:#6B7280;font-size:12px;margin-top:4px;">Or copy this link: <span style="color:#60A5FA;word-break:break-all;">{full_url}</span></p>
       </div>
@@ -45,7 +75,7 @@ def _send_access_link_email(to_email: str, advertiser_name: str, access_url: str
         httpx.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-            json={"from": OTP_FROM_EMAIL, "to": [to_email], "subject": f"Your Campaign Proposal — {advertiser_name}", "html": html},
+            json={"from": OTP_FROM_EMAIL, "to": [to_email], "subject": subject, "html": html},
             timeout=10,
         )
     except Exception as e:
@@ -83,6 +113,7 @@ class SendAccessLinkRequest(BaseModel):
     advertiserId: int
     campaignId: Optional[int] = None
     expiryDays: Optional[int] = 7
+    purpose: Optional[str] = "proposal"  # proposal | live | update
 
 
 def adv_to_dict(a):
@@ -346,11 +377,15 @@ def send_access_link(req: SendAccessLinkRequest, db: Session = Depends(get_db)):
     db.add(link)
     db.commit()
     access_url = f"/access/{token}"
-    log_activity(db, "Sent access link", "advertiser", adv.id, f"Token expires in {req.expiryDays}d")
+    purpose = (req.purpose or "proposal").lower()
+    log_activity(db, f"Sent access link ({purpose})", "advertiser", adv.id, f"Token expires in {req.expiryDays}d")
     # Email the link if advertiser has an email on file
+    emailed = False
     if adv.email:
-        _send_access_link_email(adv.email, adv.company_name, access_url, link.expires_at)
-    return {"message": "Access link generated", "accessUrl": access_url, "token": token, "expiresAt": str(link.expires_at)}
+        _send_access_link_email(adv.email, adv.company_name, access_url, link.expires_at, purpose)
+        emailed = True
+    return {"message": "Access link generated", "accessUrl": access_url, "token": token,
+            "expiresAt": str(link.expires_at), "emailed": emailed, "advertiserEmail": adv.email}
 
 
 @router.post("/validate-token")
