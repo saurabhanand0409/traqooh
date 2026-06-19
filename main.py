@@ -1,5 +1,5 @@
 # TraqOOH Backend v2.1
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
@@ -651,6 +651,113 @@ def site_gallery(site_id: int, db: Session = Depends(get_db)):
             grouped[label].append(entry)
             all_photos.append(entry)
     return {"siteId": site_id, "grouped": grouped, "all": all_photos, "total": len(all_photos)}
+
+
+# ── Site Image Gallery (per-site photo library, with cover selection) ───────
+def _site_image_dict(img: "models.SiteImage") -> dict:
+    return {
+        "id": img.id,
+        "siteId": img.site_id,
+        "imageUrl": img.image_url,
+        "caption": img.caption,
+        "isPrimary": bool(img.is_primary),
+        "createdAt": str(img.created_at) if img.created_at else None,
+    }
+
+
+@app.get("/api/sites/{site_id}/images")
+def list_site_images(site_id: int, db: Session = Depends(get_db)):
+    """All photos uploaded to a site's library, primary first.
+    If the gallery is empty but the site has a legacy single image_url, that
+    image is auto-imported as the primary so it shows up in the gallery."""
+    rows = (db.query(models.SiteImage)
+              .filter(models.SiteImage.site_id == site_id)
+              .order_by(models.SiteImage.is_primary.desc(), models.SiteImage.created_at.desc())
+              .all())
+    if not rows:
+        site = db.query(models.Site).filter(models.Site.id == site_id).first()
+        if site and site.image_url:
+            seed = models.SiteImage(site_id=site_id, image_url=site.image_url, is_primary=True)
+            db.add(seed)
+            db.commit()
+            db.refresh(seed)
+            rows = [seed]
+    return [_site_image_dict(r) for r in rows]
+
+
+@app.post("/api/sites/{site_id}/images")
+async def add_site_image(site_id: int, file: UploadFile = File(...),
+                         caption: Optional[str] = Form(None),
+                         setAsPrimary: Optional[bool] = Form(False),
+                         db: Session = Depends(get_db)):
+    """Upload a photo to a site's library. The first one auto-becomes the primary."""
+    site = db.query(models.Site).filter(models.Site.id == site_id).first()
+    if not site:
+        raise HTTPException(404, "Site not found")
+    url = await upload_to_r2(file, folder="site-images")
+
+    has_existing = db.query(models.SiteImage).filter(models.SiteImage.site_id == site_id).first() is not None
+    make_primary = bool(setAsPrimary) or (not has_existing)
+    if make_primary:
+        db.query(models.SiteImage).filter(
+            models.SiteImage.site_id == site_id, models.SiteImage.is_primary == True
+        ).update({"is_primary": False})
+
+    img = models.SiteImage(site_id=site_id, image_url=url, caption=caption, is_primary=make_primary)
+    db.add(img)
+    if make_primary:
+        site.image_url = url  # keep Site.image_url in sync so existing list views still work
+    db.commit()
+    db.refresh(img)
+    log_activity(db, "Added site photo", "site", site_id, caption or "")
+    return _site_image_dict(img)
+
+
+@app.post("/api/sites/{site_id}/images/{image_id}/set-primary")
+def set_primary_site_image(site_id: int, image_id: int, db: Session = Depends(get_db)):
+    """Choose which photo represents this site (the 'face')."""
+    img = db.query(models.SiteImage).filter(
+        models.SiteImage.id == image_id, models.SiteImage.site_id == site_id
+    ).first()
+    if not img:
+        raise HTTPException(404, "Image not found for this site")
+    db.query(models.SiteImage).filter(
+        models.SiteImage.site_id == site_id, models.SiteImage.is_primary == True
+    ).update({"is_primary": False})
+    img.is_primary = True
+    site = db.query(models.Site).filter(models.Site.id == site_id).first()
+    if site:
+        site.image_url = img.image_url
+    db.commit()
+    log_activity(db, "Set site cover photo", "site", site_id)
+    return _site_image_dict(img)
+
+
+@app.delete("/api/sites/{site_id}/images/{image_id}")
+def delete_site_image(site_id: int, image_id: int, db: Session = Depends(get_db)):
+    """Remove a photo from a site's library. If it was the cover, promote another one."""
+    img = db.query(models.SiteImage).filter(
+        models.SiteImage.id == image_id, models.SiteImage.site_id == site_id
+    ).first()
+    if not img:
+        raise HTTPException(404, "Image not found")
+    was_primary = bool(img.is_primary)
+    db.delete(img)
+    db.commit()
+    if was_primary:
+        # Promote the next-newest photo to cover; if none left, clear Site.image_url
+        next_img = (db.query(models.SiteImage)
+                      .filter(models.SiteImage.site_id == site_id)
+                      .order_by(models.SiteImage.created_at.desc()).first())
+        site = db.query(models.Site).filter(models.Site.id == site_id).first()
+        if next_img:
+            next_img.is_primary = True
+            if site: site.image_url = next_img.image_url
+        elif site:
+            site.image_url = None
+        db.commit()
+    log_activity(db, "Removed site photo", "site", site_id)
+    return {"success": True, "deletedId": image_id}
 
 
 @app.post("/api/auth/register")
