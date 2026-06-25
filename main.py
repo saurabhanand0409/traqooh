@@ -690,14 +690,17 @@ async def add_site_image(site_id: int, file: UploadFile = File(...),
                          caption: Optional[str] = Form(None),
                          setAsPrimary: Optional[bool] = Form(False),
                          db: Session = Depends(get_db)):
-    """Upload a photo to a site's library. The first one auto-becomes the primary."""
+    """Upload a photo (or LED-site video) to a site's library. The first IMAGE auto-becomes
+    the primary. Videos are never auto-promoted to cover — covers are still images."""
     site = db.query(models.Site).filter(models.Site.id == site_id).first()
     if not site:
         raise HTTPException(404, "Site not found")
     url = await upload_to_r2(file, folder="site-images")
 
+    is_video = (file.content_type or "").lower().startswith("video/")
+
     has_existing = db.query(models.SiteImage).filter(models.SiteImage.site_id == site_id).first() is not None
-    make_primary = bool(setAsPrimary) or (not has_existing)
+    make_primary = (bool(setAsPrimary) or (not has_existing)) and not is_video
     if make_primary:
         db.query(models.SiteImage).filter(
             models.SiteImage.site_id == site_id, models.SiteImage.is_primary == True
