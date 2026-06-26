@@ -1,5 +1,6 @@
 # TraqOOH Backend v2.1
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
@@ -263,17 +264,42 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="TraqOOH API", version="2.1.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+_CORS_ALLOWED_ORIGINS = [
+    "https://app.brandsculpt.com",
+    "https://traqooh.brandsculpt.com",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+]
 app.add_middleware(CORSMiddleware,
-                   allow_origins=[
-                       "https://app.brandsculpt.com",
-                       "https://traqooh.brandsculpt.com",
-                       "http://localhost:5173",
-                       "http://localhost:3000",
-                       "http://127.0.0.1:5173",
-                   ],
+                   allow_origins=_CORS_ALLOWED_ORIGINS,
                    allow_credentials=True,
                    allow_methods=["*"],
                    allow_headers=["*"])
+
+# Catch-all exception handler that ALWAYS adds CORS headers to error responses.
+# Starlette's default ServerErrorMiddleware sits OUTSIDE the CORSMiddleware, so any
+# unhandled exception inside a route (or a dependency like get_db / get_current_user)
+# returns a 500 with NO Access-Control-Allow-Origin header. That makes the browser
+# block the JS from reading the response and show "Failed to fetch" instead of the
+# real error. This handler intercepts ALL unhandled exceptions and re-emits the 500
+# WITH CORS headers + a real `detail` so the frontend alert can show what failed.
+@app.exception_handler(Exception)
+async def _all_unhandled_exceptions(request: Request, exc: Exception):
+    import traceback
+    traceback.print_exc()
+    print(f"[unhandled] {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if origin in _CORS_ALLOWED_ORIGINS:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {str(exc)[:300]}"},
+        headers=headers,
+    )
 
 run_migrations()
 
@@ -966,11 +992,52 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db), cu
 
 @app.delete("/api/sites/{site_id}")
 def delete_site(site_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
-    site = db.query(models.Site).filter(models.Site.id == site_id).first()
-    if not site:
-        raise HTTPException(status_code=404, detail="Site not found")
-    db.delete(site)
-    db.commit()
+    # Cascade: clear every row that FKs to this site before deleting the site itself.
+    # Tables pointing at sites.id directly: campaign_activities, site_audits,
+    # campaign_site_assignments, site_images.
+    # campaign_activities ALSO has an FK to campaign_site_assignments.id, so we
+    # must wipe activities tied to those assignments first (even if their own
+    # site_id is null or mismatched) or the assignment delete will FK-violate.
+    # R2 objects are left orphaned — matches existing image-delete behavior.
+    site_name = None
+    try:
+        site = db.query(models.Site).filter(models.Site.id == site_id).first()
+        if not site:
+            raise HTTPException(status_code=404, detail="Site not found")
+        site_name = site.name
+        # 1. Find every assignment this site has
+        assignment_ids = [
+            a.id for a in db.query(models.CampaignSiteAssignment.id)
+                .filter(models.CampaignSiteAssignment.site_id == site_id).all()
+        ]
+        # 2. Kill activities by EITHER site_id OR assignment_id (covers orphans)
+        if assignment_ids:
+            db.query(models.CampaignActivity).filter(
+                (models.CampaignActivity.site_id == site_id) |
+                (models.CampaignActivity.assignment_id.in_(assignment_ids))
+            ).delete(synchronize_session=False)
+        else:
+            db.query(models.CampaignActivity).filter(
+                models.CampaignActivity.site_id == site_id
+            ).delete(synchronize_session=False)
+        # 3. Audits
+        db.query(models.SiteAudit).filter(models.SiteAudit.site_id == site_id).delete(synchronize_session=False)
+        # 4. Assignments
+        db.query(models.CampaignSiteAssignment).filter(models.CampaignSiteAssignment.site_id == site_id).delete(synchronize_session=False)
+        # 5. Site images
+        db.query(models.SiteImage).filter(models.SiteImage.site_id == site_id).delete(synchronize_session=False)
+        # 6. Finally, the site
+        db.delete(site)
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        import traceback
+        print(f"[delete_site] Failed to delete site {site_id} ({site_name}): {type(e).__name__}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)[:300]}")
+    log_activity(db, "Deleted site (cascade)", "site", site_id, site_name)
     return {"message": "Site deleted successfully"}
 
 @app.get("/api/sites/{site_id}/bookings")
