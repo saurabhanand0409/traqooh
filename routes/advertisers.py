@@ -385,7 +385,8 @@ def send_access_link(req: SendAccessLinkRequest, db: Session = Depends(get_db)):
         _send_access_link_email(adv.email, adv.company_name, access_url, link.expires_at, purpose)
         emailed = True
     return {"message": "Access link generated", "accessUrl": access_url, "token": token,
-            "expiresAt": str(link.expires_at), "emailed": emailed, "advertiserEmail": adv.email}
+            "expiresAt": str(link.expires_at), "emailed": emailed, "advertiserEmail": adv.email,
+            "advertiserPhone": adv.phone, "advertiserContact": adv.contact_person}
 
 
 @router.post("/validate-token")

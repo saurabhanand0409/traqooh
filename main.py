@@ -598,12 +598,14 @@ def field_login(request: Request, req: FieldLoginRequest, db: Session = Depends(
         if company:
             company_name = company.name
 
+    # Field workers keep long sessions (30 days) so they aren't re-typing a PIN
+    # every week on-site — matches the extended PIN validity window below.
     token = create_access_token({
         "sub": f"pin-{fp.id}",
         "role": "FIELD",
         "vendorId": fp.vendor_id,
         "workerName": fp.worker_name or "Field Worker",
-    })
+    }, expire_hours=24 * 30)
     return {
         "success": True,
         "role": "FIELD",

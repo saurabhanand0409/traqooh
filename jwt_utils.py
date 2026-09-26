@@ -10,9 +10,9 @@ ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 
 
-def create_access_token(payload: dict) -> str:
+def create_access_token(payload: dict, expire_hours: int = None) -> str:
     data = payload.copy()
-    data["exp"] = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    data["exp"] = datetime.utcnow() + timedelta(hours=expire_hours or TOKEN_EXPIRE_HOURS)
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
 
 

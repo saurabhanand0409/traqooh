@@ -242,7 +242,8 @@ def list_field_pins(admin_email: Optional[str] = None, db: Session = Depends(get
 
 @router.post("/field-pins")
 def create_field_pin(req: CreateFieldPinRequest, db: Session = Depends(get_db)):
-    """Generate a random 4-digit PIN for a field worker. Expires in 72 hours."""
+    """Generate a random 4-digit PIN for a field worker. Valid for 30 days
+    (extended from the original 72 hours so workers aren't re-issued PINs weekly)."""
     # Generate a PIN unique among currently active PINs for this admin
     for _ in range(100):
         pin = "".join([str(random.randint(0, 9)) for _ in range(4)])
@@ -254,7 +255,7 @@ def create_field_pin(req: CreateFieldPinRequest, db: Session = Depends(get_db)):
         if not conflict:
             break
 
-    expires_at = datetime.datetime.utcnow() + datetime.timedelta(hours=72)
+    expires_at = datetime.datetime.utcnow() + datetime.timedelta(days=30)
     fp = models.FieldPin(
         pin=pin,
         vendor_id=req.vendorId,

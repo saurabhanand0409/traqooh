@@ -234,6 +234,24 @@ _PHASE_MAP = {
     "END":   ["END", "TAKEDOWN"],
 }
 
+# A proof photo taken further than this from the site's coordinates is flagged.
+OFFSITE_LIMIT_M = 250
+
+
+def _distance_m(lat1, lng1, lat2, lng2):
+    """Great-circle distance in metres, or None when either point is unknown.
+    (0, 0) is treated as unknown: it's the placeholder for sites with no GPS."""
+    import math
+    if None in (lat1, lng1, lat2, lng2):
+        return None
+    if (lat1 == 0 and lng1 == 0) or (lat2 == 0 and lng2 == 0):
+        return None
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lng2 - lng1)
+    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371000.0 * math.asin(math.sqrt(h))
+
 
 def _monitor_activity_dict(a):
     import json
@@ -306,7 +324,11 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
                 size_str = site.size
         phases = {"START": [], "MID": [], "END": []}
         for act in acts_by_site.get(a.site_id, []):
-            phases[phase_of(act.activity_type)].append(_monitor_activity_dict(act))
+            d = _monitor_activity_dict(act)
+            dist = _distance_m(site.latitude, site.longitude, act.latitude, act.longitude) if site else None
+            d["distanceM"] = round(dist) if dist is not None else None
+            d["offSite"] = dist is not None and dist > OFFSITE_LIMIT_M
+            phases[phase_of(act.activity_type)].append(d)
         sites_out.append({
             "assignmentId": a.id,
             "siteId": a.site_id,
