@@ -69,6 +69,18 @@ export default function App() {
               Watch Demo
             </button>
           </div>
+
+          {/* Legal acknowledgement — prominent links right below the CTAs */}
+          <p className="pt-3 text-sm text-white/70">
+            By using TraqOOH you agree to our{" "}
+            <a href="/privacy" className="font-semibold text-white underline underline-offset-2 hover:text-white/80">
+              Privacy Policy
+            </a>
+            {" "}and{" "}
+            <a href="/terms" className="font-semibold text-white underline underline-offset-2 hover:text-white/80">
+              Terms of Service
+            </a>.
+          </p>
         </div>
       </section>
 
@@ -305,8 +317,8 @@ export default function App() {
             <ul className="space-y-2 text-[#e5e7ebcc]">
               <li><a href="#help" className="hover:text-white">Help Center</a></li>
               <li><a href="/contact" className="hover:text-white">Contact Us</a></li>
-              <li><a href="#privacy" className="hover:text-white">Privacy Policy</a></li>
-              <li><a href="#terms" className="hover:text-white">Terms of Service</a></li>
+              <li><a href="/privacy" className="hover:text-white">Privacy Policy</a></li>
+              <li><a href="/terms" className="hover:text-white">Terms of Service</a></li>
             </ul>
           </div>
         </div>

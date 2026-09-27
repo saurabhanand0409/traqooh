@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "../utils/apiFetch";
 import { useNavigate } from "react-router-dom";
 import { requireAuth, signOut } from "../utils/auth";
+import { formatSize } from "../utils/sizeFormat";
 
 const API = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
@@ -469,7 +470,7 @@ export default function MasterDashboard() {
                         <td className="px-4 py-3" style={{ color:"#9CA3AF" }}>{s.city}{s.state ? `, ${s.state}` : ""}</td>
                         <td className="px-4 py-3" style={{ color:"#9CA3AF" }}>{s.type || "—"}</td>
                         <td className="px-4 py-3" style={{ color:"#9CA3AF" }}>
-                          {s.width && s.length ? `${s.width}×${s.length} ft` : s.size || "—"}
+                          {formatSize(s)}
                           {s.total_area ? <span className="block text-xs" style={{ color:"#4B5563" }}>{s.total_area} sq ft</span> : null}
                         </td>
                         <td className="px-4 py-3">

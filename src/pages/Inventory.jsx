@@ -3,13 +3,68 @@ import { apiFetch } from "../utils/apiFetch";
 import AppShell from "../components/AppShell";
 import {
   Search, Plus, Maximize2, X, Calendar as CalendarIcon,
-  MapPin, CheckCircle, XCircle, Clock, Image as ImageIcon, Target, Edit
+  MapPin, CheckCircle, XCircle, Clock, Image as ImageIcon, Target, Edit,
+  Star, Trash2, Upload as UploadIcon
 } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { compressImage } from "../utils/imageCompress";
+import { parseSizeRows, formatSizeRow, formatSize, sizeRowsFor } from "../utils/sizeFormat";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
+
+// ── Site GPS helpers ─────────────────────────────────────────────────────────
+// Proof photos are checked against the site's location (250 m), so every site needs one.
+const hasGps = (s) => s.latitude != null && s.longitude != null && !(Number(s.latitude) === 0 && Number(s.longitude) === 0);
+const toCoord = (v) => {
+  if (v === "" || v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+// Reads "25.6030, 85.1370" or a full Google Maps link. The pin (!3d…!4d…) wins over
+// the map centre (@lat,lng) because it's where the site actually is.
+function parseLatLng(text) {
+  const t = String(text || "").trim();
+  const patterns = [
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
+    /[?&](?:q|query|ll|destination)=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/,
+    /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/,
+    /^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/,
+  ];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (m) {
+      const lat = Number(m[1]), lng = Number(m[2]);
+      if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng };
+    }
+  }
+  return null;
+}
+const inIndia = (lat, lng) => lat >= 6 && lat <= 37.5 && lng >= 68 && lng <= 97.5;
+
+// Visual rendering for the inventory list: small qty pill + dimension text.
+// Falls back to plain text for legacy or empty rows.
+function SizeCell({ site }) {
+  const rows = sizeRowsFor(site);
+  if (!rows.length) return <span style={{ color: "var(--gray2)" }}>—</span>;
+  return (
+    <div className="flex flex-col gap-1">
+      {rows.map((r, i) => (
+        <div key={i} className="flex items-center gap-1.5 flex-wrap">
+          {r.qty > 1 && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold"
+              style={{ background: "rgba(37,99,235,0.18)", color: "#93C5FD" }}>
+              {r.qty}×
+            </span>
+          )}
+          {r.dim && <span className="text-sm font-bold text-white">{r.dim}</span>}
+          {r.note && <span className="text-xs" style={{ color: "var(--gray2)" }}>{r.note}</span>}
+          {!r.dim && !r.note && <span className="text-xs" style={{ color: "var(--gray2)" }}>—</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Inventory() {
   const user = useMemo(() => {
@@ -21,6 +76,8 @@ export default function Inventory() {
   const [search, setSearch] = useState("");
   const [cityFilter, setCityFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [noGpsOnly, setNoGpsOnly] = useState(false);
+  const [gpsPaste, setGpsPaste] = useState({ text: "", msg: "" }); // "paste a Maps link" box in the site form
 
   // Modals state
   const [showAdd, setShowAdd] = useState(false);
@@ -49,11 +106,14 @@ export default function Inventory() {
 
   const [vendors, setVendors] = useState([]);
   const isAdmin = user.role === "ADMIN";
-  const [currentOwnerId, setCurrentOwnerId] = useState(isAdmin ? null : (user.companyId || null));
+  // Everyone (admins, employees, super-admin) defaults to "All Vendors" so the team
+  // can browse and share any vendor's inventory. Employees can still filter to a
+  // specific vendor (including their own) via the Vendor dropdown above the list.
+  const [currentOwnerId, setCurrentOwnerId] = useState(null);
 
   const emptyForm = {
     name: "", city: "", state: "", type: "Billboard", lightingType: "Lit",
-    size: "", width: 0, length: 0,
+    size: "", width: 0, length: 0, latitude: "", longitude: "",
     facing: "", status: "Active", potentialMonthly: "", imageUrl: "",
     ownerCompanyId: user.companyId || "", vendorId: user.companyId || "",
     addedByUserId: user.userId || ""
@@ -115,7 +175,6 @@ export default function Inventory() {
       .then(r => r.ok && r.json())
       .then(data => data && setVendors(data))
       .catch(() => {});
-    if (user.companyId && !isAdmin) setCurrentOwnerId(user.companyId);
   }, [user.companyId]);
 
   // Filters Options
@@ -127,8 +186,10 @@ export default function Inventory() {
                           (s.city || "").toLowerCase().includes(search.toLowerCase());
     const matchesCity = cityFilter === "All" || s.city === cityFilter;
     const matchesStatus = statusFilter === "All" || s.computedStatus === statusFilter;
-    return matchesSearch && matchesCity && matchesStatus;
+    const matchesGps = !noGpsOnly || !hasGps(s);
+    return matchesSearch && matchesCity && matchesStatus && matchesGps;
   });
+  const missingGps = sites.filter(s => !hasGps(s)).length;
 
   // Calculate top-level stats
   const totalSites = sites.length;
@@ -159,11 +220,27 @@ export default function Inventory() {
     }
   };
 
-  // Delete Site
+  // Delete Site (cascade: also removes campaign bookings, audits, photos, execution history)
+  const [deletingId, setDeletingId] = useState(null);
   const handleDeleteSite = async (site) => {
-    if (!confirm(`Delete "${site.name}"? This cannot be undone.`)) return;
-    await apiFetch(`/api/sites/${site.id}`, { method: "DELETE" });
-    window.location.reload();
+    if (!confirm(`Delete "${site.name}"?\n\nThis will also remove all of its campaign bookings, audits, photos, and execution history. This cannot be undone.`)) return;
+    setDeletingId(site.id);
+    try {
+      const res = await apiFetch(`/api/sites/${site.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        let msg = `Delete failed (HTTP ${res.status})`;
+        try { const d = await res.json(); if (d.detail) msg = d.detail; } catch {}
+        alert(msg);
+        return;
+      }
+      // Optimistic in-place removal (avoids a full reload which can hide slow errors)
+      setSites(prev => prev.filter(s => s.id !== site.id));
+    } catch (err) {
+      // Network failure, CORS error, cold-start timeout, etc.
+      alert(`Could not reach the server.\n\n${err?.message || err}\n\nIf the backend was sleeping, wait ~30s and try again.`);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   // Create Site
@@ -182,6 +259,8 @@ export default function Inventory() {
         addedByUserId: user.userId || null,
         state: form.state || null,
         lightingType: form.lightingType || null,
+        latitude: toCoord(form.latitude),
+        longitude: toCoord(form.longitude),
       };
       const res = await apiFetch(`/api/sites`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
@@ -210,6 +289,8 @@ export default function Inventory() {
         ownerCompanyId: editSite.vendorId ? Number(editSite.vendorId) : (editSite.ownerCompanyId !== "" ? Number(editSite.ownerCompanyId) : null),
         state: editSite.state || null,
         lightingType: editSite.lightingType || null,
+        latitude: toCoord(editSite.latitude),
+        longitude: toCoord(editSite.longitude),
       };
       const res = await apiFetch(`/api/sites/${editSite.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
@@ -231,7 +312,9 @@ export default function Inventory() {
         status: site.status || "Active", potentialMonthly: String(site.potentialMonthly || ""),
         occupancy: site.occupancy || 0, imageUrl: site.imageUrl || "",
         ownerCompanyId: site.ownerCompanyId || "", vendorId: site.vendorId || site.ownerCompanyId || "",
+        latitude: site.latitude ?? "", longitude: site.longitude ?? "",
      });
+     setGpsPaste({ text: "", msg: "" });
      setShowEdit(true);
   };
 
@@ -342,6 +425,10 @@ export default function Inventory() {
           />
         </div>
         <div className="flex gap-2 w-full md:w-auto">
+          <select value={currentOwnerId || ""} onChange={e => setCurrentOwnerId(e.target.value ? Number(e.target.value) : null)} className="tq-input flex-1 md:w-40 py-2 text-sm" title="Filter sites by vendor">
+            <option value="">All Vendors</option>
+            {vendors.map(v => <option key={v.id} value={v.id}>{v.name}{v.city ? ` — ${v.city}` : ""}</option>)}
+          </select>
           <select value={cityFilter} onChange={e => setCityFilter(e.target.value)} className="tq-input flex-1 md:w-36 py-2 text-sm">
             {cities.map(c => <option key={c} value={c}>{c === "All" ? "All Cities" : c}</option>)}
           </select>
@@ -351,6 +438,13 @@ export default function Inventory() {
             <option value="Booked">Booked</option>
             <option value="Vacant Soon">Vacant Soon</option>
           </select>
+          <button onClick={() => setNoGpsOnly(v => !v)} title="Show only sites without a GPS location"
+            className="px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 transition"
+            style={noGpsOnly
+              ? { background: "rgba(245,158,11,0.18)", color: "#FBBF24", border: "1px solid rgba(245,158,11,0.4)" }
+              : { background: "rgba(255,255,255,0.05)", color: "var(--gray)", border: "1px solid var(--border)" }}>
+            No GPS · {missingGps}
+          </button>
           {/* View toggle */}
           <div className="flex rounded-lg overflow-hidden flex-shrink-0" style={{ border: "1px solid var(--border)" }}>
             {[["list","List"],["map","Map"]].map(([mode, label]) => (
@@ -455,7 +549,7 @@ export default function Inventory() {
                     </div>
                   </td>
                   <td className="px-5 py-3 whitespace-nowrap">
-                    <div className="font-bold text-sm text-white">{site.width && site.length ? `${site.width}×${site.length} ft` : (site.size || "—")}</div>
+                    <SizeCell site={site} />
                     <span className="inline-flex mt-1 px-2 py-0.5 rounded text-xs font-semibold" style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}>{typeLabel(site.type, site.lightingType)}</span>
                   </td>
                   <td className="px-5 py-3">
@@ -479,16 +573,22 @@ export default function Inventory() {
                     <span className="text-xs font-normal ml-0.5" style={{ color: "var(--gray2)" }}>/mo</span>
                   </td>
                   <td className="px-5 py-3 text-center">
-                    {!isAdmin && (
-                      <div className="flex items-center justify-center gap-2">
-                        <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 rounded-lg transition" style={{ background: "rgba(37,99,235,0.1)", color: "#3B82F6", border: "1px solid rgba(37,99,235,0.2)" }} title="Edit">
-                          <Edit className="w-3.5 h-3.5"/>
-                        </button>
-                        <button onClick={() => handleDeleteSite(site)} className="inline-flex items-center justify-center w-8 h-8 rounded-lg transition" style={{ background: "rgba(220,20,60,0.1)", color: "#F87171", border: "1px solid rgba(220,20,60,0.2)" }} title="Delete">
-                          <X className="w-3.5 h-3.5"/>
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-center gap-2">
+                      <button onClick={() => openEditModal(site)} className="inline-flex items-center justify-center w-8 h-8 rounded-lg transition" style={{ background: "rgba(37,99,235,0.1)", color: "#3B82F6", border: "1px solid rgba(37,99,235,0.2)" }} title="Edit">
+                        <Edit className="w-3.5 h-3.5"/>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteSite(site)}
+                        disabled={deletingId === site.id}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg transition disabled:opacity-50 disabled:cursor-wait"
+                        style={{ background: "rgba(220,20,60,0.1)", color: "#F87171", border: "1px solid rgba(220,20,60,0.2)" }}
+                        title={deletingId === site.id ? "Deleting…" : "Delete"}
+                      >
+                        {deletingId === site.id
+                          ? <span className="text-[10px] font-bold animate-pulse">…</span>
+                          : <Trash2 className="w-3.5 h-3.5"/>}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -536,7 +636,7 @@ export default function Inventory() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { label: "Size", value: hoverSite.width && hoverSite.length ? `${hoverSite.width}×${hoverSite.length} ft` : (hoverSite.size || "—") },
+                { label: "Size", value: formatSize(hoverSite) },
                 { label: "Type", value: typeLabel(hoverSite.type, hoverSite.lightingType) },
                 { label: "Rate", value: `₹${hoverSite.potentialMonthly ? Number(hoverSite.potentialMonthly).toLocaleString("en-IN") : "—"}/mo` },
                 { label: "Facing", value: hoverSite.facing || "—" },
@@ -580,7 +680,7 @@ export default function Inventory() {
                   {[detailSite.state, detailSite.city, detailSite.areaLocality || detailSite.address].filter(Boolean).join(" • ") || "Address not provided"}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {[{ label: "Size", value: detailSite.width && detailSite.length ? `${detailSite.width}×${detailSite.length} ft` : (detailSite.size || "—") }, { label: "Type", value: typeLabel(detailSite.type, detailSite.lightingType) }, { label: "Facing", value: detailSite.facing || "N/A" }, { label: "Status", value: detailSite.status }].map(d => (
+                  {[{ label: "Size", value: formatSize(detailSite) }, { label: "Type", value: typeLabel(detailSite.type, detailSite.lightingType) }, { label: "Facing", value: detailSite.facing || "N/A" }, { label: "Status", value: detailSite.status }].map(d => (
                     <div key={d.label} className="p-3 rounded-xl" style={{ background: "rgba(255,255,255,0.05)" }}>
                       <div className="text-[10px] uppercase font-bold tracking-wider mb-0.5" style={{ color: "var(--gray2)" }}>{d.label}</div>
                       <div className="font-semibold text-sm text-white">{d.value}</div>
@@ -720,26 +820,101 @@ export default function Inventory() {
                       <div><label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Maintenance Status</label><select value={v("status")} onChange={e => s("status", e.target.value)} className="tq-input"><option>Active</option><option>Inactive</option><option>Maintenance</option></select></div>
                     </div>
                     <div className="grid md:grid-cols-2 gap-4">
-                      <div><label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Site Type</label><select value={v("type")} onChange={e => s("type", e.target.value)} className="tq-input"><option>Billboard</option><option>LED</option><option>Hoarding</option><option>Unipole</option><option>Gantry</option><option>Transit</option></select></div>
+                      {(() => {
+                        const KNOWN = ["Billboard", "Hoarding", "Unipole", "LED", "Digital Screen", "Wall Wrap", "Pole Kiosk", "Gantry", "Transit", "Bus Shelter", "Mall Media"];
+                        const cur = v("type") || "Billboard";
+                        const isCustom = !KNOWN.includes(cur);
+                        return (
+                          <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Branding / Site Type</label>
+                            <select value={isCustom ? "__other__" : cur}
+                              onChange={e => s("type", e.target.value === "__other__" ? "" : e.target.value)}
+                              className="tq-input">
+                              {KNOWN.map(t => <option key={t} value={t}>{t}</option>)}
+                              <option value="__other__">Other (specify)…</option>
+                            </select>
+                            {isCustom && (
+                              <input value={cur} autoFocus onChange={e => s("type", e.target.value)}
+                                placeholder="e.g. Tower Wrap, Mall Atrium, Foot Overbridge"
+                                className="tq-input mt-2" />
+                            )}
+                          </div>
+                        );
+                      })()}
                       <div><label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Lighting</label><select value={v("lightingType") || "Lit"} onChange={e => s("lightingType", e.target.value)} className="tq-input"><option value="Lit">Lit</option><option value="Non-Lit">Non-Lit</option></select></div>
                     </div>
-                    <div className="grid md:grid-cols-3 gap-4 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                      <div><label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Width (ft)</label><input type="number" placeholder="0" value={v("width")} onChange={e => s("width", e.target.value)} className="tq-input"/></div>
-                      <div><label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Length (ft)</label><input type="number" placeholder="0" value={v("length")} onChange={e => s("length", e.target.value)} className="tq-input"/></div>
-                      <div><label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "#3B82F6" }}>Rate (₹/mo) *</label><input type="number" step="1" placeholder="e.g. 15000" required value={v("potentialMonthly")} onChange={e => s("potentialMonthly", e.target.value)} className="tq-input"/></div>
+                    <div className="pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+                      <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "#3B82F6" }}>Rate (₹/mo) *</label>
+                      <input type="number" step="1" placeholder="e.g. 15000" required value={v("potentialMonthly")} onChange={e => s("potentialMonthly", e.target.value)} className="tq-input md:w-1/3"/>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Site Image</label>
-                      <div className="flex items-center gap-3">
-                        <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)" }}>
-                          {v("imageUrl") ? <img src={v("imageUrl")} className="w-full h-full object-cover"/> : <ImageIcon className="w-5 h-5" style={{ color: "var(--gray2)" }}/>}
+                    {(() => {
+                      const setBoth = (patch) => showEdit ? setEditSite(e => ({ ...e, ...patch })) : setForm(f => ({ ...f, ...patch }));
+                      const lat = toCoord(v("latitude")), lng = toCoord(v("longitude"));
+                      const both = lat != null && lng != null;
+                      return (
+                        <div>
+                          <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Location (GPS)</label>
+                          <input value={gpsPaste.text} placeholder="Paste a Google Maps link, or type 25.6030, 85.1370"
+                            className="tq-input"
+                            onChange={e => {
+                              const text = e.target.value;
+                              const hit = parseLatLng(text);
+                              if (hit) {
+                                setBoth({ latitude: String(hit.lat), longitude: String(hit.lng) });
+                                setGpsPaste({ text, msg: inIndia(hit.lat, hit.lng) ? "✓ Location filled in below" : "Filled in, but this point isn't in India. Check that latitude comes first." });
+                              } else if (!text.trim()) {
+                                setGpsPaste({ text, msg: "" });
+                              } else if (/goo\.gl|maps\.app/.test(text)) {
+                                setGpsPaste({ text, msg: "Short links can't be read. Open the link, then copy the full address from the browser bar." });
+                              } else {
+                                setGpsPaste({ text, msg: "Couldn't find coordinates in that. Paste a Google Maps link or lat, lng." });
+                              }
+                            }} />
+                          {gpsPaste.msg && (
+                            <p className="text-[11px] mt-1" style={{ color: gpsPaste.msg.startsWith("✓") ? "#4ADE80" : "#FBBF24" }}>{gpsPaste.msg}</p>
+                          )}
+                          <div className="grid grid-cols-2 gap-3 mt-2">
+                            <input type="number" step="any" placeholder="Latitude" value={v("latitude")}
+                              onChange={e => s("latitude", e.target.value)} className="tq-input" />
+                            <input type="number" step="any" placeholder="Longitude" value={v("longitude")}
+                              onChange={e => s("longitude", e.target.value)} className="tq-input" />
+                          </div>
+                          <p className="text-[10px] mt-1.5" style={{ color: "var(--gray2)" }}>
+                            Proof photos are checked against this point: anything taken more than 250 m away is flagged.
+                            {both && <>{" "}<a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noreferrer" className="font-bold" style={{ color: "#60A5FA" }}>Check on map</a></>}
+                          </p>
                         </div>
-                        <div className="flex-1">
-                          <input type="file" onChange={(e) => handleFileUpload(e, showEdit)} className="tq-input text-sm cursor-pointer"/>
-                          {uploading && <div className="text-xs font-bold mt-1 animate-pulse" style={{ color: "#3B82F6" }}>Uploading...</div>}
+                      );
+                    })()}
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Size Description</label>
+                      <SizeBuilder value={v("size")} onChange={(val) => s("size", val)} />
+                      <p className="text-[10px] mt-2" style={{ color: "var(--gray2)" }}>
+                        Add one or more rows to describe the inventory — e.g. <em>1× 1ft × 15ft</em> for a hoarding, or <em>20× 42 inch screens</em> for a multi-panel LED wall.
+                      </p>
+                    </div>
+                    {showEdit && editSite?.id ? (
+                      <SiteGallery
+                        siteId={editSite.id}
+                        siteType={v("type")}
+                        coverUrl={v("imageUrl")}
+                        onCoverChange={(url) => s("imageUrl", url)}
+                      />
+                    ) : (
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Site Image</label>
+                        <div className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)" }}>
+                            {v("imageUrl") ? <img src={v("imageUrl")} className="w-full h-full object-cover"/> : <ImageIcon className="w-5 h-5" style={{ color: "var(--gray2)" }}/>}
+                          </div>
+                          <div className="flex-1">
+                            <input type="file" onChange={(e) => handleFileUpload(e, showEdit)} className="tq-input text-sm cursor-pointer"/>
+                            {uploading && <div className="text-xs font-bold mt-1 animate-pulse" style={{ color: "#3B82F6" }}>Uploading...</div>}
+                            <p className="text-[10px] mt-1.5" style={{ color: "var(--gray2)" }}>You can add more photos after creating the site.</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
                     <div><label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5" style={{ color: "var(--gray2)" }}>Assigned Vendor</label>
                       <select value={v("vendorId") || ""} onChange={e => { s("vendorId", e.target.value); s("ownerCompanyId", e.target.value); }} className="tq-input">
                         <option value="">No Vendor Assigned</option>
@@ -759,5 +934,268 @@ export default function Inventory() {
       )}
 
     </AppShell>
+  );
+}
+
+// ── Size description builder (multi-row, qty × W × L unit + note) ───────────
+function SizeBuilder({ value, onChange }) {
+  const initial = (() => {
+    const rows = parseSizeRows(value);
+    if (Array.isArray(rows)) return rows;
+    if (rows === null && value) {
+      // Legacy free-text — carry it forward as a single note-only row.
+      return [{ qty: 1, width: "", length: "", unit: "ft", note: value }];
+    }
+    return [];
+  })();
+  const [rows, setRows] = useState(initial);
+
+  // Re-sync when caller resets the form (e.g., after Save / Cancel).
+  useEffect(() => {
+    const parsed = parseSizeRows(value);
+    if (Array.isArray(parsed)) { setRows(parsed); return; }
+    if (parsed === null && value) {
+      setRows([{ qty: 1, width: "", length: "", unit: "ft", note: value }]);
+    } else if (!value) {
+      setRows([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value === "" ? "" : null]); // only react to full clears
+
+  const commit = (next) => {
+    setRows(next);
+    onChange(next.length ? JSON.stringify(next) : "");
+  };
+
+  const addRow = () => commit([...rows, { qty: 1, width: "", length: "", unit: "ft", note: "" }]);
+  const removeRow = (i) => commit(rows.filter((_, idx) => idx !== i));
+  const updateRow = (i, key, val) => {
+    const next = rows.map((r, idx) => idx === i ? { ...r, [key]: val } : r);
+    commit(next);
+  };
+
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && (
+        <div className="rounded-lg px-3 py-3 text-xs" style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", color: "var(--gray2)" }}>
+          No sizes added yet. Click <strong>+ Add size</strong> below to describe the inventory.
+        </div>
+      )}
+      {rows.map((r, i) => (
+        <div key={i} className="rounded-lg p-2.5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+          <div className="grid grid-cols-12 gap-2 items-end">
+            <div className="col-span-2">
+              <label className="text-[9px] font-bold uppercase tracking-wider block mb-1" style={{ color: "var(--gray2)" }}>Qty</label>
+              <input type="number" min="1" value={r.qty}
+                onChange={e => updateRow(i, "qty", e.target.value)}
+                placeholder="1" className="tq-input" style={{ fontSize: "13px" }} />
+            </div>
+            <div className="col-span-3">
+              <label className="text-[9px] font-bold uppercase tracking-wider block mb-1" style={{ color: "var(--gray2)" }}>Width</label>
+              <input type="number" value={r.width}
+                onChange={e => updateRow(i, "width", e.target.value)}
+                placeholder="e.g. 1" className="tq-input" style={{ fontSize: "13px" }} />
+            </div>
+            <div className="col-span-3">
+              <label className="text-[9px] font-bold uppercase tracking-wider block mb-1" style={{ color: "var(--gray2)" }}>Length</label>
+              <input type="number" value={r.length}
+                onChange={e => updateRow(i, "length", e.target.value)}
+                placeholder="optional" className="tq-input" style={{ fontSize: "13px" }} />
+            </div>
+            <div className="col-span-2">
+              <label className="text-[9px] font-bold uppercase tracking-wider block mb-1" style={{ color: "var(--gray2)" }}>Unit</label>
+              <select value={r.unit || "ft"}
+                onChange={e => updateRow(i, "unit", e.target.value)}
+                className="tq-input" style={{ fontSize: "13px" }}>
+                <option value="ft">ft</option>
+                <option value="inch">inch</option>
+              </select>
+            </div>
+            <div className="col-span-2 flex justify-end">
+              <button type="button" onClick={() => removeRow(i)}
+                title="Remove this row"
+                className="p-2 rounded-lg transition"
+                style={{ background: "rgba(220,20,60,0.12)", color: "#F87171", border: "1px solid rgba(220,20,60,0.3)" }}>
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="col-span-12">
+              <label className="text-[9px] font-bold uppercase tracking-wider block mb-1" style={{ color: "var(--gray2)" }}>Note (optional)</label>
+              <input type="text" value={r.note || ""}
+                onChange={e => updateRow(i, "note", e.target.value)}
+                placeholder='e.g. "screens", "panels", "video wall"'
+                className="tq-input" style={{ fontSize: "13px" }} />
+            </div>
+          </div>
+          <div className="mt-2 text-[10px]" style={{ color: "var(--gray3)" }}>
+            Preview: <span style={{ color: "#60A5FA" }}>{formatSizeRow(r) || "—"}</span>
+          </div>
+        </div>
+      ))}
+      <button type="button" onClick={addRow}
+        className="flex items-center gap-1.5 text-xs font-bold transition px-3 py-2 rounded-lg"
+        style={{ color: "#60A5FA", background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.25)" }}>
+        <Plus className="w-3.5 h-3.5" /> Add size
+      </button>
+    </div>
+  );
+}
+
+// ── Per-site photo gallery (multiple images, pick the "face") ───────────────
+const isVideoUrl = (url) => /\.(mp4|mov|webm|m4v|avi|mkv|3gp)$/i.test(url || "");
+
+function SiteGallery({ siteId, siteType, coverUrl, onCoverChange }) {
+  const [images, setImages] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState(null);
+
+  const allowVideos = (siteType || "").toUpperCase() === "LED";
+
+  useEffect(() => {
+    apiFetch(`/api/sites/${siteId}/images`).then(r => r.ok ? r.json() : []).then(d => setImages(Array.isArray(d) ? d : [])).catch(() => setImages([]));
+  }, [siteId]);
+
+  const reload = async () => {
+    const res = await apiFetch(`/api/sites/${siteId}/images`);
+    if (res.ok) setImages(await res.json());
+  };
+
+  const uploadFiles = async (files) => {
+    setBusy(true);
+    try {
+      for (const raw of Array.from(files)) {
+        const isVid = (raw.type || "").startsWith("video/");
+        const fd = new FormData();
+        // Photos get canvas-compressed; videos upload as-is (preserve playable format)
+        fd.append("file", isVid ? raw : await compressImage(raw));
+        const res = await apiFetch(`/api/sites/${siteId}/images`, { method: "POST", body: fd });
+        if (res.ok) {
+          const created = await res.json();
+          if (created.isPrimary) onCoverChange?.(created.imageUrl);
+        }
+      }
+      await reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setCover = async (img) => {
+    const res = await apiFetch(`/api/sites/${siteId}/images/${img.id}/set-primary`, { method: "POST" });
+    if (res.ok) {
+      onCoverChange?.(img.imageUrl);
+      await reload();
+    }
+  };
+
+  const deleteImg = async (img) => {
+    if (!confirm("Remove this photo from the site?")) return;
+    const res = await apiFetch(`/api/sites/${siteId}/images/${img.id}`, { method: "DELETE" });
+    if (res.ok) {
+      // If we deleted the cover, the backend promoted another (or cleared it)
+      const next = await apiFetch(`/api/sites/${siteId}/images`).then(r => r.ok ? r.json() : []);
+      setImages(next);
+      const newCover = next.find(x => x.isPrimary);
+      if (img.imageUrl === coverUrl) onCoverChange?.(newCover ? newCover.imageUrl : "");
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <label className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>
+          {allowVideos ? "Site Photos / Videos" : "Site Photos"} {images && <span style={{ color: "var(--gray3)" }}>({images.length})</span>}
+        </label>
+        <label className="flex items-center gap-1.5 text-xs font-bold cursor-pointer transition"
+          style={{ color: "#60A5FA" }}>
+          {busy ? "Uploading…" : <><UploadIcon className="w-3.5 h-3.5" /> {allowVideos ? "Add photos / videos" : "Add photos"}</>}
+          <input type="file" accept={allowVideos ? "image/*,video/*" : "image/*"} multiple className="hidden" disabled={busy}
+            onChange={e => {
+              // Copy FileList before clearing — setting value="" empties the FileList too
+              if (e.target.files?.length) {
+                const filesCopy = Array.from(e.target.files);
+                e.target.value = "";
+                uploadFiles(filesCopy);
+              } else { e.target.value = ""; }
+            }} />
+        </label>
+      </div>
+
+      {images === null ? (
+        <div className="py-4 text-center text-xs" style={{ color: "var(--gray3)" }}>Loading photos…</div>
+      ) : images.length === 0 ? (
+        <div className="rounded-xl py-6 text-center text-xs"
+          style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", color: "var(--gray3)" }}>
+          No photos yet. Add one (or several) — the first becomes the cover; tap ★ on any other to make it the cover.
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+          {images.map(img => {
+            const video = isVideoUrl(img.imageUrl);
+            return (
+              <div key={img.id} className="relative group rounded-lg overflow-hidden"
+                style={{ aspectRatio: "1/1", border: img.isPrimary ? "2px solid #F59E0B" : "1px solid var(--border)", background: "rgba(255,255,255,0.04)" }}>
+                {video ? (
+                  <div onClick={() => setZoom(img.imageUrl)}
+                    className="w-full h-full cursor-pointer relative flex items-center justify-center"
+                    style={{ background: "#000" }}>
+                    <video src={img.imageUrl + "#t=0.1"} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+                        <span style={{ color: "#fff", fontSize: 14, marginLeft: 2 }}>▶</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <img src={img.imageUrl} alt="" className="w-full h-full object-cover cursor-zoom-in"
+                    onClick={() => setZoom(img.imageUrl)} />
+                )}
+                {img.isPrimary && (
+                  <span className="absolute top-1 left-1 flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
+                    style={{ background: "rgba(245,158,11,0.95)", color: "#1a1100" }}>
+                    <Star className="w-2.5 h-2.5 fill-current" /> Cover
+                  </span>
+                )}
+                {video && (
+                  <span className="absolute top-1 right-1 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide"
+                    style={{ background: "rgba(0,0,0,0.7)", color: "#fff" }}>
+                    Video
+                  </span>
+                )}
+                <div className="absolute inset-x-0 bottom-0 p-1 flex items-center justify-between opacity-0 group-hover:opacity-100 transition"
+                  style={{ background: "linear-gradient(to top, rgba(0,0,0,0.85), transparent)" }}>
+                  {!img.isPrimary && !video ? (
+                    <button onClick={() => setCover(img)} title="Set as cover"
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5"
+                      style={{ background: "rgba(245,158,11,0.2)", color: "#FBBF24" }}>
+                      <Star className="w-2.5 h-2.5" /> Cover
+                    </button>
+                  ) : <span />}
+                  <button onClick={() => deleteImg(img)} title={video ? "Remove video" : "Remove photo"}
+                    className="text-[10px] font-bold p-1 rounded"
+                    style={{ background: "rgba(220,20,60,0.2)", color: "#FB7185" }}>
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {zoom && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4" onClick={() => setZoom(null)}>
+          {isVideoUrl(zoom) ? (
+            <video src={zoom} controls autoPlay playsInline className="max-w-full max-h-full rounded-xl bg-black" onClick={e => e.stopPropagation()} />
+          ) : (
+            <img src={zoom} alt="" className="max-w-full max-h-full rounded-xl object-contain" onClick={e => e.stopPropagation()} />
+          )}
+          <button onClick={() => setZoom(null)} className="absolute top-5 right-5 w-10 h-10 rounded-full flex items-center justify-center text-white"
+            style={{ background: "rgba(255,255,255,0.1)" }}>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -85,5 +85,20 @@ html, body {
   }
 }
 
-/* Select base */
+/* Select base — every dropdown's options use the dark theme so the OS-native
+   menu doesn't render white-on-white on Windows/Chrome */
+select option,
 select.tq-input option { background: #0D1428; color: #F9FAFB; }
+
+/* Legal pages (Privacy Policy, Terms of Service) — list rendering */
+.legal-prose ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.legal-prose ul li { margin: 0.4rem 0; line-height: 1.65; }
+.legal-prose ul li::marker { color: #60A5FA; }
+.legal-prose p { margin: 0.5rem 0; }
+.legal-prose strong { color: #fff; font-weight: 600; }
+.legal-prose a { color: #60A5FA; text-decoration: underline; }
+.legal-prose a:hover { color: #93C5FD; }

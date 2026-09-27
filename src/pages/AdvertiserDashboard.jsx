@@ -4,11 +4,15 @@ import { apiFetch } from "../utils/apiFetch";
 import { signOut } from "../utils/auth";
 
 const STATUS_STYLE = {
+  RUNNING:   { label: "Live",      cls: "badge-live" },
   LIVE:      { label: "Live",      cls: "badge-live" },
+  FINALIZED: { label: "Confirmed", cls: "badge-confirmed" },
   PLANNED:   { label: "Planned",   cls: "badge-planned" },
   DRAFT:     { label: "Draft",     cls: "badge-draft" },
+  COMPLETE:  { label: "Completed", cls: "badge-sent" },
   COMPLETED: { label: "Completed", cls: "badge-sent" },
   PAUSED:    { label: "Paused",    cls: "badge-draft" },
+  CANCELLED: { label: "Cancelled", cls: "badge-draft" },
 };
 
 function fmtDate(d) {
@@ -42,6 +46,8 @@ function ProgressBar({ pct, status }) {
   );
 }
 
+const isVideoUrl = (url) => /\.(mp4|mov|webm|m4v|avi|mkv|3gp)$/i.test(url || "");
+
 function ProofModal({ proof, onClose }) {
   if (!proof) return null;
   return (
@@ -54,7 +60,9 @@ function ProofModal({ proof, onClose }) {
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" /></svg>
           Close
         </button>
-        <img src={proof.url} alt={proof.type} className="w-full rounded-2xl object-contain max-h-[75vh]" />
+        {isVideoUrl(proof.url)
+          ? <video src={proof.url} controls autoPlay playsInline className="w-full rounded-2xl max-h-[75vh] bg-black" />
+          : <img src={proof.url} alt={proof.type} className="w-full rounded-2xl object-contain max-h-[75vh]" />}
         <div className="mt-3 flex items-center gap-3 text-sm" style={{ color: "var(--gray)" }}>
           <span className="px-2 py-0.5 rounded-full badge-planned text-xs">{proof.type}</span>
           <span>{fmtDate(proof.date)}</span>
@@ -207,7 +215,18 @@ function CampaignCard({ campaign }) {
                         style={{ aspectRatio: "4/3", background: "rgba(255,255,255,0.05)" }}
                         onClick={() => setLightboxProof(p)}
                       >
-                        <img src={p.url} alt={p.type} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                        {isVideoUrl(p.url) ? (
+                          <>
+                            <video src={p.url + "#t=0.1"} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+                                <span style={{ color: "#fff", fontSize: 14, marginLeft: 2 }}>▶</span>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <img src={p.url} alt={p.type} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                        )}
                         <div className="absolute inset-x-0 bottom-0 px-2 py-1.5 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity"
                           style={{ background: "linear-gradient(to top, rgba(0,0,0,0.8), transparent)" }}>
                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${p.type === "Install" ? "bg-blue-500/80" : p.type === "Monitor" ? "bg-amber-500/80" : "bg-gray-500/80"} text-white`}>

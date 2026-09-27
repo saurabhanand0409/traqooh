@@ -20,7 +20,10 @@ const DARK_TOOLTIP = ({ active, payload, label }) => {
   );
 };
 
-const STATUS_COLORS = { DRAFT: "#6B7280", PLANNED: "#3B82F6", LIVE: "#22C55E", COMPLETED: "#8B5CF6", CANCELLED: "#DC143C" };
+const STATUS_COLORS = {
+  DRAFT: "#6B7280", PLANNED: "#3B82F6", FINALIZED: "#F59E0B",
+  RUNNING: "#22C55E", LIVE: "#22C55E", COMPLETE: "#8B5CF6", COMPLETED: "#8B5CF6", CANCELLED: "#DC143C",
+};
 const ACTIVITY_COLORS = ["#3B82F6", "#22C55E", "#F59E0B", "#8B5CF6", "#DC143C", "#F97316", "#14B8A6", "#EC4899"];
 
 function KPI({ label, value, sub, color }) {
@@ -61,9 +64,9 @@ export default function Reports() {
 
   const fetchAll = async () => {
     setLoading(true);
-    const ownerParam = user.role === "EMPLOYEE" && user.companyId ? `?ownerCompanyId=${user.companyId}` : "";
+    // Reports show global numbers for every role so employees can see the full picture
     const [sRes, cRes, aRes] = await Promise.all([
-      apiFetch(`/api/dashboard/summary${ownerParam}`),
+      apiFetch(`/api/dashboard/summary`),
       apiFetch("/api/campaigns"),
       apiFetch("/api/activities"),
     ]);
@@ -135,7 +138,7 @@ export default function Reports() {
   );
 
   const totalRevenue = campaigns.reduce((s, c) => s + Number(c.totalCost || 0), 0);
-  const liveCount = campaigns.filter(c => c.status === "LIVE").length;
+  const liveCount = campaigns.filter(c => c.status === "RUNNING" || c.status === "LIVE").length;
 
   return (
     <AppShell user={user}>

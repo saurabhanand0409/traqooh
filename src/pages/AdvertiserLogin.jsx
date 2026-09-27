@@ -239,8 +239,8 @@ export default function AdvertiserLogin() {
           style={{ background: "rgba(37,99,235,0.07)", border: "1px solid rgba(37,99,235,0.18)" }}
         >
           <p className="text-xs" style={{ color: "#9CA3AF" }}>
-            Received a proposal link from your agency?{" "}
-            <span className="font-semibold" style={{ color: "#3B82F6" }}>Use that link directly — no login needed.</span>
+            Logging in shows all your campaigns and proof photos in one place.{" "}
+            <span className="font-semibold" style={{ color: "#3B82F6" }}>No login yet? Ask your agency to create one — a single campaign link still works without it.</span>
           </p>
         </div>
 

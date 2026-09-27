@@ -10,13 +10,22 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
 
-const mockBarData = [
-  { m: "Jan", v: 4 }, { m: "Feb", v: 7 }, { m: "Mar", v: 5 },
-  { m: "Apr", v: 9 }, { m: "May", v: 12 }, { m: "Jun", v: 8 },
-  { m: "Jul", v: 15 }, { m: "Aug", v: 11 },
+const PHASE_BARS = [
+  { key: "install", name: "Installation", color: "#2563EB" },
+  { key: "audit", name: "Audit", color: "#F59E0B" },
+  { key: "takedown", name: "Takedown", color: "#22C55E" },
 ];
 
-const BAR_GRADIENT = "barGrad";
+// One launch metric: big number + what it means
+function Metric({ label, value, sub }) {
+  return (
+    <div className="px-4 py-3 rounded-xl" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+      <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>{label}</p>
+      <p className="font-syne font-extrabold text-2xl text-white mt-0.5">{value}</p>
+      {sub && <p className="text-[11px] mt-0.5" style={{ color: "var(--gray2)" }}>{sub}</p>}
+    </div>
+  );
+}
 const DONUT_COLORS = ["#22C55E", "#2563EB"];
 
 function KpiCard({ label, value, sub, icon, accent }) {
@@ -70,16 +79,23 @@ export default function Dashboard() {
     pendingAudits: 0, totalVendors: 0, totalAdvertisers: 0
   });
   const [recent, setRecent] = useState([]);
+  const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        let url = `${API_BASE}/api/dashboard/summary`;
-        if (user.companyId) url += `?ownerCompanyId=${user.companyId}`;
-        const [sRes, aRes] = await Promise.all([fetch(url), apiFetch(`/api/dashboard/recent-activity`)]);
+        // Employees see global KPIs (all vendors' inventory) — same view as their colleagues.
+        // The dashboard summary used to scope by user.companyId, which made employees see
+        // only their own company's sites (e.g. "Total Sites: 1") even though they should
+        // be able to plan campaigns across every vendor in the platform.
+        const url = `${API_BASE}/api/dashboard/summary`;
+        const [sRes, aRes, mRes] = await Promise.all([
+          fetch(url), apiFetch(`/api/dashboard/recent-activity`), apiFetch(`/api/dashboard/launch-metrics`),
+        ]);
         if (sRes.ok) setSummary(await sRes.json());
         if (aRes.ok) setRecent(await aRes.json());
+        if (mRes.ok) setMetrics(await mRes.json());
       } catch { /* silent */ }
       finally { setLoading(false); }
     })();
@@ -145,28 +161,51 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* Launch metrics — the numbers to check every week */}
+      <div className="glass rounded-2xl p-5 mb-6">
+        <div className="flex items-baseline justify-between flex-wrap gap-2 mb-3">
+          <p className="font-syne font-bold text-white">Launch metrics</p>
+          <p className="text-xs" style={{ color: "var(--gray2)" }}>Links over the last 30 days · installs over campaigns started in the last 90 days</p>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <Metric label="Proposals sent" value={metrics ? metrics.proposalsSent30d : "—"} sub="Proposal links sent" />
+          <Metric label="Campaigns running" value={metrics ? metrics.campaignsRunning : "—"} sub="Live right now" />
+          <Metric label="Installed on time"
+            value={metrics?.provedOnTimePct != null ? `${metrics.provedOnTimePct}%` : "—"}
+            sub={metrics ? `${metrics.sitesProvedOnTime} of ${metrics.sitesStarted90d} sites proved within 48 h` : ""} />
+          <Metric label="Live links opened"
+            value={metrics ? `${metrics.liveLinksOpened30d} of ${metrics.liveLinksSent30d}` : "—"}
+            sub="Advertisers who opened tracking" />
+          <Metric label="Paying accounts" value="—" sub="Shows once billing is set up" />
+        </div>
+      </div>
+
       {/* Charts row */}
       <div className="grid lg:grid-cols-3 gap-4 mb-6">
-        {/* Bar chart — monthly campaigns */}
+        {/* Bar chart — proof photos logged per month */}
         <div className="lg:col-span-2 glass rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
             <div>
-              <p className="font-syne font-bold text-white">Campaign Activity</p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--gray2)" }}>Active campaigns per month</p>
+              <p className="font-syne font-bold text-white">Proof Photos Logged</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--gray2)" }}>Accepted photos per month, by phase</p>
+            </div>
+            <div className="flex items-center gap-3">
+              {PHASE_BARS.map(b => (
+                <span key={b.key} className="flex items-center gap-1.5 text-[11px]" style={{ color: "var(--gray)" }}>
+                  <span className="w-2 h-2 rounded-sm" style={{ background: b.color }} />{b.name}
+                </span>
+              ))}
             </div>
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={mockBarData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id={BAR_GRADIENT} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2563EB" />
-                  <stop offset="100%" stopColor="#1d50c8" stopOpacity={0.6} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="m" axisLine={false} tickLine={false} tick={{ fill: "#6B7280", fontSize: 11 }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: "#6B7280", fontSize: 11 }} />
+            <BarChart data={metrics?.proofsByMonth || []} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "#6B7280", fontSize: 11 }} />
+              <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#6B7280", fontSize: 11 }} />
               <Tooltip content={<DarkTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
-              <Bar dataKey="v" name="campaigns" fill={`url(#${BAR_GRADIENT})`} radius={[6, 6, 0, 0]} barSize={24} />
+              {PHASE_BARS.map((b, i) => (
+                <Bar key={b.key} dataKey={b.key} name={b.name} stackId="phases" fill={b.color}
+                  radius={i === PHASE_BARS.length - 1 ? [6, 6, 0, 0] : [0, 0, 0, 0]} barSize={24} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>

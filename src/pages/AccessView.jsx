@@ -3,16 +3,21 @@ import { useParams } from "react-router-dom";
 import {
   MapPin, Calendar, IndianRupee, ZoomIn, X, Heart, CheckCircle,
   LayoutGrid, Calculator, Send, Image as ImageIcon, ChevronRight,
-  Eye, FileText, Printer, Wrench, Check, Copy, ExternalLink
+  Eye, FileText, Printer, Wrench, Check, Copy, ExternalLink, Download, Archive, LogIn
 } from "lucide-react";
+import { formatSize } from "../utils/sizeFormat";
+import { openPrintable, openProofReport, shotLabel, fmtWhen } from "../utils/proofReport";
 
 const API = import.meta.env.VITE_API_BASE || "";
-const PRINTING_TYPES = ["Flex", "Vinyl", "Backlit", "Frontlit", "Star Flex", "Digital Print", "Other"];
+const PRINTING_TYPES = ["Not Applicable", "Flex", "Vinyl", "Backlit", "Frontlit", "Star Flex", "Digital Print", "Other"];
 
 const STATUS_COLORS = {
   DRAFT: { bg: "rgba(107,114,128,0.15)", color: "#9CA3AF", border: "rgba(107,114,128,0.3)" },
   PLANNED: { bg: "rgba(37,99,235,0.15)", color: "#60A5FA", border: "rgba(37,99,235,0.3)" },
+  FINALIZED: { bg: "rgba(245,158,11,0.15)", color: "#FBBF24", border: "rgba(245,158,11,0.3)" },
+  RUNNING: { bg: "rgba(34,197,94,0.15)", color: "#4ADE80", border: "rgba(34,197,94,0.3)" },
   LIVE: { bg: "rgba(34,197,94,0.15)", color: "#4ADE80", border: "rgba(34,197,94,0.3)" },
+  COMPLETE: { bg: "rgba(139,92,246,0.15)", color: "#A78BFA", border: "rgba(139,92,246,0.3)" },
   COMPLETED: { bg: "rgba(139,92,246,0.15)", color: "#A78BFA", border: "rgba(139,92,246,0.3)" },
   CANCELLED: { bg: "rgba(220,20,60,0.15)", color: "#F87171", border: "rgba(220,20,60,0.3)" },
 };
@@ -35,6 +40,8 @@ function fmtINR(n) {
   return "₹" + Number(n || 0).toLocaleString("en-IN");
 }
 
+const isVideo = (url) => /\.(mp4|mov|webm|m4v|avi|mkv|3gp)$/i.test(url || "");
+
 // ── Shared styles ──────────────────────────────────────────────────────────────
 const card = { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16 };
 const darkCard = { background: "#0D1428", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16 };
@@ -45,14 +52,30 @@ const inputStyle = {
 
 // ── Site Detail Modal ─────────────────────────────────────────────────────────
 function SiteDetailModal({ site, campaign, onClose, onLightbox, isShortlisted, onToggleShortlist }) {
+  const [gallery, setGallery] = useState(null);
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  useEffect(() => {
+    if (!site) return;
+    setGallery(null); setActiveIdx(0);
+    fetch(`${API}/api/sites/${site.siteId}/images`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setGallery(Array.isArray(d) ? d : []))
+      .catch(() => setGallery([]));
+  }, [site?.siteId]);
+
   if (!site) return null;
+  // Gallery is primary-first from the API; fall back to legacy imageUrl if empty
+  const photos = (gallery && gallery.length) ? gallery : (site.imageUrl ? [{ id: "cover", imageUrl: site.imageUrl, isPrimary: true }] : []);
+  const mainUrl = photos[activeIdx]?.imageUrl || site.imageUrl;
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)" }} onClick={onClose}>
       <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl" style={darkCard} onClick={e => e.stopPropagation()}>
         <div className="relative">
-          {site.imageUrl ? (
-            <img src={site.imageUrl} alt={site.siteName} className="w-full h-56 object-cover rounded-t-2xl" />
+          {mainUrl ? (
+            <img src={mainUrl} alt={site.siteName} className="w-full h-56 object-cover rounded-t-2xl cursor-zoom-in" onClick={() => onLightbox(mainUrl)} />
           ) : (
             <div className="w-full h-56 rounded-t-2xl flex items-center justify-center" style={{ background: "rgba(255,255,255,0.04)" }}>
               <ImageIcon className="w-12 h-12" style={{ color: "#374151" }} />
@@ -61,12 +84,39 @@ function SiteDetailModal({ site, campaign, onClose, onLightbox, isShortlisted, o
           <button onClick={onClose} className="absolute top-3 right-3 p-1.5 rounded-lg" style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}>
             <X className="w-4 h-4" />
           </button>
-          {site.imageUrl && (
-            <button onClick={() => onLightbox(site.imageUrl)} className="absolute top-3 right-12 p-1.5 rounded-lg" style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}>
+          {mainUrl && (
+            <button onClick={() => onLightbox(mainUrl)} className="absolute top-3 right-12 p-1.5 rounded-lg" style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}>
               <ZoomIn className="w-4 h-4" />
             </button>
           )}
+          {photos.length > 1 && (
+            <span className="absolute bottom-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-md" style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}>
+              {activeIdx + 1} / {photos.length}
+            </span>
+          )}
         </div>
+
+        {/* Photo strip (only when there's more than one) */}
+        {photos.length > 1 && (
+          <div className="px-3 py-2.5 flex gap-2 overflow-x-auto" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            {photos.map((p, i) => (
+              <button key={p.id ?? i} onClick={() => setActiveIdx(i)}
+                className="flex-shrink-0 rounded-lg overflow-hidden transition relative"
+                style={{
+                  width: 64, height: 48,
+                  border: i === activeIdx ? "2px solid #60A5FA" : "1px solid rgba(255,255,255,0.1)",
+                  opacity: i === activeIdx ? 1 : 0.75,
+                }}>
+                <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                {p.isPrimary && (
+                  <span className="absolute top-0 left-0 text-[8px] font-bold px-1 rounded-br uppercase" style={{ background: "rgba(245,158,11,0.95)", color: "#1a1100" }}>
+                    Cover
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-3">
@@ -90,7 +140,7 @@ function SiteDetailModal({ site, campaign, onClose, onLightbox, isShortlisted, o
           <div className="grid grid-cols-2 gap-3 text-sm">
             {[
               ["Site ID", `#${site.siteId}`], ["Type", site.type], ["Lighting", site.lightingType],
-              ["Size", site.size], ["Vendor", site.vendorName],
+              ["Size", formatSize(site)], ["Vendor", site.vendorName],
               ["Base Rate", fmtINR(site.baseRate) + " / month"],
               ["Booked From", fmt(site.bookedFrom)], ["Booked Till", fmt(site.bookedTill)],
             ].filter(([, v]) => v).map(([label, val]) => (
@@ -118,7 +168,11 @@ function Lightbox({ url, onClose }) {
   if (!url) return null;
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.95)" }} onClick={onClose}>
-      <img src={url} alt="Site" className="max-w-full max-h-full object-contain rounded-lg" onClick={e => e.stopPropagation()} />
+      {isVideo(url) ? (
+        <video src={url} controls autoPlay playsInline className="max-w-full max-h-full rounded-lg bg-black" onClick={e => e.stopPropagation()} />
+      ) : (
+        <img src={url} alt="Site" className="max-w-full max-h-full object-contain rounded-lg" onClick={e => e.stopPropagation()} />
+      )}
       <button onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full" style={{ background: "rgba(255,255,255,0.15)", color: "#fff" }}>
         <X className="w-5 h-5" />
       </button>
@@ -200,6 +254,12 @@ function SiteCard({ site, isShortlisted, onToggleShortlist, onViewDetail, onLigh
             {site.type}{site.lightingType ? ` · ${site.lightingType}` : ""}
           </span>
         )}
+        {site.pendingApproval && (
+          <span className="absolute top-2.5 left-2.5 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wide"
+            style={{ background: "rgba(245,158,11,0.9)", color: "#1a1100" }}>
+            New · Approve
+          </span>
+        )}
       </div>
 
       <div className="p-4">
@@ -213,10 +273,10 @@ function SiteCard({ site, isShortlisted, onToggleShortlist, onViewDetail, onLigh
         </p>
 
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-          {site.size && (
+          {formatSize(site) !== "—" && (
             <div className="rounded-lg px-2.5 py-1.5" style={{ background: "rgba(255,255,255,0.04)" }}>
               <div className="text-[9px] font-bold uppercase tracking-wider mb-0.5" style={{ color: "#6B7280" }}>Size</div>
-              <div className="font-bold text-white">{site.size}</div>
+              <div className="font-bold text-white">{formatSize(site)}</div>
             </div>
           )}
           {site.vendorName && (
@@ -246,6 +306,88 @@ function SiteCard({ site, isShortlisted, onToggleShortlist, onViewDetail, onLigh
           <Heart className="w-3.5 h-3.5 fill-current" /> Shortlisted
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Live Tracking Site Card ─────────────────────────────────────────────────
+const TRACK_PHASES = [
+  { key: "START", label: "Start / Install", color: "#2563EB" },
+  { key: "MID", label: "Audit", color: "#F59E0B" },
+  { key: "END", label: "End / Takedown", color: "#22C55E" },
+];
+
+function TrackingSiteCard({ site, onLightbox }) {
+  const proofs = site.proofs || { START: [], MID: [], END: [] };
+  const total = TRACK_PHASES.reduce((n, p) => n + (proofs[p.key]?.length || 0), 0);
+  return (
+    <div className="rounded-2xl overflow-hidden" style={card}>
+      <div className="flex items-start gap-3 p-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        {site.imageUrl
+          ? <img src={site.imageUrl} alt="" className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+          : <div className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: "rgba(255,255,255,0.05)" }}><ImageIcon className="w-4 h-4" style={{ color: "#374151" }} /></div>}
+        <div className="min-w-0 flex-1">
+          <div className="font-bold text-white truncate">{site.siteName || "—"}</div>
+          <div className="text-xs mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: "#9CA3AF" }}>
+            <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{[site.state, site.city, site.location].filter(Boolean).join(", ") || "—"}</span>
+          </div>
+          <div className="text-[11px] mt-0.5" style={{ color: "#6B7280" }}>{[site.type, formatSize(site) === "—" ? null : formatSize(site)].filter(Boolean).join(" · ")}</div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-lg font-extrabold text-white">{total}</div>
+          <div className="text-[10px] uppercase tracking-wider" style={{ color: "#6B7280" }}>Photos</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-px" style={{ background: "rgba(255,255,255,0.08)" }}>
+        {TRACK_PHASES.map(phase => {
+          const photos = proofs[phase.key] || [];
+          return (
+            <div key={phase.key} className="p-3" style={{ background: "#0B1120" }}>
+              <div className="flex items-center gap-1.5 mb-2">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: phase.color }} />
+                <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#9CA3AF" }}>{phase.label}</span>
+                {photos.length > 0 && <span className="text-[10px]" style={{ color: "#6B7280" }}>· {photos.length}</span>}
+              </div>
+              {photos.length === 0 ? (
+                <div className="rounded-lg py-5 text-center text-[10px]" style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.1)", color: "#4B5563" }}>
+                  Pending
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {photos.map((p, i) => (
+                    <div key={i}>
+                      {isVideo(p.url) ? (
+                        <div onClick={() => onLightbox(p.url)}
+                          className="w-full aspect-square rounded-lg cursor-pointer relative overflow-hidden"
+                          style={{ border: p.status === "VERIFIED" ? "2px solid #22C55E" : "1px solid rgba(255,255,255,0.1)", background: "#000" }}>
+                          <video src={p.url + "#t=0.1"} muted playsInline preload="metadata" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.25)" }}>
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+                              <span style={{ color: "#fff", fontSize: 13, marginLeft: 2 }}>▶</span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <img src={p.url} alt="" onClick={() => onLightbox(p.url)}
+                          className="w-full aspect-square object-cover rounded-lg cursor-zoom-in"
+                          style={{ border: p.status === "VERIFIED" ? "2px solid #22C55E" : "1px solid rgba(255,255,255,0.1)" }} />
+                      )}
+                      {p.shot && <div className="text-[9px] mt-0.5 text-center font-bold uppercase tracking-wide" style={{ color: "#60A5FA" }}>{shotLabel(p.shot)}</div>}
+                      <div className="text-[9px] mt-0.5 text-center" style={{ color: "#6B7280" }} title={fmtWhen(p.capturedAt)}>{fmt(p.date)}</div>
+                      {p.latitude != null && p.longitude != null && (
+                        <a href={`https://www.google.com/maps?q=${p.latitude},${p.longitude}`} target="_blank" rel="noreferrer"
+                          className="text-[9px] flex items-center justify-center gap-0.5 font-bold" style={{ color: "#60A5FA" }}>
+                          <MapPin className="w-2.5 h-2.5" /> GPS
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -298,6 +440,10 @@ export default function AccessView() {
             };
           }
           setShortlisted(sSet); setUseCustomDates(custom); setSiteDates(dates); setSiteCharges(charges);
+          // Finalized campaigns open straight into the live tracking view
+          if (["FINALIZED", "RUNNING", "COMPLETE", "LIVE", "COMPLETED"].includes(campaign.status)) {
+            setActiveTab("tracking");
+          }
         }
       } catch { setError("Failed to load. The link may be expired."); }
       finally { setLoading(false); }
@@ -308,13 +454,22 @@ export default function AccessView() {
   const campaign = data?.campaigns?.[0];
   const allSites = campaign?.sites || [];
   const shortlistedSites = allSites.filter(s => shortlisted.has(s.assignmentId));
+  // Once finalized, the SAME link becomes a live execution-tracking view
+  const isLive = ["FINALIZED", "RUNNING", "COMPLETE", "LIVE", "COMPLETED"].includes(campaign?.status);
+  const pendingSites = allSites.filter(s => s.pendingApproval);
+  // Sites under active execution = approved (shortlisted, not pending) sites with any photos/assignment
+  const trackedSites = allSites.filter(s => s.isShortlisted && !s.pendingApproval);
 
   const getEffectiveDates = (id) => {
     if (useCustomDates[id] && siteDates[id]) return { start: siteDates[id].start, end: siteDates[id].end };
     return { start: campaign?.startDate || "", end: campaign?.endDate || "" };
   };
   const getCharges = (id) => siteCharges[id] || { printingType: "Flex", printingCost: 0, mountingCost: 0, otherCost: 0 };
-  const computeSiteBase = (site, id) => (site.baseRate || 0) * monthsBetween(...Object.values(getEffectiveDates(id)));
+  // Use agreedCost (admin-set price) first; fall back to baseRate × months if not set
+  const computeSiteBase = (site, id) => {
+    if (site.agreedCost && site.agreedCost > 0) return Number(site.agreedCost);
+    return (site.baseRate || 0) * monthsBetween(...Object.values(getEffectiveDates(id)));
+  };
   const computeSiteTotal = (site, id) => {
     const ch = getCharges(id);
     return computeSiteBase(site, id) + Number(ch.printingCost || 0) + Number(ch.mountingCost || 0) + Number(ch.otherCost || 0);
@@ -325,7 +480,152 @@ export default function AccessView() {
   const totalMounting = shortlistedSites.reduce((a, s) => a + Number(getCharges(s.assignmentId).mountingCost || 0), 0);
   const totalOther = shortlistedSites.reduce((a, s) => a + Number(getCharges(s.assignmentId).otherCost || 0), 0);
 
-  const toggleShortlist = (id) => setShortlisted(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const downloadProofReport = () => {
+    const photosOf = (site, key) => (site.proofs?.[key] || []).map(p => ({
+      url: p.url, label: p.shot, status: p.status, when: p.capturedAt || p.createdAt || p.date,
+      latitude: p.latitude, longitude: p.longitude, distanceM: p.distanceM,
+      performedBy: p.performedBy, notes: p.notes,
+    }));
+    openProofReport({
+      campaign: { name: campaign?.name, advertiserName: data?.advertiser, startDate: campaign?.startDate, endDate: campaign?.endDate },
+      sites: trackedSites.map(site => ({
+        name: site.siteName, city: site.city, state: site.state, type: site.type,
+        size: formatSize(site) === "—" ? "" : formatSize(site), latitude: site.latitude, longitude: site.longitude,
+        photos: { START: photosOf(site, "START"), MID: photosOf(site, "MID"), END: photosOf(site, "END") },
+      })),
+    });
+  };
+
+  const downloadCostSheetPDF = () => {
+    if (!campaign || shortlistedSites.length === 0) return;
+    const inr = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
+    const months = monthsBetween(campaign.startDate, campaign.endDate);
+    const fmt2 = n => Number(n || 0).toLocaleString("en-IN");
+    const dateStr = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+
+    const rows = shortlistedSites.map((site, idx) => {
+      const id = site.assignmentId;
+      const { start, end } = getEffectiveDates(id);
+      const ch = getCharges(id);
+      const base = computeSiteBase(site, id);
+      const total = computeSiteTotal(site, id);
+      return `<tr>
+        <td>${idx + 1}</td>
+        <td><strong>${site.siteName || "—"}</strong></td>
+        <td>${[site.city, site.state].filter(Boolean).join(", ") || "—"}</td>
+        <td>${site.type || "—"}</td>
+        <td>${formatSize(site)}</td>
+        <td>${site.lightingType || "—"}</td>
+        <td>${ch.printingType || "Flex"}</td>
+        <td style="text-align:right">₹${fmt2(base)}</td>
+        <td style="text-align:right">₹${fmt2(ch.printingCost)}</td>
+        <td style="text-align:right">₹${fmt2(ch.mountingCost)}</td>
+        <td style="text-align:right">₹${fmt2(ch.otherCost)}</td>
+        <td style="text-align:right;font-weight:700;color:#2563EB">₹${fmt2(total)}</td>
+      </tr>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+    <title>Final Cost Sheet – ${campaign.name}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:'Inter',Arial,sans-serif;padding:28px 32px;color:#111;font-size:12px}
+      .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}
+      .brand{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+      .brand-text{font-family:'Syne',Arial,sans-serif;font-size:26px;font-weight:800;letter-spacing:-0.3px;line-height:1}
+      .brand-text .b{color:#2563EB}.brand-text .r{color:#DC143C}
+      .brand small{font-size:11px;color:#888;font-weight:500;font-family:'Inter',Arial,sans-serif}
+      h1{font-family:'Syne',Arial,sans-serif;font-size:20px;font-weight:800;margin-bottom:3px;color:#0f172a}
+      .sub{color:#666;font-size:11px}
+      .meta{text-align:right;color:#555;font-size:11px;line-height:1.7}
+      .chips{display:flex;gap:0;background:#f0f4ff;border:1px solid #dbe4ff;border-radius:10px;padding:14px 18px;margin-bottom:18px}
+      .chip{flex:1;border-right:1px solid #dbe4ff;padding:0 16px 0 0;margin-right:16px}
+      .chip:last-child{border-right:none;padding:0;margin:0}
+      .chip-label{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:.07em;font-weight:700}
+      .chip-val{font-size:15px;font-weight:700;color:#111;margin-top:3px}
+      .chip-val.blue{color:#2563EB}
+      table{width:100%;border-collapse:collapse;font-size:11px}
+      th{background:#1e293b;color:#fff;padding:8px 10px;text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+      td{padding:7px 10px;border-bottom:1px solid #eee;vertical-align:middle}
+      tr:nth-child(even) td{background:#f8fafc}
+      .tot td{background:#1e293b;color:#fff;font-weight:700;font-size:12px;padding:9px 10px}
+      .tot .blue{color:#60a5fa}
+      .foot{margin-top:20px;text-align:center;font-size:10px;color:#bbb;border-top:1px solid #eee;padding-top:14px}
+      @media print{@page{size:A3 landscape;margin:12mm}button{display:none}}
+    </style></head><body>
+    <div class="hdr">
+      <div>
+        <div class="brand">
+          <div class="brand-text"><span class="b">traq</span><span class="r">OOH</span></div>
+          <small>by <span style="color:#2563EB;font-weight:700">BRAND</span><span style="color:#DC143C;font-weight:700">SCULPT</span></small>
+        </div>
+        <h1>${campaign.name || "Campaign"}</h1>
+        <div class="sub">${data?.advertiser || ""} &nbsp;·&nbsp; ${campaign.campaignType || "OOH Campaign"}</div>
+      </div>
+      <div class="meta">
+        <div style="font-weight:700;font-size:13px;color:#0f172a">Final Cost Sheet</div>
+        <div>${dateStr}</div>
+      </div>
+    </div>
+    <div class="chips">
+      <div class="chip"><div class="chip-label">Advertiser</div><div class="chip-val">${data?.advertiser || "—"}</div></div>
+      <div class="chip"><div class="chip-label">Duration</div><div class="chip-val">${fmt(campaign.startDate)} → ${fmt(campaign.endDate)}</div></div>
+      <div class="chip"><div class="chip-label">Total Sites</div><div class="chip-val">${shortlistedSites.length}</div></div>
+      <div class="chip"><div class="chip-label">Display Cost</div><div class="chip-val">₹${fmt2(totalMedia)}</div></div>
+      <div class="chip"><div class="chip-label">Production</div><div class="chip-val">₹${fmt2(totalPrinting + totalMounting + totalOther)}</div></div>
+      <div class="chip"><div class="chip-label">Grand Total</div><div class="chip-val blue">₹${fmt2(grandTotal)}</div></div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>#</th><th>Site Name</th><th>Location</th><th>Type</th><th>Size</th><th>Lighting</th><th>Print Type</th>
+        <th style="text-align:right">Display Cost</th>
+        <th style="text-align:right">Printing</th>
+        <th style="text-align:right">Mounting</th>
+        <th style="text-align:right">Other</th>
+        <th style="text-align:right">Total</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr class="tot">
+        <td colspan="7">GRAND TOTAL</td>
+        <td style="text-align:right">₹${fmt2(totalMedia)}</td>
+        <td style="text-align:right">₹${fmt2(totalPrinting)}</td>
+        <td style="text-align:right">₹${fmt2(totalMounting)}</td>
+        <td style="text-align:right">₹${fmt2(totalOther)}</td>
+        <td style="text-align:right" class="blue">₹${fmt2(grandTotal)}</td>
+      </tr></tfoot>
+    </table>
+    <div class="foot">Generated by TraqOOH &nbsp;·&nbsp; BrandSculpt Media Solutions &nbsp;·&nbsp; Confidential</div>
+    <script>window.onload = () => setTimeout(() => window.print(), 500)</script>
+    </body></html>`;
+
+    openPrintable(html, `cost-sheet-${campaign?.name || "campaign"}`, "cost sheet");
+  };
+
+  // Auto-save the shortlist whenever it changes — no "Save" button needed.
+  // We post the LATEST set built inside the toggle so it doesn't race with React state batching.
+  const persistShortlist = async (nextSet) => {
+    try {
+      await fetch(`${API}/api/access/${token}/shortlist`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignments: allSites.map(s => ({
+            assignmentId: s.assignmentId,
+            isShortlisted: nextSet.has(s.assignmentId),
+          })),
+        }),
+      });
+      setSaveMsg("Saved");
+      setTimeout(() => setSaveMsg(""), 2000);
+    } catch { /* network errors are silent — they can finalize when back online */ }
+  };
+
+  const toggleShortlist = (id) => setShortlisted(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id);
+    persistShortlist(n);
+    return n;
+  });
   const updateCharge = (id, field, value) => setSiteCharges(prev => ({ ...prev, [id]: { ...(prev[id] || {}), [field]: value } }));
 
   const toggleRowSel = (id) => setSelectedShortlisted(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -456,7 +756,7 @@ export default function AccessView() {
             <span className="font-bold tracking-tight" style={{ color: "#60A5FA" }}>traqOOH</span>
           </div>
           <span className="text-xs font-medium hidden sm:block" style={{ color: "#6B7280" }}>
-            Campaign Proposal — {data?.advertiser}
+            {isLive ? "Live Tracking" : "Campaign Proposal"} — {data?.advertiser}
           </span>
         </div>
       </header>
@@ -500,6 +800,7 @@ export default function AccessView() {
         <div className="max-w-6xl mx-auto px-5">
           <div className="flex gap-1">
             {[
+              ...(isLive ? [{ id: "tracking", label: "Live Tracking", icon: <ImageIcon className="w-4 h-4" />, count: trackedSites.length }] : []),
               { id: "sites", label: "All Sites", icon: <LayoutGrid className="w-4 h-4" />, count: allSites.length },
               { id: "shortlisted", label: "Shortlisted", icon: <Heart className="w-4 h-4" />, count: shortlisted.size },
               { id: "costsheet", label: "Cost Sheet", icon: <Calculator className="w-4 h-4" /> },
@@ -525,6 +826,73 @@ export default function AccessView() {
 
       {/* Tab Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-5 py-6">
+
+        {/* ── Pending-approval banner (new sites added after finalize) ── */}
+        {isLive && pendingSites.length > 0 && (
+          <div className="mb-5 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+            style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)" }}>
+            <div>
+              <div className="font-bold text-white flex items-center gap-2">
+                <span>🆕</span> {pendingSites.length} new site{pendingSites.length !== 1 ? "s" : ""} added for your approval
+              </div>
+              <p className="text-sm mt-0.5" style={{ color: "#FCD34D" }}>
+                Review them under “All Sites” (look for the NEW tag), shortlist the ones you want, then Finalize to approve.
+              </p>
+            </div>
+            <button onClick={() => setActiveTab("sites")}
+              className="flex-shrink-0 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap"
+              style={{ background: "rgba(245,158,11,0.2)", color: "#FBBF24", border: "1px solid rgba(245,158,11,0.4)" }}>
+              Review new sites →
+            </button>
+          </div>
+        )}
+
+        {/* ── LIVE TRACKING ── */}
+        {activeTab === "tracking" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h2 className="text-lg font-bold text-white">
+                Live Execution Tracking <span className="font-normal text-base" style={{ color: "#6B7280" }}>({trackedSites.length} sites)</span>
+              </h2>
+              <span className="text-xs" style={{ color: "#6B7280" }}>Installation, audit &amp; takedown photos update as our team completes the work.</span>
+            </div>
+            {trackedSites.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={downloadProofReport}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition"
+                  style={{ background: "rgba(34,197,94,0.12)", color: "#4ADE80", border: "1px solid rgba(34,197,94,0.3)" }}>
+                  <FileText className="w-3.5 h-3.5" /> Proof of Display report
+                </button>
+                <a href={`${API}/api/access/${token}/photos.zip`} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition"
+                  style={{ background: "rgba(255,255,255,0.06)", color: "#9CA3AF", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <Archive className="w-3.5 h-3.5" /> Download all photos
+                </a>
+              </div>
+            )}
+            {data?.hasLogin && (
+              <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 rounded-xl text-sm"
+                style={{ background: "rgba(37,99,235,0.1)", border: "1px solid rgba(37,99,235,0.25)", color: "#93C5FD" }}>
+                <span>You have a TraqOOH login. Log in to see all your campaigns and proof photos in one place.</span>
+                <a href="/login" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white" style={{ background: "#2563EB" }}>
+                  <LogIn className="w-3.5 h-3.5" /> Log in
+                </a>
+              </div>
+            )}
+            {trackedSites.length === 0 ? (
+              <div className="py-20 text-center rounded-2xl" style={card}>
+                <ImageIcon className="w-12 h-12 mx-auto mb-3" style={{ color: "#374151" }} />
+                <p className="font-semibold" style={{ color: "#6B7280" }}>Execution hasn't started yet. Photos will appear here as work begins.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {trackedSites.map(site => (
+                  <TrackingSiteCard key={site.assignmentId} site={site} onLightbox={setLightboxUrl} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── ALL SITES ── */}
         {activeTab === "sites" && (
@@ -585,40 +953,16 @@ export default function AccessView() {
               const cellInput = { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, color: "#fff", padding: "4px 8px", fontSize: 12, width: "100%", outline: "none" };
               return (
                 <div className="rounded-2xl overflow-hidden" style={darkCard}>
-                  {/* Bulk apply bar */}
-                  {selectedShortlisted.size > 0 && (
-                    <div className="flex items-center gap-2 px-4 py-2.5 flex-wrap" style={{ background: "rgba(37,99,235,0.12)", borderBottom: "1px solid rgba(37,99,235,0.25)" }}>
-                      <span className="text-xs font-bold" style={{ color: "#60A5FA" }}>{selectedShortlisted.size} selected — Apply common rate:</span>
-                      <select value={bulkChargeForm.printingType} onChange={e => setBulkChargeForm(f => ({ ...f, printingType: e.target.value }))}
-                        style={{ ...cellInput, width: 90 }}>
-                        {PRINTING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                      {[["Print ₹","printingCost"],["Mount ₹","mountingCost"],["Other ₹","otherCost"]].map(([lbl,key]) => (
-                        <input key={key} type="number" placeholder={lbl} value={bulkChargeForm[key]}
-                          onChange={e => setBulkChargeForm(f => ({ ...f, [key]: e.target.value }))}
-                          style={{ ...cellInput, width: 88 }} />
-                      ))}
-                      <button onClick={applyBulkCharges}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white"
-                        style={{ background: "linear-gradient(135deg,#2563EB,#1d50c8)" }}>
-                        ✓ Apply to {selectedShortlisted.size}
-                      </button>
-                      <button onClick={() => setSelectedShortlisted(new Set())} className="text-xs font-bold" style={{ color: "#6B7280" }}>Clear</button>
-                    </div>
-                  )}
+                  {/* Read-only notice for customer */}
+                  <div className="px-4 py-2 text-[11px]" style={{ background: "rgba(37,99,235,0.08)", color: "#9CA3AF", borderBottom: "1px solid rgba(37,99,235,0.18)" }}>
+                    All rates and dates shown are as quoted by our team — they cannot be changed here. Tap the heart on a site to remove it from your shortlist; we save automatically.
+                  </div>
 
                   {/* Table */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm" style={{ borderCollapse: "collapse", minWidth: 980 }}>
                       <thead>
                         <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.03)" }}>
-                          <th className="px-3 py-3 w-8">
-                            <div onClick={toggleSelectAllShortlisted}
-                              className="w-4 h-4 rounded flex items-center justify-center border cursor-pointer"
-                              style={{ borderColor: allSel ? "#3B82F6" : "rgba(255,255,255,0.2)", background: allSel ? "#3B82F6" : someSel ? "rgba(59,130,246,0.3)" : "transparent" }}>
-                              {allSel ? <span style={{ color: "#fff", fontSize: 9 }}>✓</span> : someSel ? <div style={{ width: 8, height: 1, background: "#60A5FA", borderRadius: 1 }} /> : null}
-                            </div>
-                          </th>
                           {["#","Site","Type / Size","Period","Media Cost","Printing","Mounting","Other","Total",""].map(h => (
                             <th key={h} className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap" style={{ color: "#6B7280" }}>{h}</th>
                           ))}
@@ -631,18 +975,10 @@ export default function AccessView() {
                           const { start, end } = getEffectiveDates(id);
                           const ch = getCharges(id);
                           const months = monthsBetween(start, end);
-                          const base = (site.baseRate || 0) * months;
+                          const base = computeSiteBase(site, id);
                           const total = computeSiteTotal(site, id);
-                          const isSel = selectedShortlisted.has(id);
                           return (
-                            <tr key={id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", background: isSel ? "rgba(37,99,235,0.07)" : idx % 2 === 1 ? "rgba(255,255,255,0.015)" : "transparent" }}>
-                              {/* Checkbox */}
-                              <td className="px-3 py-3">
-                                <div onClick={() => toggleRowSel(id)} className="w-4 h-4 rounded flex items-center justify-center border cursor-pointer"
-                                  style={{ borderColor: isSel ? "#3B82F6" : "rgba(255,255,255,0.2)", background: isSel ? "#3B82F6" : "transparent" }}>
-                                  {isSel && <span style={{ color: "#fff", fontSize: 9 }}>✓</span>}
-                                </div>
-                              </td>
+                            <tr key={id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", background: idx % 2 === 1 ? "rgba(255,255,255,0.015)" : "transparent" }}>
                               {/* # */}
                               <td className="px-3 py-3 text-xs" style={{ color: "#6B7280" }}>{idx + 1}</td>
                               {/* Site */}
@@ -661,58 +997,27 @@ export default function AccessView() {
                               {/* Type/Size */}
                               <td className="px-3 py-3" style={{ minWidth: 90 }}>
                                 {site.type && <div className="text-[10px] font-bold px-2 py-0.5 rounded mb-0.5 w-fit" style={{ background: "rgba(37,99,235,0.15)", color: "#60A5FA" }}>{site.type}</div>}
-                                {site.size && <div className="text-[10px]" style={{ color: "#6B7280" }}>{site.size}</div>}
+                                {formatSize(site) !== "—" && <div className="text-[10px]" style={{ color: "#6B7280" }}>{formatSize(site)}</div>}
                               </td>
-                              {/* Period */}
-                              <td className="px-3 py-3" style={{ minWidth: 170 }}>
-                                <div className="flex items-center gap-1.5 mb-1">
-                                  <button onClick={() => setUseCustomDates(prev => ({ ...prev, [id]: false }))}
-                                    className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                                    style={{ background: !custom ? "#0D1428" : "transparent", color: !custom ? "#60A5FA" : "#4B5563", border: !custom ? "1px solid rgba(37,99,235,0.3)" : "1px solid transparent" }}>
-                                    Campaign
-                                  </button>
-                                  <button onClick={() => setUseCustomDates(prev => ({ ...prev, [id]: true }))}
-                                    className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                                    style={{ background: custom ? "#0D1428" : "transparent", color: custom ? "#60A5FA" : "#4B5563", border: custom ? "1px solid rgba(37,99,235,0.3)" : "1px solid transparent" }}>
-                                    Custom
-                                  </button>
+                              {/* Period — read-only */}
+                              <td className="px-3 py-3" style={{ minWidth: 130 }}>
+                                <div className="text-[10px]" style={{ color: "#9CA3AF" }}>
+                                  <div>{fmt(start)} →</div>
+                                  <div>{fmt(end)}</div>
+                                  <div style={{ color: "#6B7280" }}>{months} mo</div>
                                 </div>
-                                {!custom ? (
-                                  <div className="text-[10px]" style={{ color: "#9CA3AF" }}>
-                                    <div>{fmt(start)} →</div>
-                                    <div>{fmt(end)}</div>
-                                    <div style={{ color: "#6B7280" }}>{months} mo</div>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col gap-1">
-                                    <input type="date" value={siteDates[id]?.start || ""} style={{ ...cellInput, fontSize: 11 }}
-                                      onChange={e => setSiteDates(prev => ({ ...prev, [id]: { ...(prev[id] || {}), start: e.target.value } }))} />
-                                    <input type="date" value={siteDates[id]?.end || ""} style={{ ...cellInput, fontSize: 11 }}
-                                      onChange={e => setSiteDates(prev => ({ ...prev, [id]: { ...(prev[id] || {}), end: e.target.value } }))} />
-                                  </div>
-                                )}
                               </td>
                               {/* Media Cost */}
                               <td className="px-3 py-3 text-xs font-semibold text-white whitespace-nowrap">{fmtINR(base)}</td>
-                              {/* Printing */}
-                              <td className="px-3 py-3" style={{ minWidth: 120 }}>
-                                <select value={ch.printingType || "Flex"} onChange={e => updateCharge(id, "printingType", e.target.value)}
-                                  style={{ ...cellInput, marginBottom: 4 }}>
-                                  {PRINTING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                                <input type="number" min="0" placeholder="0" value={ch.printingCost || ""}
-                                  onChange={e => updateCharge(id, "printingCost", e.target.value)} style={cellInput} />
+                              {/* Printing — read-only */}
+                              <td className="px-3 py-3" style={{ minWidth: 100 }}>
+                                <div className="text-xs font-semibold text-white whitespace-nowrap">{fmtINR(ch.printingCost)}</div>
+                                {ch.printingType && <div className="text-[10px]" style={{ color: "#6B7280" }}>{ch.printingType}</div>}
                               </td>
-                              {/* Mounting */}
-                              <td className="px-3 py-3" style={{ minWidth: 90 }}>
-                                <input type="number" min="0" placeholder="0" value={ch.mountingCost || ""}
-                                  onChange={e => updateCharge(id, "mountingCost", e.target.value)} style={cellInput} />
-                              </td>
-                              {/* Other */}
-                              <td className="px-3 py-3" style={{ minWidth: 90 }}>
-                                <input type="number" min="0" placeholder="0" value={ch.otherCost || ""}
-                                  onChange={e => updateCharge(id, "otherCost", e.target.value)} style={cellInput} />
-                              </td>
+                              {/* Mounting — read-only */}
+                              <td className="px-3 py-3 text-xs font-semibold text-white whitespace-nowrap" style={{ minWidth: 80 }}>{fmtINR(ch.mountingCost)}</td>
+                              {/* Other — read-only */}
+                              <td className="px-3 py-3 text-xs font-semibold text-white whitespace-nowrap" style={{ minWidth: 80 }}>{fmtINR(ch.otherCost)}</td>
                               {/* Total */}
                               <td className="px-3 py-3 text-xs font-extrabold whitespace-nowrap" style={{ color: "#60A5FA" }}>{fmtINR(total)}</td>
                               {/* Remove */}
@@ -730,7 +1035,7 @@ export default function AccessView() {
                       </tbody>
                       <tfoot>
                         <tr style={{ borderTop: "2px solid rgba(37,99,235,0.3)", background: "rgba(37,99,235,0.08)" }}>
-                          <td colSpan={5} className="px-3 py-3 text-xs font-bold" style={{ color: "#60A5FA" }}>Estimated Total — {shortlistedSites.length} sites</td>
+                          <td colSpan={4} className="px-3 py-3 text-xs font-bold" style={{ color: "#60A5FA" }}>Estimated Total — {shortlistedSites.length} sites</td>
                           <td className="px-3 py-3 text-xs font-bold text-white">{fmtINR(totalMedia)}</td>
                           <td className="px-3 py-3 text-xs font-bold text-white">{fmtINR(totalPrinting)}</td>
                           <td className="px-3 py-3 text-xs font-bold text-white">{fmtINR(totalMounting)}</td>
@@ -744,7 +1049,7 @@ export default function AccessView() {
 
                   {/* Footer with Cost Sheet link */}
                   <div className="px-4 py-3 flex items-center justify-between" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <span className="text-xs" style={{ color: "#6B7280" }}>Changes are saved automatically when you finalize.</span>
+                    <span className="text-xs" style={{ color: "#6B7280" }}>Review the rates and finalize to confirm.</span>
                     <button onClick={() => setActiveTab("costsheet")} className="flex items-center gap-2 text-white px-4 py-2 rounded-xl text-sm font-bold"
                       style={{ background: "#2563EB" }}>
                       <Calculator className="w-4 h-4" /> View Cost Sheet
@@ -797,7 +1102,9 @@ export default function AccessView() {
                           const { start, end } = getEffectiveDates(id);
                           const months = monthsBetween(start, end);
                           const ch = getCharges(id);
-                          const base = (site.baseRate || 0) * months;
+                          // Use the same formula as the Total cell + the Shortlisted tab —
+                          // honors the admin's saved agreedCost; falls back to baseRate × months.
+                          const base = computeSiteBase(site, id);
                           const total = computeSiteTotal(site, id);
                           return (
                             <tr key={id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
@@ -809,7 +1116,7 @@ export default function AccessView() {
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <div className="font-medium text-white">{site.type || "—"}</div>
-                                <div className="text-xs" style={{ color: "#6B7280" }}>{site.size || "—"}</div>
+                                <div className="text-xs" style={{ color: "#6B7280" }}>{formatSize(site)}</div>
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap" style={{ color: "#9CA3AF" }}>
                                 <div>{fmt(start)} →</div>
@@ -853,11 +1160,11 @@ export default function AccessView() {
                       Media {fmtINR(totalMedia)} + Print {fmtINR(totalPrinting)} + Mount {fmtINR(totalMounting)} + Other {fmtINR(totalOther)}
                     </div>
                   </div>
-                  <div className="flex gap-3 w-full sm:w-auto">
-                    <button onClick={handleSaveDraft} disabled={saving}
-                      className="flex-1 sm:flex-none flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition disabled:opacity-60"
-                      style={{ background: "rgba(255,255,255,0.1)", color: "#D1D5DB" }}>
-                      {saving ? "Saving…" : <><FileText className="w-4 h-4" />Save Draft</>}
+                  <div className="flex gap-3 w-full sm:w-auto flex-wrap">
+                    <button onClick={downloadCostSheetPDF}
+                      className="flex-1 sm:flex-none flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition"
+                      style={{ background: "rgba(37,99,235,0.15)", color: "#60A5FA", border: "1px solid rgba(37,99,235,0.3)" }}>
+                      <Download className="w-4 h-4" /> Download PDF
                     </button>
                     <button onClick={() => setShowFinalModal(true)}
                       className="flex-1 sm:flex-none flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition"
@@ -882,11 +1189,6 @@ export default function AccessView() {
               {saveMsg && <span className="ml-3 text-xs font-semibold" style={{ color: "#4ADE80" }}>{saveMsg}</span>}
             </div>
             <div className="flex gap-2">
-              <button onClick={handleSaveDraft} disabled={saving}
-                className="text-xs font-bold px-3 py-2 rounded-lg transition disabled:opacity-60"
-                style={{ background: "rgba(255,255,255,0.08)", color: "#9CA3AF", border: "1px solid rgba(255,255,255,0.1)" }}>
-                {saving ? "Saving…" : "Save Draft"}
-              </button>
               <button onClick={() => setActiveTab("costsheet")}
                 className="flex items-center gap-1.5 text-white text-xs font-bold px-4 py-2 rounded-lg transition"
                 style={{ background: "#2563EB" }}>
