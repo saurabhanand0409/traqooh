@@ -176,6 +176,7 @@ class AdvertiserAccessLink(Base):
     is_revoked = Column(Boolean, default=False)
     is_single_use = Column(Boolean, default=False)
     used_count = Column(Integer, default=0)
+    purpose = Column(String, nullable=True)  # proposal / live / update (null on links made before 2026-09)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     advertiser = relationship("Advertiser", back_populates="access_links")
@@ -286,15 +287,23 @@ class CampaignActivity(Base):
     assignment_id = Column(Integer, ForeignKey("campaign_site_assignments.id"), nullable=True, index=True)
 
     activity_type = Column(String, nullable=False)  # PRINT, REPRINT, MOUNTING, AUDIT, MAINTENANCE, TAKEDOWN, START, END
-    status = Column(String, default="PENDING")      # PENDING, DONE, VERIFIED
+    status = Column(String, default="PENDING")      # PENDING, DONE, VERIFIED, REJECTED
     performed_by = Column(String, nullable=True)    # field staff / team member name
     activity_date = Column(Date, nullable=True)     # when it was actually done
     notes = Column(Text, nullable=True)
     image_urls = Column(Text, nullable=True)        # JSON array of photo URLs
+    image_labels = Column(Text, nullable=True)      # JSON object {url: "close-up" | "wide" | "landmark" | "video"}
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    gps_accuracy_m = Column(Float, nullable=True)   # phone-reported GPS accuracy at capture
+    captured_at = Column(DateTime, nullable=True)   # when the photos were taken (may be long before upload when offline)
+    client_visit_id = Column(String, nullable=True, unique=True, index=True)  # set by the app; makes offline retries idempotent
     source = Column(String, default="web")          # web / mobile
     created_by_user_id = Column(Integer, nullable=True)
+    # Review: staff mark a visit VERIFIED or REJECTED (needs retake) with a reason
+    review_note = Column(Text, nullable=True)
+    reviewed_by = Column(String, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -326,6 +335,22 @@ class AdvertiserCompanyLink(Base):
     __table_args__ = (UniqueConstraint("advertiser_id", "company_id", name="uq_adv_company"),)
 
 
+class PushToken(Base):
+    """Expo push token for a field worker's phone (one row per device).
+    Matched to assignments by worker_name, like monitor_worker_name."""
+    __tablename__ = "push_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, nullable=False, unique=True, index=True)
+    worker_name = Column(String, nullable=True, index=True)
+    field_pin_id = Column(Integer, nullable=True)
+    vendor_id = Column(Integer, nullable=True)
+    platform = Column(String, nullable=True)   # android / ios
+    language = Column(String, nullable=True)   # en / hi — notifications are sent in this language
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+
 class FieldPin(Base):
     """Admin-created 4-digit PIN for field workers (laborers) to log into the mobile app."""
     __tablename__ = "field_pins"
@@ -336,5 +361,5 @@ class FieldPin(Base):
     created_by_admin_email = Column(String, nullable=False)
     worker_name = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
-    expires_at = Column(DateTime, nullable=False)  # 72 hours from creation
+    expires_at = Column(DateTime, nullable=False)  # 30 days from creation
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

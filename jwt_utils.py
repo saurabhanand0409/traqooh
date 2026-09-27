@@ -9,6 +9,11 @@ SECRET_KEY = os.environ.get("JWT_SECRET", "traqooh-dev-secret-CHANGE-IN-PRODUCTI
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 
+# Field-app endpoints accept requests without a login token while older app builds
+# are still in use. Once every field worker has the build that sends its token,
+# set REQUIRE_FIELD_AUTH=true on Render so tokenless uploads are refused.
+REQUIRE_FIELD_AUTH = os.environ.get("REQUIRE_FIELD_AUTH", "").strip().lower() in ("1", "true", "yes")
+
 
 def create_access_token(payload: dict, expire_hours: int = None) -> str:
     data = payload.copy()
@@ -46,5 +51,6 @@ async def get_current_user_optional(authorization: Optional[str] = Header(None))
 
 def require_roles(user: dict, *roles: str):
     """Raise 403 if the authenticated user's role isn't in the allowed set."""
-    if user.get("role") not in roles:
+    # Case-insensitive: older accounts may store the role in lower case.
+    if (user.get("role") or "").upper() not in {r.upper() for r in roles}:
         raise HTTPException(status_code=403, detail="Insufficient permissions")

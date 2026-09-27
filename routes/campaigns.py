@@ -1,5 +1,5 @@
 """Campaign management routes."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text, func
 from pydantic import BaseModel
@@ -7,6 +7,13 @@ from typing import Optional, List
 from database import get_db
 import models
 from utils import log_activity
+from proofs import (phase_of, distance_m, image_urls, image_labels, iso,
+                    OFFSITE_LIMIT_M, captured_at as proof_captured_at)
+from jwt_utils import get_current_user, require_roles
+import photo_zip
+import notifications
+
+STAFF_ROLES = ("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER")
 
 router = APIRouter(prefix="/api/campaigns", tags=["Campaigns"])
 
@@ -227,47 +234,39 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
     return result
 
 
-# Which activity types roll up into each monitoring phase
-_PHASE_MAP = {
-    "START": ["START", "MOUNTING", "PRINT", "REPRINT"],
-    "MID":   ["AUDIT", "MAINTENANCE"],
-    "END":   ["END", "TAKEDOWN"],
-}
-
-# A proof photo taken further than this from the site's coordinates is flagged.
-OFFSITE_LIMIT_M = 250
-
-
-def _distance_m(lat1, lng1, lat2, lng2):
-    """Great-circle distance in metres, or None when either point is unknown.
-    (0, 0) is treated as unknown: it's the placeholder for sites with no GPS."""
-    import math
-    if None in (lat1, lng1, lat2, lng2):
-        return None
-    if (lat1 == 0 and lng1 == 0) or (lat2 == 0 and lng2 == 0):
-        return None
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = p2 - p1
-    dl = math.radians(lng2 - lng1)
-    h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * 6371000.0 * math.asin(math.sqrt(h))
-
-
 def _monitor_activity_dict(a):
-    import json
     return {
         "id": a.id,
         "activityType": a.activity_type,
-        "status": a.status,  # PENDING / DONE / VERIFIED
+        "status": a.status,  # PENDING / DONE / VERIFIED / REJECTED
         "performedBy": a.performed_by,
         "notes": a.notes,
-        "imageUrls": json.loads(a.image_urls) if a.image_urls else [],
+        "imageUrls": image_urls(a),
+        "imageLabels": image_labels(a),
         "latitude": a.latitude,
         "longitude": a.longitude,
+        "gpsAccuracyM": a.gps_accuracy_m,
         "source": a.source,
         "activityDate": str(a.activity_date) if a.activity_date else None,
+        "capturedAt": iso(proof_captured_at(a)),
         "createdAt": str(a.created_at) if a.created_at else None,
+        "reviewNote": a.review_note,
+        "reviewedBy": a.reviewed_by,
+        "reviewedAt": iso(a.reviewed_at),
     }
+
+
+@router.get("/{campaign_id}/photos.zip")
+def campaign_photos_zip(campaign_id: int, db: Session = Depends(get_db),
+                        current_user: dict = Depends(get_current_user)):
+    """Every accepted proof photo/video for the campaign's finalized sites, as a zip."""
+    require_roles(current_user, *STAFF_ROLES)
+    c = db.query(models.Campaign).options(joinedload(models.Campaign.site_assignments)).filter(
+        models.Campaign.id == campaign_id).first()
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+    assignments = photo_zip.select_assignments(list(c.site_assignments), include_pending=True)
+    return photo_zip.build_zip_response(db, c, assignments)
 
 
 @router.get("/{campaign_id}/monitoring")
@@ -307,12 +306,6 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
     for a in acts:
         acts_by_site.setdefault(a.site_id, []).append(a)
 
-    def phase_of(activity_type):
-        for phase, types in _PHASE_MAP.items():
-            if activity_type in types:
-                return phase
-        return "MID"
-
     sites_out = []
     for a in finalized:
         site = sites_by_id.get(a.site_id)
@@ -325,7 +318,7 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
         phases = {"START": [], "MID": [], "END": []}
         for act in acts_by_site.get(a.site_id, []):
             d = _monitor_activity_dict(act)
-            dist = _distance_m(site.latitude, site.longitude, act.latitude, act.longitude) if site else None
+            dist = distance_m(site.latitude, site.longitude, act.latitude, act.longitude) if site else None
             d["distanceM"] = round(dist) if dist is not None else None
             d["offSite"] = dist is not None and dist > OFFSITE_LIMIT_M
             phases[phase_of(act.activity_type)].append(d)
@@ -555,7 +548,8 @@ class UpdateAssignmentRequest(BaseModel):
     monitorFieldPinId: Optional[int] = None
 
 @router.put("/{campaign_id}/assignment/{assignment_id}")
-def update_assignment(campaign_id: int, assignment_id: int, req: UpdateAssignmentRequest, db: Session = Depends(get_db)):
+def update_assignment(campaign_id: int, assignment_id: int, req: UpdateAssignmentRequest,
+                      background: BackgroundTasks, db: Session = Depends(get_db)):
     """Update cost breakdown for a site assignment."""
     a = db.query(models.CampaignSiteAssignment).filter(
         models.CampaignSiteAssignment.id == assignment_id,
@@ -569,10 +563,21 @@ def update_assignment(campaign_id: int, assignment_id: int, req: UpdateAssignmen
     if req.mountingCost is not None: a.mounting_cost = req.mountingCost
     if req.otherCost is not None: a.other_cost = req.otherCost
     if req.executionRemarks is not None: a.execution_remarks = req.executionRemarks
+    newly_assigned = None
     if req.monitorWorkerName is not None:
+        previous = (a.monitor_worker_name or "").strip().lower()
         a.monitor_worker_name = req.monitorWorkerName.strip() or None
         a.monitor_field_pin_id = req.monitorFieldPinId
+        if a.monitor_worker_name and a.monitor_worker_name.lower() != previous:
+            newly_assigned = a.monitor_worker_name
     db.commit()
+    if newly_assigned:
+        site = db.query(models.Site).filter(models.Site.id == a.site_id).first()
+        camp = db.query(models.Campaign).filter(models.Campaign.id == campaign_id).first()
+        background.add_task(
+            notifications.notify_worker, newly_assigned, "assigned",
+            {"siteId": a.site_id, "campaignId": campaign_id, "assignmentId": a.id},
+            site=site.name if site else f"Site #{a.site_id}", campaign=camp.name if camp else "")
     return {"message": "Updated"}
 
 

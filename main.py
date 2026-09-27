@@ -17,7 +17,9 @@ import shutil
 import hashlib
 import bcrypt
 from utils import log_activity, site_to_dict, upload_to_r2
-from jwt_utils import create_access_token, get_current_user, get_current_user_optional, require_roles
+from jwt_utils import (create_access_token, get_current_user, get_current_user_optional, require_roles,
+                       REQUIRE_FIELD_AUTH)
+import proofs
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -206,6 +208,47 @@ def run_migrations():
                         except Exception as e:
                             conn.rollback()
                             logger.error(f"Failed to add campaign_site_assignments.{col}: {e}")
+            # Proof capture + review columns on campaign_activities (2026-09):
+            # capture time/accuracy from the phone, offline-retry id, photo labels,
+            # and the needs-retake review trail.
+            if inspector.has_table("campaign_activities"):
+                act_cols = [c["name"] for c in inspector.get_columns("campaign_activities")]
+                for col, typ in [
+                    ("image_labels", "TEXT"),
+                    ("gps_accuracy_m", "FLOAT"),
+                    ("captured_at", "TIMESTAMP"),
+                    ("client_visit_id", "VARCHAR"),
+                    ("review_note", "TEXT"),
+                    ("reviewed_by", "VARCHAR"),
+                    ("reviewed_at", "TIMESTAMP"),
+                ]:
+                    if col not in act_cols:
+                        try:
+                            conn.execute(text(f"ALTER TABLE campaign_activities ADD COLUMN {col} {typ}"))
+                            conn.commit()
+                            logger.info(f"Added column campaign_activities.{col}")
+                        except Exception as e:
+                            conn.rollback()
+                            logger.error(f"Failed to add campaign_activities.{col}: {e}")
+                try:
+                    # Unique (NULLs allowed): two retries of one offline visit can't both be saved
+                    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_campaign_activities_client_visit_id "
+                                      "ON campaign_activities (client_visit_id)"))
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"Failed to index campaign_activities.client_visit_id: {e}")
+            # Why an advertiser link was sent (proposal / live / update) — feeds launch metrics
+            if inspector.has_table("advertiser_access_links"):
+                link_cols = [c["name"] for c in inspector.get_columns("advertiser_access_links")]
+                if "purpose" not in link_cols:
+                    try:
+                        conn.execute(text("ALTER TABLE advertiser_access_links ADD COLUMN purpose VARCHAR"))
+                        conn.commit()
+                        logger.info("Added column advertiser_access_links.purpose")
+                    except Exception as e:
+                        conn.rollback()
+                        logger.error(f"Failed to add advertiser_access_links.purpose: {e}")
             # Rename legacy campaign statuses to the new workflow vocabulary
             try:
                 conn.execute(text("UPDATE campaigns SET status='RUNNING'  WHERE status='LIVE'"))
@@ -260,6 +303,20 @@ def run_migrations():
         logger.error(f"Migration error: {e}\n{traceback.format_exc()}")
 
 # --- App Setup ---
+# Error monitoring: active only when SENTRY_DSN is set on Render.
+if os.environ.get("SENTRY_DSN"):
+    try:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=os.environ["SENTRY_DSN"],
+            environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+            traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            send_default_pii=False,
+        )
+        logger.info("Sentry error monitoring enabled")
+    except Exception as e:
+        logger.error(f"Sentry init failed: {e}")
+
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="TraqOOH API", version="2.1.0")
 app.state.limiter = limiter
@@ -289,6 +346,13 @@ async def _all_unhandled_exceptions(request: Request, exc: Exception):
     import traceback
     traceback.print_exc()
     print(f"[unhandled] {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
+    # This handler swallows the exception, so hand it to Sentry explicitly.
+    if os.environ.get("SENTRY_DSN"):
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(exc)
+        except Exception:
+            pass
     origin = request.headers.get("origin", "")
     headers = {}
     if origin in _CORS_ALLOWED_ORIGINS:
@@ -635,17 +699,18 @@ def get_nearby_sites(city: str = None, state: str = None, db: Session = Depends(
 @app.get("/api/sites/{site_id}/gallery")
 def site_gallery(site_id: int, db: Session = Depends(get_db)):
     """Return all activity photos for a site grouped by activity type.
-    Used by the mobile app and web inventory to show the site photo history."""
-    import json as _json
+    Used by the mobile app and web inventory to show the site photo history.
+    Photos sent back for a retake are left out."""
     activities = (
         db.query(models.CampaignActivity)
         .filter(
             models.CampaignActivity.site_id == site_id,
             models.CampaignActivity.image_urls.isnot(None),
+            models.CampaignActivity.status != proofs.REJECTED,
         )
-        .order_by(models.CampaignActivity.created_at.desc())
         .all()
     )
+    activities.sort(key=proofs.captured_at, reverse=True)
     TYPE_LABEL = {
         "MOUNTING": "Install", "START": "Install",
         "AUDIT": "Monitor", "MAINTENANCE": "Monitor",
@@ -655,25 +720,28 @@ def site_gallery(site_id: int, db: Session = Depends(get_db)):
     grouped = {}
     all_photos = []
     for a in activities:
-        try:
-            urls = _json.loads(a.image_urls) if a.image_urls else []
-        except Exception:
-            urls = []
+        urls = proofs.image_urls(a)
         if not urls:
             continue
+        labels = proofs.image_labels(a)
         label = TYPE_LABEL.get(a.activity_type, a.activity_type)
         if label not in grouped:
             grouped[label] = []
         for url in urls:
             entry = {
                 "url": url,
+                "activityId": a.id,
                 "activityType": a.activity_type,
+                "status": a.status,
                 "label": label,
+                "shot": labels.get(url),  # close-up / wide / landmark / video
                 "performedBy": a.performed_by,
                 "activityDate": str(a.activity_date) if a.activity_date else None,
                 "notes": a.notes,
                 "latitude": a.latitude,
                 "longitude": a.longitude,
+                "gpsAccuracyM": a.gps_accuracy_m,
+                "capturedAt": proofs.iso(proofs.captured_at(a)),
                 "createdAt": str(a.created_at) if a.created_at else None,
             }
             grouped[label].append(entry)
@@ -861,18 +929,22 @@ def get_sites(ownerId: Optional[int] = None, vendorId: Optional[int] = None,
     return [site_to_dict(s) for s in query.order_by(models.Site.city).all()]
 
 @app.get("/api/mobile/my-sites")
-def get_my_assigned_sites(worker: str, db: Session = Depends(get_db)):
+def get_my_assigned_sites(worker: Optional[str] = None, db: Session = Depends(get_db),
+                          user: Optional[dict] = Depends(get_current_user_optional)):
     """Sites a specific field worker has been assigned to monitor.
-    Matched by worker name (stable across 72-hour PIN re-issues). Returns the
-    site + its campaign + how many Start/Mid/End photos already exist so the
-    app can show what's pending.
+    Matched by worker name (stable across PIN re-issues), taken from the login
+    token when the app sends one. Returns the site + its campaign + how many
+    Start/Mid/End photos already exist, and any visits sent back for a retake,
+    so the app can show what's pending.
     """
-    import json as _json
-    worker_name = (worker or "").strip()
+    if REQUIRE_FIELD_AUTH and not user:
+        raise HTTPException(401, "Your login has expired. Please log in again.")
+    token_worker = (user or {}).get("workerName") if (user or {}).get("role") == "FIELD" else None
+    worker_name = (token_worker or worker or "").strip()
     if not worker_name:
         return []
     assigns = db.query(models.CampaignSiteAssignment).filter(
-        models.CampaignSiteAssignment.monitor_worker_name == worker_name
+        func.lower(func.trim(models.CampaignSiteAssignment.monitor_worker_name)) == worker_name.lower()
     ).all()
     if not assigns:
         return []
@@ -886,22 +958,32 @@ def get_my_assigned_sites(worker: str, db: Session = Depends(get_db)):
         models.Campaign.id.in_(campaign_ids)
     ).all()}
 
-    # Count existing activity photos per (campaign, site)
+    # Count accepted proof photos per (campaign, site, phase), and find phases whose
+    # most recent visit was sent back for a retake.
     acts = db.query(models.CampaignActivity).filter(
         models.CampaignActivity.campaign_id.in_(campaign_ids)
     ).all()
-    PHASE = {"START": ["START", "MOUNTING", "PRINT", "REPRINT"],
-             "MID": ["AUDIT", "MAINTENANCE"], "END": ["END", "TAKEDOWN"]}
-    def phase_of(t):
-        for ph, types in PHASE.items():
-            if t in types: return ph
-        return "MID"
+    acts.sort(key=proofs.captured_at)
     counts = {}
+    latest = {}  # (campaign, site, phase) -> most recent activity with media
     for a in acts:
         key = (a.campaign_id, a.site_id)
         c = counts.setdefault(key, {"START": 0, "MID": 0, "END": 0})
-        imgs = _json.loads(a.image_urls) if a.image_urls else []
-        c[phase_of(a.activity_type)] += max(1, len(imgs)) if imgs else 1
+        ph = proofs.phase_of(a.activity_type)
+        if proofs.is_visible_proof(a):
+            c[ph] += len(proofs.image_urls(a))
+        if proofs.image_urls(a):
+            latest[(a.campaign_id, a.site_id, ph)] = a
+    retakes = {}
+    for (camp_id, site_id, ph), a in latest.items():
+        if a.status == proofs.REJECTED:
+            retakes.setdefault((camp_id, site_id), []).append({
+                "activityId": a.id,
+                "phase": ph,
+                "reason": a.review_note,
+                "rejectedBy": a.reviewed_by,
+                "rejectedAt": proofs.iso(a.reviewed_at),
+            })
 
     out = []
     for a in assigns:
@@ -919,8 +1001,47 @@ def get_my_assigned_sites(worker: str, db: Session = Depends(get_db)):
         d["bookedFrom"] = str(a.booked_from) if a.booked_from else None
         d["bookedTill"] = str(a.booked_till) if a.booked_till else None
         d["photoCounts"] = counts.get((a.campaign_id, a.site_id), {"START": 0, "MID": 0, "END": 0})
+        d["retakes"] = retakes.get((a.campaign_id, a.site_id), [])
         out.append(d)
     return out
+
+class PushTokenRequest(BaseModel):
+    token: str
+    platform: Optional[str] = None
+    language: Optional[str] = None
+
+
+@app.post("/api/mobile/push-token")
+def register_push_token(req: PushTokenRequest, db: Session = Depends(get_db),
+                        user: dict = Depends(get_current_user)):
+    """The field app registers (or refreshes) this phone's Expo push token after login."""
+    if user.get("role") != "FIELD":
+        raise HTTPException(403, "Only field-app logins can register for notifications")
+    token = (req.token or "").strip()
+    if not token.startswith(("ExponentPushToken[", "ExpoPushToken[")):
+        raise HTTPException(400, "Not an Expo push token")
+    sub = str(user.get("sub") or "")
+    pin_id = int(sub[4:]) if sub.startswith("pin-") and sub[4:].isdigit() else None
+    row = db.query(models.PushToken).filter(models.PushToken.token == token).first()
+    if not row:
+        row = models.PushToken(token=token)
+        db.add(row)
+    row.worker_name = user.get("workerName")
+    row.field_pin_id = pin_id
+    row.vendor_id = user.get("vendorId")
+    row.platform = (req.platform or "")[:20] or None
+    row.language = (req.language or "en")[:5]
+    db.commit()
+    return {"registered": True}
+
+
+@app.delete("/api/mobile/push-token")
+def unregister_push_token(req: PushTokenRequest, db: Session = Depends(get_db)):
+    """Called on sign-out so a shared phone stops getting the previous worker's alerts."""
+    db.query(models.PushToken).filter(models.PushToken.token == (req.token or "").strip()).delete()
+    db.commit()
+    return {"removed": True}
+
 
 @app.get("/api/mobile/sites/{site_id}")
 @app.get("/api/sites/{site_id}")
@@ -970,23 +1091,36 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db), cu
     site = db.query(models.Site).filter(models.Site.id == site_id).first()
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
+    # Only change fields the client actually sent. The web edit form never sent GPS,
+    # locality, address, remarks or base rate, and overwriting them with defaults
+    # silently wiped those values on every edit.
+    sent = getattr(req, "model_fields_set", None) or getattr(req, "__fields_set__", set())
     vendor_id = req.vendorId or req.ownerCompanyId
     site.name = req.name; site.city = req.city; site.type = req.type
-    site.status = req.status; site.size = req.size
-    site.width = req.width or 0; site.length = req.length or 0
-    site.total_area = (req.width or 0) * (req.length or 0)
-    site.facing = req.facing
-    site.potential_monthly = float(req.potentialMonthly or 0)
-    site.base_rate = float(req.baseRate or 0)
-    site.occupancy = req.occupancy or 0; site.image_url = req.imageUrl
-    site.owner_company_id = vendor_id
-    site.area_locality = req.areaLocality; site.address = req.address
-    site.remarks = req.remarks
-    site.state = req.state; site.lighting_type = req.lightingType
-    site.availability_status = req.availabilityStatus or site.availability_status
+    if "status" in sent: site.status = req.status
+    if "size" in sent: site.size = req.size
+    if "width" in sent or "length" in sent:
+        site.width = req.width or 0; site.length = req.length or 0
+        site.total_area = site.width * site.length
+    if "facing" in sent: site.facing = req.facing
+    if "potentialMonthly" in sent: site.potential_monthly = float(req.potentialMonthly or 0)
+    if "baseRate" in sent: site.base_rate = float(req.baseRate or 0)
+    if "occupancy" in sent: site.occupancy = req.occupancy or 0
+    if "imageUrl" in sent: site.image_url = req.imageUrl
+    if "vendorId" in sent or "ownerCompanyId" in sent: site.owner_company_id = vendor_id
+    if "areaLocality" in sent: site.area_locality = req.areaLocality
+    if "address" in sent: site.address = req.address
+    if "remarks" in sent: site.remarks = req.remarks
+    if "state" in sent: site.state = req.state
+    if "lightingType" in sent: site.lighting_type = req.lightingType
+    # availabilityStatus defaults to "AVAILABLE", so an edit that didn't send it used to
+    # flip booked sites back to vacant.
+    if "availabilityStatus" in sent and req.availabilityStatus:
+        site.availability_status = req.availabilityStatus
     site.available_from = date.fromisoformat(req.availableFrom) if req.availableFrom else site.available_from
     site.available_till = date.fromisoformat(req.availableTill) if req.availableTill else site.available_till
-    site.latitude = req.latitude; site.longitude = req.longitude
+    if "latitude" in sent: site.latitude = req.latitude
+    if "longitude" in sent: site.longitude = req.longitude
     db.commit()
     db.refresh(site)
     log_activity(db, "Updated site", "site", site.id, site.name)
@@ -1101,16 +1235,8 @@ def _validate_access_link(token: str, db: Session):
         raise HTTPException(403, "Invalid or expired access link")
     return link
 
-_ACCESS_PHASE_MAP = {
-    "START": "START", "MOUNTING": "START", "PRINT": "START", "REPRINT": "START",
-    "AUDIT": "MID", "MAINTENANCE": "MID",
-    "END": "END", "TAKEDOWN": "END",
-}
-
-
 def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) -> dict:
     """Return full site metadata + assignment fields for the advertiser access page."""
-    import json as _json
     site = db.query(models.Site).options(
         joinedload(models.Site.owner)
     ).filter(models.Site.id == a.site_id).first()
@@ -1120,32 +1246,36 @@ def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) ->
             size_str = f"{site.width}×{site.length} ft"
         elif site.size:
             size_str = site.size
-    # Execution proof photos grouped by phase (Start / Mid / End) for live tracking
-    proofs = {"START": [], "MID": [], "END": []}
+    # Execution proof photos grouped by phase (Start / Mid / End) for live tracking.
+    # Visits sent back for a retake are never shown to the advertiser.
+    phase_proofs = {"START": [], "MID": [], "END": []}
     acts = (db.query(models.CampaignActivity)
               .filter(models.CampaignActivity.site_id == a.site_id,
                       models.CampaignActivity.campaign_id == a.campaign_id,
-                      models.CampaignActivity.image_urls.isnot(None))
-              .order_by(models.CampaignActivity.created_at.desc()).all())
+                      models.CampaignActivity.image_urls.isnot(None),
+                      models.CampaignActivity.status != proofs.REJECTED)
+              .all())
+    acts.sort(key=proofs.captured_at, reverse=True)
     for act in acts:
-        try:
-            urls = _json.loads(act.image_urls) if act.image_urls else []
-        except Exception:
-            urls = []
-        phase = _ACCESS_PHASE_MAP.get(act.activity_type, "MID")
-        for url in urls:
-            proofs[phase].append({
+        labels = proofs.image_labels(act)
+        when = proofs.captured_at(act)
+        dist = proofs.distance_m(site.latitude, site.longitude, act.latitude, act.longitude) if site else None
+        for url in proofs.image_urls(act):
+            phase_proofs[proofs.phase_of(act.activity_type)].append({
                 "url": url,
                 "activityType": act.activity_type,
                 "status": act.status,
+                "shot": labels.get(url),  # close-up / wide / landmark / video
                 "performedBy": act.performed_by,
-                "date": str(act.activity_date) if act.activity_date else (str(act.created_at)[:10] if act.created_at else None),
+                "date": str(act.activity_date) if act.activity_date else (str(when)[:10] if when else None),
+                "capturedAt": proofs.iso(when),
                 "createdAt": str(act.created_at) if act.created_at else None,
                 "latitude": act.latitude,
                 "longitude": act.longitude,
+                "distanceM": round(dist) if dist is not None else None,
                 "notes": act.notes,
             })
-    proof_count = sum(len(v) for v in proofs.values())
+    proof_count = sum(len(v) for v in phase_proofs.values())
     return {
         "assignmentId": a.id,
         "siteId": a.site_id,
@@ -1160,6 +1290,8 @@ def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) ->
         "vendorName": site.owner.name if site and site.owner else None,
         "baseRate": float(site.potential_monthly or site.base_rate or 0) if site else 0,
         "agreedCost": float(a.agreed_cost or 0),
+        "latitude": site.latitude if site else None,
+        "longitude": site.longitude if site else None,
         "imageUrl": site.image_url if site else None,
         "availabilityStatus": site.availability_status if site else None,
         "remarks": site.remarks if site else None,
@@ -1177,7 +1309,7 @@ def _assignment_to_access_dict(a: models.CampaignSiteAssignment, db: Session) ->
         "otherCost": float(a.other_cost or 0),
         "executionRemarks": a.execution_remarks,
         # execution proof photos grouped by phase
-        "proofs": proofs,
+        "proofs": phase_proofs,
         "proofCount": proof_count,
     }
 
@@ -1215,11 +1347,31 @@ def validate_public_access(token: str, db: Session = Depends(get_db)):
                 "images": au.image_urls,
             } for au in audits],
         })
+    has_login = bool(adv) and db.query(models.UserAccount.id).filter(
+        models.UserAccount.advertiser_id == adv.id).first() is not None
     return {
         "advertiser": adv.company_name if adv else None,
         "advertiserEmail": adv.email if adv else None,
+        "hasLogin": has_login,  # the portal nudges advertisers with an account to log in
         "campaigns": result,
     }
+
+
+@app.get("/api/access/{token}/photos.zip")
+def access_photos_zip(token: str, db: Session = Depends(get_db)):
+    """The advertiser's proof photos for the campaign(s) on this link, as one zip.
+    Only approved sites and accepted (non-rejected) proofs are included."""
+    import photo_zip
+    link = _validate_access_link(token, db)
+    q = db.query(models.Campaign).options(joinedload(models.Campaign.site_assignments)).filter(
+        models.Campaign.advertiser_id == link.advertiser_id)
+    if link.campaign_id:
+        q = q.filter(models.Campaign.id == link.campaign_id)
+    campaign = q.order_by(models.Campaign.created_at.desc()).first()
+    if not campaign:
+        raise HTTPException(404, "No campaign on this link")
+    assignments = photo_zip.select_assignments(list(campaign.site_assignments), include_pending=False)
+    return photo_zip.build_zip_response(db, campaign, assignments)
 
 
 class ShortlistAssignment(BaseModel):

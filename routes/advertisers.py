@@ -8,8 +8,8 @@ from database import get_db
 import models
 import datetime
 import hashlib
-import json as _json
 import os
+import proofs as proof_rules
 import httpx
 from utils import log_activity, generate_access_token
 from jwt_utils import get_current_user, require_roles
@@ -196,22 +196,23 @@ def advertiser_dashboard(current_user: dict = Depends(get_current_user),
         sites = []
         for a in assignments:
             site = db.query(models.Site).filter(models.Site.id == a.site_id).first()
+            # Only this campaign's proofs: a site hosts many brands over time, and other
+            # advertisers' installation photos must never appear here. Retakes are hidden.
             activities = (db.query(models.CampaignActivity)
                             .filter(models.CampaignActivity.site_id == a.site_id,
-                                    models.CampaignActivity.image_urls.isnot(None))
-                            .order_by(models.CampaignActivity.created_at.desc())
-                            .limit(20).all())
+                                    models.CampaignActivity.campaign_id == c.id,
+                                    models.CampaignActivity.image_urls.isnot(None),
+                                    models.CampaignActivity.status != proof_rules.REJECTED)
+                            .all())
+            activities = sorted(activities, key=proof_rules.captured_at, reverse=True)[:20]
             proofs = []
             for act in activities:
-                try:
-                    urls = _json.loads(act.image_urls) if act.image_urls else []
-                except Exception:
-                    urls = []
-                for url in urls:
+                when = proof_rules.captured_at(act)
+                for url in proof_rules.image_urls(act):
                     proofs.append({
                         "url": url,
                         "type": TYPE_LABEL.get(act.activity_type, act.activity_type),
-                        "date": str(act.activity_date) if act.activity_date else str(act.created_at)[:10],
+                        "date": str(act.activity_date) if act.activity_date else str(when)[:10],
                         "notes": act.notes,
                         "lat": act.latitude,
                         "lng": act.longitude,
@@ -361,32 +362,39 @@ def create_advertiser_login(req: AdvertiserLoginCreate, db: Session = Depends(ge
 
 
 @router.post("/send-access-link")
-def send_access_link(req: SendAccessLinkRequest, db: Session = Depends(get_db)):
+def send_access_link(req: SendAccessLinkRequest, db: Session = Depends(get_db),
+                     current_user: dict = Depends(get_current_user)):
     """Generate a secure access link for an advertiser."""
-    adv = db.query(models.Advertiser).filter(models.Advertiser.id == req.advertiserId).first()
+    # The response carries a working token, so only staff may mint one.
+    require_roles(current_user, "SUPER_ADMIN", "ADMIN", "EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER")
+    adv =db.query(models.Advertiser).filter(models.Advertiser.id == req.advertiserId).first()
     if not adv:
         raise HTTPException(404, "Advertiser not found")
     token, token_hash = generate_access_token()
+    purpose = (req.purpose or "proposal").lower()
     link = models.AdvertiserAccessLink(
         advertiser_id=req.advertiserId,
         campaign_id=req.campaignId,
         token_hash=token_hash,
         # token_plain intentionally omitted — never store plaintext tokens in DB
         expires_at=datetime.datetime.utcnow() + datetime.timedelta(days=req.expiryDays or 7),
+        purpose=purpose,
     )
     db.add(link)
     db.commit()
     access_url = f"/access/{token}"
-    purpose = (req.purpose or "proposal").lower()
     log_activity(db, f"Sent access link ({purpose})", "advertiser", adv.id, f"Token expires in {req.expiryDays}d")
     # Email the link if advertiser has an email on file
     emailed = False
     if adv.email:
         _send_access_link_email(adv.email, adv.company_name, access_url, link.expires_at, purpose)
         emailed = True
+    has_login = db.query(models.UserAccount.id).filter(
+        models.UserAccount.advertiser_id == adv.id).first() is not None
     return {"message": "Access link generated", "accessUrl": access_url, "token": token,
             "expiresAt": str(link.expires_at), "emailed": emailed, "advertiserEmail": adv.email,
-            "advertiserPhone": adv.phone, "advertiserContact": adv.contact_person}
+            "advertiserPhone": adv.phone, "advertiserContact": adv.contact_person,
+            "advertiserHasLogin": has_login}
 
 
 @router.post("/validate-token")

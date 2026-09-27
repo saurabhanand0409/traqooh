@@ -11,3 +11,4 @@ boto3
 httpx
 python-jose[cryptography]
 slowapi
+sentry-sdk[fastapi]
