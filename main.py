@@ -410,6 +410,11 @@ class ContactRequest(BaseModel):
     email: str
     phone: Optional[str] = None
 
+# Roles the public /api/auth/register form may create: a media company's admin
+# (RegisterAdmin.jsx) or a media owner (MediaOwnerCreate.jsx).
+SELF_SIGNUP_ROLES = {"ADMIN", "MEDIA_OWNER"}
+
+
 class CreateMediaOwnerRequest(BaseModel):
     companyName: str
     rocAttachmentUrl: Optional[str] = None
@@ -862,6 +867,10 @@ def delete_site_image(site_id: int, image_id: int, db: Session = Depends(get_db)
 @app.post("/api/auth/register")
 @app.post("/api/media-owners")
 def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
+    # Public sign-up: the caller must never pick a privileged role (e.g. SUPER_ADMIN).
+    role = (req.role or "MEDIA_OWNER").strip().upper()
+    if role not in SELF_SIGNUP_ROLES:
+        raise HTTPException(status_code=400, detail="This account type can't be created by sign-up")
     try:
         existing_user = db.query(models.UserAccount).filter(models.UserAccount.email.ilike(req.primaryEmail.strip())).first()
         if existing_user:
@@ -890,7 +899,7 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         db.flush()
         user_account = models.UserAccount(
             email=req.primaryEmail.lower().strip(), password_hash=hash_password(req.accountPassword),
-            role=req.role or "MEDIA_OWNER", gst_registration_id=gst.id, is_active=True
+            role=role, gst_registration_id=gst.id, is_active=True
         )
         db.add(user_account)
         for c in req.contacts:
