@@ -3,16 +3,19 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from fastapi import HTTPException, Header
+from fastapi import Depends, HTTPException, Header
 
 SECRET_KEY = os.environ.get("JWT_SECRET", "traqooh-dev-secret-CHANGE-IN-PRODUCTION-use-openssl-rand-hex-32")
+# On Render (it sets RENDER=true) a missing JWT_SECRET would let anyone forge a login with the
+# built-in dev secret, so refuse to start. The previous deploy keeps running if this trips.
+if os.environ.get("RENDER") and not os.environ.get("JWT_SECRET"):
+    raise RuntimeError("JWT_SECRET is not set. Add it in Render -> Environment before deploying.")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 7  # 7 days
 
-# Field-app endpoints accept requests without a login token while older app builds
-# are still in use. Once every field worker has the build that sends its token,
-# set REQUIRE_FIELD_AUTH=true on Render so tokenless uploads are refused.
-REQUIRE_FIELD_AUTH = os.environ.get("REQUIRE_FIELD_AUTH", "").strip().lower() in ("1", "true", "yes")
+# Field-app uploads and my-sites need the worker's login token (on by default since 2026-10-03).
+# Set REQUIRE_FIELD_AUTH=false on Render only to keep an older app build working that does not send it.
+REQUIRE_FIELD_AUTH = os.environ.get("REQUIRE_FIELD_AUTH", "true").strip().lower() in ("1", "true", "yes")
 
 
 def create_access_token(payload: dict, expire_hours: int = None) -> str:
@@ -54,3 +57,31 @@ def require_roles(user: dict, *roles: str):
     # Case-insensitive: older accounts may store the role in lower case.
     if (user.get("role") or "").upper() not in {r.upper() for r in roles}:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+
+# ── Role gates ────────────────────────────────────────────────────────────────
+# Use as dependencies=[Depends(require_staff)] on a route, or on a whole router via include_router.
+STAFF_ROLES = ("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER")
+ADMIN_ROLES = ("SUPER_ADMIN", "ADMIN")
+
+
+async def require_staff(user: dict = Depends(get_current_user)) -> dict:
+    """Logged in as someone who works inside TraqOOH (not an advertiser, not a field worker)."""
+    require_roles(user, *STAFF_ROLES)
+    return user
+
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    require_roles(user, *ADMIN_ROLES)
+    return user
+
+
+async def require_staff_or_field(user: dict = Depends(get_current_user)) -> dict:
+    """Staff, or a field worker's PIN login (the Android app)."""
+    require_roles(user, *STAFF_ROLES, "FIELD")
+    return user
+
+
+async def require_field(user: dict = Depends(get_current_user)) -> dict:
+    require_roles(user, "FIELD")
+    return user

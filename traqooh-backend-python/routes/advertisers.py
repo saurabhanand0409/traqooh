@@ -12,7 +12,7 @@ import os
 import proofs as proof_rules
 import httpx
 from utils import log_activity, generate_access_token
-from jwt_utils import get_current_user, require_roles
+from jwt_utils import get_current_user, require_roles, require_staff
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 OTP_FROM_EMAIL = os.environ.get("OTP_FROM_EMAIL", "noreply@brandsculpt.com")
@@ -125,7 +125,7 @@ def adv_to_dict(a):
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_staff)])
 def list_advertisers(
     role: Optional[str] = None,
     userId: Optional[int] = None,
@@ -275,7 +275,7 @@ def advertiser_dashboard(current_user: dict = Depends(get_current_user),
     }
 
 
-@router.get("/{adv_id}")
+@router.get("/{adv_id}", dependencies=[Depends(require_staff)])
 def get_advertiser(adv_id: int, db: Session = Depends(get_db)):
     a = db.query(models.Advertiser).filter(models.Advertiser.id == adv_id).first()
     if not a:
@@ -283,7 +283,7 @@ def get_advertiser(adv_id: int, db: Session = Depends(get_db)):
     return adv_to_dict(a)
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_staff)])
 def create_advertiser(req: AdvertiserCreate, db: Session = Depends(get_db)):
     a = models.Advertiser(
         company_name=req.companyName, contact_person=req.contactPerson,
@@ -306,7 +306,7 @@ def create_advertiser(req: AdvertiserCreate, db: Session = Depends(get_db)):
     return adv_to_dict(a)
 
 
-@router.put("/{adv_id}")
+@router.put("/{adv_id}", dependencies=[Depends(require_staff)])
 def update_advertiser(adv_id: int, req: AdvertiserCreate, db: Session = Depends(get_db)):
     a = db.query(models.Advertiser).filter(models.Advertiser.id == adv_id).first()
     if not a:
@@ -325,7 +325,7 @@ def update_advertiser(adv_id: int, req: AdvertiserCreate, db: Session = Depends(
     return adv_to_dict(a)
 
 
-@router.delete("/{adv_id}")
+@router.delete("/{adv_id}", dependencies=[Depends(require_staff)])
 def delete_advertiser(adv_id: int, db: Session = Depends(get_db)):
     a = db.query(models.Advertiser).filter(models.Advertiser.id == adv_id).first()
     if not a:
@@ -337,7 +337,7 @@ def delete_advertiser(adv_id: int, db: Session = Depends(get_db)):
     return {"message": f"Advertiser '{name}' deleted"}
 
 
-@router.post("/create-login")
+@router.post("/create-login", dependencies=[Depends(require_staff)])
 def create_advertiser_login(req: AdvertiserLoginCreate, db: Session = Depends(get_db)):
     """Create a login account for an advertiser."""
     from main import hash_password
@@ -367,7 +367,7 @@ def send_access_link(req: SendAccessLinkRequest, db: Session = Depends(get_db),
     """Generate a secure access link for an advertiser."""
     # The response carries a working token, so only staff may mint one.
     require_roles(current_user, "SUPER_ADMIN", "ADMIN", "EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER")
-    adv =db.query(models.Advertiser).filter(models.Advertiser.id == req.advertiserId).first()
+    adv = db.query(models.Advertiser).filter(models.Advertiser.id == req.advertiserId).first()
     if not adv:
         raise HTTPException(404, "Advertiser not found")
     token, token_hash = generate_access_token()
@@ -431,7 +431,7 @@ def validate_access_token(token: str, db: Session = Depends(get_db)):
     return {"advertiser": adv_to_dict(adv), "campaigns": result}
 
 
-@router.post("/revoke-link/{link_id}")
+@router.post("/revoke-link/{link_id}", dependencies=[Depends(require_staff)])
 def revoke_access_link(link_id: int, db: Session = Depends(get_db),
                        current_user: dict = Depends(get_current_user)):
     link = db.query(models.AdvertiserAccessLink).filter(models.AdvertiserAccessLink.id == link_id).first()
@@ -445,7 +445,7 @@ def revoke_access_link(link_id: int, db: Session = Depends(get_db),
 class CompanyLinkRequest(BaseModel):
     companyId: int
 
-@router.get("/{adv_id}/company-links")
+@router.get("/{adv_id}/company-links", dependencies=[Depends(require_staff)])
 def get_company_links(adv_id: int, db: Session = Depends(get_db)):
     """List all companies this advertiser is linked to."""
     rows = db.execute(
@@ -460,7 +460,7 @@ def get_company_links(adv_id: int, db: Session = Depends(get_db)):
     ).fetchall()
     return [{"companyId": r[0], "companyName": r[1], "linkedAt": str(r[2])} for r in rows]
 
-@router.post("/{adv_id}/link-company")
+@router.post("/{adv_id}/link-company", dependencies=[Depends(require_staff)])
 def link_company(adv_id: int, req: CompanyLinkRequest, db: Session = Depends(get_db)):
     """Link an advertiser to an additional company (so that company's admin can see it)."""
     a = db.query(models.Advertiser).filter(models.Advertiser.id == adv_id).first()
@@ -474,7 +474,7 @@ def link_company(adv_id: int, req: CompanyLinkRequest, db: Session = Depends(get
     log_activity(db, "Linked advertiser to company", "advertiser", adv_id, f"company #{req.companyId}")
     return {"message": "Advertiser linked to company"}
 
-@router.delete("/{adv_id}/link-company/{company_id}")
+@router.delete("/{adv_id}/link-company/{company_id}", dependencies=[Depends(require_staff)])
 def unlink_company(adv_id: int, company_id: int, db: Session = Depends(get_db)):
     """Remove a company link from an advertiser."""
     db.execute(
@@ -485,7 +485,7 @@ def unlink_company(adv_id: int, company_id: int, db: Session = Depends(get_db)):
     log_activity(db, "Unlinked advertiser from company", "advertiser", adv_id, f"company #{company_id}")
     return {"message": "Company link removed"}
 
-@router.post("/{adv_id}/share")
+@router.post("/{adv_id}/share", dependencies=[Depends(require_staff)])
 def share_advertiser(adv_id: int, req: AdvertiserShareRequest, db: Session = Depends(get_db)):
     """Admin shares an advertiser with one or more employees."""
     a = db.query(models.Advertiser).filter(models.Advertiser.id == adv_id).first()
@@ -508,7 +508,7 @@ def share_advertiser(adv_id: int, req: AdvertiserShareRequest, db: Session = Dep
     return {"message": f"Shared with {added} employee(s)"}
 
 
-@router.delete("/{adv_id}/share/{user_id}")
+@router.delete("/{adv_id}/share/{user_id}", dependencies=[Depends(require_staff)])
 def unshare_advertiser(adv_id: int, user_id: int, db: Session = Depends(get_db)):
     """Remove an employee's access to a shared advertiser."""
     db.execute(
@@ -519,7 +519,7 @@ def unshare_advertiser(adv_id: int, user_id: int, db: Session = Depends(get_db))
     return {"message": "Access removed"}
 
 
-@router.get("/{adv_id}/shares")
+@router.get("/{adv_id}/shares", dependencies=[Depends(require_staff)])
 def get_advertiser_shares(adv_id: int, db: Session = Depends(get_db)):
     """Return employees this advertiser is shared with."""
     rows = db.execute(

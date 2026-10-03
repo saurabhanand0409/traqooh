@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+from jwt_utils import require_staff, require_staff_or_field
 import models
 import json
 from utils import log_activity, upload_to_r2
@@ -42,7 +43,7 @@ def audit_to_dict(a):
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_staff)])
 def list_audits(campaignId: Optional[int] = None, siteId: Optional[int] = None, db: Session = Depends(get_db)):
     q = db.query(models.SiteAudit)
     if campaignId:
@@ -52,7 +53,7 @@ def list_audits(campaignId: Optional[int] = None, siteId: Optional[int] = None, 
     return [audit_to_dict(a) for a in q.order_by(models.SiteAudit.created_at.desc()).all()]
 
 
-@router.get("/{audit_id}")
+@router.get("/{audit_id}", dependencies=[Depends(require_staff)])
 def get_audit(audit_id: int, db: Session = Depends(get_db)):
     a = db.query(models.SiteAudit).filter(models.SiteAudit.id == audit_id).first()
     if not a:
@@ -60,7 +61,7 @@ def get_audit(audit_id: int, db: Session = Depends(get_db)):
     return audit_to_dict(a)
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_staff)])
 def create_audit(req: AuditCreate, db: Session = Depends(get_db)):
     from datetime import date
     a = models.SiteAudit(
@@ -76,7 +77,7 @@ def create_audit(req: AuditCreate, db: Session = Depends(get_db)):
     return audit_to_dict(a)
 
 
-@router.put("/{audit_id}")
+@router.put("/{audit_id}", dependencies=[Depends(require_staff)])
 def update_audit(audit_id: int, req: AuditUpdate, db: Session = Depends(get_db)):
     from datetime import date
     a = db.query(models.SiteAudit).filter(models.SiteAudit.id == audit_id).first()
@@ -100,7 +101,7 @@ def update_audit(audit_id: int, req: AuditUpdate, db: Session = Depends(get_db))
     return audit_to_dict(a)
 
 
-@router.post("/{audit_id}/upload-image")
+@router.post("/{audit_id}/upload-image", dependencies=[Depends(require_staff)])
 async def upload_audit_image(audit_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     a = db.query(models.SiteAudit).filter(models.SiteAudit.id == audit_id).first()
     if not a:
@@ -114,6 +115,6 @@ async def upload_audit_image(audit_id: int, file: UploadFile = File(...), db: Se
 
 
 # Mobile-friendly aliases
-@router.get("/mobile/audits")
+@router.get("/mobile/audits", dependencies=[Depends(require_staff_or_field)])
 def mobile_list_audits(campaignId: Optional[int] = None, siteId: Optional[int] = None, db: Session = Depends(get_db)):
     return list_audits(campaignId=campaignId, siteId=siteId, db=db)

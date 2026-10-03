@@ -28,27 +28,20 @@ export default function RegisterAdvertiser() {
     try {
       setLoading(true);
 
-      // Step 1: Create advertiser profile
-      const advRes = await fetch(`${API_BASE}/api/advertisers`, {
+      // One public call creates the advertiser profile and its login together
+      const res = await fetch(`${API_BASE}/api/auth/register-advertiser`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyName: form.companyName.trim(), email: form.email.trim().toLowerCase(), contactPerson: form.contactName.trim() }),
+        body: JSON.stringify({
+          companyName: form.companyName.trim(),
+          contactName: form.contactName.trim(),
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+        }),
       });
-      if (!advRes.ok) {
-        const d = await advRes.json().catch(() => ({}));
-        throw new Error(d.detail || "Failed to create advertiser profile.");
-      }
-      const adv = await advRes.json();
-
-      // Step 2: Create login credentials
-      const loginRes = await fetch(`${API_BASE}/api/advertisers/create-login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ advertiserId: adv.id, email: form.email.trim().toLowerCase(), password: form.password }),
-      });
-      if (!loginRes.ok) {
-        const d = await loginRes.json().catch(() => ({}));
-        throw new Error(d.detail || "Failed to create login. Please contact support.");
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || "Registration failed. Please try again or contact support.");
       }
 
       setSuccess(true);

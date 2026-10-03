@@ -89,9 +89,9 @@ export default function Dashboard() {
         // The dashboard summary used to scope by user.companyId, which made employees see
         // only their own company's sites (e.g. "Total Sites: 1") even though they should
         // be able to plan campaigns across every vendor in the platform.
-        const url = `${API_BASE}/api/dashboard/summary`;
+        const url = `/api/dashboard/summary`;
         const [sRes, aRes, mRes] = await Promise.all([
-          fetch(url), apiFetch(`/api/dashboard/recent-activity`), apiFetch(`/api/dashboard/launch-metrics`),
+          apiFetch(url), apiFetch(`/api/dashboard/recent-activity`), apiFetch(`/api/dashboard/launch-metrics`),
         ]);
         if (sRes.ok) setSummary(await sRes.json());
         if (aRes.ok) setRecent(await aRes.json());

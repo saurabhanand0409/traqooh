@@ -6,6 +6,18 @@ Dates are in `YYYY-MM-DD`. Each entry lists: **what changed**, **why**, and **wh
 
 ---
 
+## 2026-10-03 (later) — API lockdown
+
+An audit found ~40 endpoints that changed or exposed data with no login check: anyone could create Super Admin accounts, read the full field-PIN list, delete campaigns/vendors/advertisers, mark photos verified, upload any file type to the public R2 bucket, and download the whole site inventory with rates (`GET /api/sites` returned 85 KB to anonymous callers). An advertiser login could also create/delete sites (endpoints only checked "any valid token").
+
+- **Role gates** (`jwt_utils.py`: `require_staff`, `require_admin`, `require_staff_or_field`, `require_field`) on every data endpoint; campaigns, vendors and dashboard routers are staff-only as a whole. Table of who may call what is in `CLAUDE.md`.
+- **Uploads** limited to photo/video/PDF, 100 MB, sanitized folder; require a login.
+- **Company sign-up closed** (invitation-only) until data separation exists (`ALLOW_PUBLIC_SIGNUP`). Advertisers sign up through the new one-step `POST /api/auth/register-advertiser` (the old two-step flow let anyone attach a login to any advertiser).
+- **`REQUIRE_FIELD_AUTH` now defaults to on.** The June APK does not send its token, so it can no longer browse sites or upload until the next APK. No real workers use it (all PINs expired in June).
+- Backend refuses to start on Render without `JWT_SECRET`.
+- Web: Dashboard and Inventory now send the login token (two plain `fetch` calls); advertiser sign-up page uses the new endpoint.
+- Verified: 108 automated checks (including an access matrix of ~45 endpoints x anonymous/advertiser/field/employee/admin, and a mutation check proving it catches an open endpoint) and a browser walk-through of every staff page, the public advertiser link, advertiser sign-up and login, with no refused requests.
+
 ## 2026-10-03 — One GitHub repo; sign-up role fix
 
 ### GitHub

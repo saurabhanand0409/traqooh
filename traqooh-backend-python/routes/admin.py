@@ -8,7 +8,7 @@ import random
 from database import get_db
 import models
 from utils import log_activity
-from jwt_utils import get_current_user, require_roles
+from jwt_utils import get_current_user, require_roles, require_admin, require_staff
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -47,7 +47,7 @@ def media_user_to_dict(u, db: Session = None):
 
 # --- Media Users (was "Employees") ---
 
-@router.get("/media-users")
+@router.get("/media-users", dependencies=[Depends(require_admin)])
 def list_media_users(db: Session = Depends(get_db)):
     """List all media users (EMPLOYEE + TEAM_MEMBER + MEDIA_OWNER roles)."""
     users = db.query(models.UserAccount).filter(
@@ -56,7 +56,7 @@ def list_media_users(db: Session = Depends(get_db)):
     return [media_user_to_dict(u, db) for u in users]
 
 
-@router.post("/media-users")
+@router.post("/media-users", dependencies=[Depends(require_admin)])
 def create_media_user(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
     """Create a new media user account."""
     from main import hash_password
@@ -88,7 +88,7 @@ def create_media_user(req: CreateMediaUserRequest, db: Session = Depends(get_db)
     return media_user_to_dict(user, db)
 
 
-@router.put("/media-users/{user_id}")
+@router.put("/media-users/{user_id}", dependencies=[Depends(require_admin)])
 def update_media_user(user_id: int, req: UpdateMediaUserRequest, db: Session = Depends(get_db)):
     """Update media user display name, password, active status, or vendor assignment."""
     from main import hash_password
@@ -115,7 +115,7 @@ def update_media_user(user_id: int, req: UpdateMediaUserRequest, db: Session = D
     return media_user_to_dict(user, db)
 
 
-@router.delete("/media-users/{user_id}")
+@router.delete("/media-users/{user_id}", dependencies=[Depends(require_admin)])
 def delete_media_user(user_id: int, db: Session = Depends(get_db)):
     """Delete a media user account."""
     user = db.query(models.UserAccount).filter(
@@ -133,22 +133,22 @@ def delete_media_user(user_id: int, db: Session = Depends(get_db)):
 
 # --- Legacy aliases (backward compat during transition) ---
 
-@router.get("/employees")
+@router.get("/employees", dependencies=[Depends(require_admin)])
 def list_employees_alias(db: Session = Depends(get_db)):
     return list_media_users(db)
 
 
-@router.post("/employees")
+@router.post("/employees", dependencies=[Depends(require_admin)])
 def create_employee_alias(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
     return create_media_user(req, db)
 
 
-@router.put("/employees/{user_id}")
+@router.put("/employees/{user_id}", dependencies=[Depends(require_admin)])
 def update_employee_alias(user_id: int, req: UpdateMediaUserRequest, db: Session = Depends(get_db)):
     return update_media_user(user_id, req, db)
 
 
-@router.delete("/employees/{user_id}")
+@router.delete("/employees/{user_id}", dependencies=[Depends(require_admin)])
 def delete_employee_alias(user_id: int, db: Session = Depends(get_db)):
     return delete_media_user(user_id, db)
 
@@ -236,7 +236,7 @@ def field_pin_to_dict(fp, db: Session = None):
     }
 
 
-@router.get("/field-pins")
+@router.get("/field-pins", dependencies=[Depends(require_staff)])
 def list_field_pins(admin_email: Optional[str] = None, db: Session = Depends(get_db)):
     """List all field PINs, optionally filtered by admin email."""
     q = db.query(models.FieldPin)
@@ -246,7 +246,7 @@ def list_field_pins(admin_email: Optional[str] = None, db: Session = Depends(get
     return [field_pin_to_dict(p, db) for p in pins]
 
 
-@router.post("/field-pins")
+@router.post("/field-pins", dependencies=[Depends(require_staff)])
 def create_field_pin(req: CreateFieldPinRequest, db: Session = Depends(get_db)):
     """Generate a random 4-digit PIN for a field worker. Valid for 30 days
     (extended from the original 72 hours so workers aren't re-issued PINs weekly)."""
@@ -277,7 +277,7 @@ def create_field_pin(req: CreateFieldPinRequest, db: Session = Depends(get_db)):
     return field_pin_to_dict(fp, db)
 
 
-@router.delete("/field-pins/{pin_id}")
+@router.delete("/field-pins/{pin_id}", dependencies=[Depends(require_staff)])
 def revoke_field_pin(pin_id: int, db: Session = Depends(get_db)):
     """Revoke (deactivate) a field PIN immediately."""
     fp = db.query(models.FieldPin).filter(models.FieldPin.id == pin_id).first()

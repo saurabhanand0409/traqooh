@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+from jwt_utils import require_admin
 import models
 from utils import log_activity
 
@@ -158,7 +159,7 @@ class CreateEmployeeRequest(BaseModel):
     displayName: Optional[str] = None
 
 
-@router.post("/{vendor_id}/set-admin")
+@router.post("/{vendor_id}/set-admin", dependencies=[Depends(require_admin)])
 def set_vendor_admin(vendor_id: int, req: SetAdminRequest, db: Session = Depends(get_db)):
     """Create or replace the admin login for a company."""
     from main import hash_password

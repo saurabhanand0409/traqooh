@@ -30,8 +30,32 @@ if R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_ENDPOINT_URL:
     logger.info("Cloudflare R2 storage initialized")
 
 
+ALLOWED_UPLOAD_PREFIXES = ("image/", "video/")
+ALLOWED_UPLOAD_TYPES = ("application/pdf",)
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+MEDIA_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".mp4", ".mov", ".m4v", ".3gp", ".pdf")
+
+
+def _check_upload(file, folder):
+    """Reject anything that is not a photo, video or PDF, and tidy the folder name."""
+    from fastapi import HTTPException
+    ctype = (file.content_type or "").lower()
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    # Some phones send media as a generic type; accept those only when the extension says photo/video/PDF.
+    if ctype in ("", "application/octet-stream") and ext in MEDIA_EXTENSIONS:
+        ctype = "image/jpeg" if ext in (".jpg", ".jpeg", ".png", ".webp", ".heic") else "video/mp4" if ext != ".pdf" else "application/pdf"
+    if not (ctype.startswith(ALLOWED_UPLOAD_PREFIXES) or ctype in ALLOWED_UPLOAD_TYPES) or ctype == "image/svg+xml":
+        raise HTTPException(status_code=400, detail="Only photos, videos and PDF files can be uploaded")
+    size = getattr(file, "size", None)
+    if size and size > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File is too large (100 MB limit)")
+    import re
+    return re.sub(r"[^A-Za-z0-9_-]", "", folder or "") or "general"
+
+
 async def upload_to_r2(file, folder="general"):
     """Upload a file to R2 with organized folder prefix. Returns public URL."""
+    folder = _check_upload(file, folder)
     ext = os.path.splitext(file.filename)[1]
     unique_name = f"{folder}/{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}{ext}"
 

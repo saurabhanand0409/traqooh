@@ -128,9 +128,9 @@ export default function Inventory() {
       setLoading(true);
       setError("");
       try {
-        let url = `${API_BASE}/api/mobile/sites`;
+        let url = `/api/mobile/sites`;
         if (currentOwnerId) url += `?ownerId=${currentOwnerId}`;
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         if (!res.ok) throw new Error("Failed to load sites");
         const data = await res.json();
 

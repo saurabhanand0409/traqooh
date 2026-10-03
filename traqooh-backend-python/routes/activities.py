@@ -17,7 +17,7 @@ import json
 from database import get_db
 import models
 from utils import log_activity, upload_to_r2
-from jwt_utils import get_current_user_optional, REQUIRE_FIELD_AUTH
+from jwt_utils import get_current_user_optional, REQUIRE_FIELD_AUTH, require_staff
 from proofs import image_urls, image_labels, parse_client_datetime, iso
 import notifications
 
@@ -94,7 +94,7 @@ def activity_to_dict(a, db: Optional[Session] = None):
 
 
 # ---------- List / Filter ----------
-@router.get("")
+@router.get("", dependencies=[Depends(require_staff)])
 def list_activities(
     campaignId: Optional[int] = None,
     siteId: Optional[int] = None,
@@ -118,7 +118,7 @@ def list_activities(
     return [activity_to_dict(a, db) for a in rows]
 
 
-@router.get("/{activity_id}")
+@router.get("/{activity_id}", dependencies=[Depends(require_staff)])
 def get_activity(activity_id: int, db: Session = Depends(get_db)):
     a = db.query(models.CampaignActivity).filter(models.CampaignActivity.id == activity_id).first()
     if not a:
@@ -127,7 +127,7 @@ def get_activity(activity_id: int, db: Session = Depends(get_db)):
 
 
 # ---------- Create ----------
-@router.post("")
+@router.post("", dependencies=[Depends(require_staff)])
 def create_activity(req: ActivityCreate, db: Session = Depends(get_db)):
     at = (req.activityType or "").upper()
     if at not in VALID_TYPES:
@@ -165,7 +165,7 @@ def create_activity(req: ActivityCreate, db: Session = Depends(get_db)):
 
 
 # ---------- Update ----------
-@router.put("/{activity_id}")
+@router.put("/{activity_id}", dependencies=[Depends(require_staff)])
 def update_activity(activity_id: int, req: ActivityUpdate, background: BackgroundTasks,
                     db: Session = Depends(get_db),
                     user: Optional[dict] = Depends(get_current_user_optional)):
@@ -223,7 +223,7 @@ def _notify_retake(db: Session, a, background: BackgroundTasks):
 
 
 # ---------- Delete ----------
-@router.delete("/{activity_id}")
+@router.delete("/{activity_id}", dependencies=[Depends(require_staff)])
 def delete_activity(activity_id: int, db: Session = Depends(get_db)):
     a = db.query(models.CampaignActivity).filter(models.CampaignActivity.id == activity_id).first()
     if not a:
@@ -235,7 +235,7 @@ def delete_activity(activity_id: int, db: Session = Depends(get_db)):
 
 
 # ---------- Photo upload ----------
-@router.post("/{activity_id}/upload-image")
+@router.post("/{activity_id}/upload-image", dependencies=[Depends(require_staff)])
 async def upload_activity_image(activity_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     a = db.query(models.CampaignActivity).filter(models.CampaignActivity.id == activity_id).first()
     if not a:
@@ -248,7 +248,7 @@ async def upload_activity_image(activity_id: int, file: UploadFile = File(...), 
     return {"imageUrl": url, "allImages": current}
 
 
-@router.delete("/{activity_id}/image")
+@router.delete("/{activity_id}/image", dependencies=[Depends(require_staff)])
 def remove_activity_image(activity_id: int, imageUrl: str, db: Session = Depends(get_db)):
     a = db.query(models.CampaignActivity).filter(models.CampaignActivity.id == activity_id).first()
     if not a:
@@ -265,7 +265,7 @@ def remove_activity_image(activity_id: int, imageUrl: str, db: Session = Depends
 
 
 # ---------- Per-campaign timeline summary ----------
-@router.get("/campaign/{campaign_id}/timeline")
+@router.get("/campaign/{campaign_id}/timeline", dependencies=[Depends(require_staff)])
 def campaign_timeline(campaign_id: int, db: Session = Depends(get_db)):
     """Grouped activity timeline for a campaign — useful for the dashboard."""
     rows = (db.query(models.CampaignActivity)

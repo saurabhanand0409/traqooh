@@ -193,7 +193,8 @@ If `RESEND_API_KEY` is unset, the OTP/link is logged to Render console instead (
 | `R2_PUBLIC_DOMAIN` | Public bucket URL; also used to turn a photo URL back into an R2 key for zips |
 | `FRONTEND_URL` *(optional)* | Defaults to `https://app.brandsculpt.com` — used in advertiser email links |
 | `SENTRY_DSN` *(optional)* | Backend error reporting; off when unset. Web uses `VITE_SENTRY_DSN` at build time |
-| `REQUIRE_FIELD_AUTH` *(optional)* | `true` = uploads and my-sites need a field login. **Leave off until every worker has the new APK** |
+| `REQUIRE_FIELD_AUTH` *(optional)* | Defaults to **on**: field uploads and my-sites need the worker's login token. Set `false` only to keep a pre-October APK working (it doesn't send the token) |
+| `ALLOW_PUBLIC_SIGNUP` *(optional)* | Defaults to off. `true` lets anyone self-register a company Admin/Media Owner account |
 | `EXPO_ACCESS_TOKEN` *(optional)* | Only if Expo push security is enabled on the project |
 
 ---
@@ -316,7 +317,25 @@ adb -s emulator-5554 reverse tcp:8082 tcp:8082
 - CORS allowed origins: `app.brandsculpt.com`, `traqooh.brandsculpt.com`, `localhost:5173/3000`, `127.0.0.1:5173`
 - Passwords: bcrypt-hashed
 - Access link tokens: SHA-256 hashed in DB; plaintext never persisted
-- `JWT_SECRET`: 64-char random hex env var
+- `JWT_SECRET`: 64-char random hex env var. On Render (`RENDER=true`) the backend refuses to start without it, so a missing secret can never fall back to the built-in dev secret.
+
+### Who may call what (since 2026-10-03)
+Every endpoint that reads or changes data needs a login with the right role (`jwt_utils.py` gates: `require_staff`, `require_admin`, `require_staff_or_field`, `require_field`). Before this, ~40 endpoints had no check at all.
+
+| Caller | Allowed |
+|--------|---------|
+| Anonymous | `/health`, `/api/auth/*` (login, OTP, field PIN), `POST /api/auth/register-advertiser`, token-link portal `/api/access/{token}/*`, `/api/advertisers/validate-token`, `GET /api/sites/{id}/images` (hoarding photos shown on the portal) |
+| ADVERTISER (logged in) | `/api/advertisers/me/dashboard` only |
+| FIELD (PIN login) | site reads (`/api/sites*`, `/api/mobile/sites`), `/api/mobile/my-sites`, `/api/activities/mobile/log`, `/api/upload`, push-token |
+| Staff (EMPLOYEE, TEAM_MEMBER, MEDIA_OWNER) | campaigns, advertisers, vendors, activities, audits, dashboard, sites, field PINs, uploads |
+| ADMIN / SUPER_ADMIN | all of the above + `/api/admin/media-users`, `/api/admin/employees`, vendor `set-admin` |
+| SUPER_ADMIN only | `/api/admin/create-super-admin`, `/api/admin/create-admin` |
+
+- Uploads accept photos, videos and PDFs only (no HTML/SVG), 100 MB max, folder names sanitized (`utils._check_upload`).
+- **Company sign-up (`POST /api/auth/register`) is invitation-only** (returns 403) until data separation exists; set `ALLOW_PUBLIC_SIGNUP=true` on Render to reopen. Even then it can only create `ADMIN` or `MEDIA_OWNER`.
+- Advertisers sign themselves up through `POST /api/auth/register-advertiser`, which creates the advertiser and its login in one step; `create-login` itself is staff-only.
+- **Still open (data separation, Phase 2):** every staff account can read every company's data. Role gates stop outsiders, not one agency seeing another's.
+- Regression test: `traqooh-backend-python/tests/smoke_test.py` (run `python tests/smoke_test.py` from that folder). Section 11 is an access matrix of about 45 endpoints x 5 caller types. Run it after any change to routes or auth, before pushing.
 
 ---
 

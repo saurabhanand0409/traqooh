@@ -18,7 +18,7 @@ import hashlib
 import bcrypt
 from utils import log_activity, site_to_dict, upload_to_r2
 from jwt_utils import (create_access_token, get_current_user, get_current_user_optional, require_roles,
-                       REQUIRE_FIELD_AUTH)
+                       REQUIRE_FIELD_AUTH, require_staff, require_admin, require_staff_or_field, require_field)
 import proofs
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -380,11 +380,11 @@ from routes.dashboard import router as dashboard_router
 from routes.admin import router as admin_router
 from routes.activities import router as activities_router
 
-app.include_router(vendors_router)
+app.include_router(vendors_router, dependencies=[Depends(require_staff)])
 app.include_router(advertisers_router)
-app.include_router(campaigns_router)
+app.include_router(campaigns_router, dependencies=[Depends(require_staff)])
 app.include_router(audits_router)
-app.include_router(dashboard_router)
+app.include_router(dashboard_router, dependencies=[Depends(require_staff)])
 app.include_router(admin_router)
 app.include_router(activities_router)
 
@@ -413,6 +413,10 @@ class ContactRequest(BaseModel):
 # Roles the public /api/auth/register form may create: a media company's admin
 # (RegisterAdmin.jsx) or a media owner (MediaOwnerCreate.jsx).
 SELF_SIGNUP_ROLES = {"ADMIN", "MEDIA_OWNER"}
+# Every staff account can currently read every company's data (separation is a later phase), so a
+# stranger must not be able to create one. Company sign-up is invitation-only until that is built;
+# set ALLOW_PUBLIC_SIGNUP=true on Render to open it again.
+ALLOW_PUBLIC_SIGNUP = os.environ.get("ALLOW_PUBLIC_SIGNUP", "").strip().lower() in ("1", "true", "yes")
 
 
 class CreateMediaOwnerRequest(BaseModel):
@@ -688,7 +692,7 @@ def field_login(request: Request, req: FieldLoginRequest, db: Session = Depends(
 
 
 # --- Nearby Sites (Mobile App) ---
-@app.get("/api/sites/nearby")
+@app.get("/api/sites/nearby", dependencies=[Depends(require_staff_or_field)])
 def get_nearby_sites(city: str = None, state: str = None, db: Session = Depends(get_db)):
     """Return sites filtered by city (and optionally state). Used by mobile app."""
     from utils import site_to_dict
@@ -701,7 +705,7 @@ def get_nearby_sites(city: str = None, state: str = None, db: Session = Depends(
     return [site_to_dict(s) for s in sites]
 
 
-@app.get("/api/sites/{site_id}/gallery")
+@app.get("/api/sites/{site_id}/gallery", dependencies=[Depends(require_staff_or_field)])
 def site_gallery(site_id: int, db: Session = Depends(get_db)):
     """Return all activity photos for a site grouped by activity type.
     Used by the mobile app and web inventory to show the site photo history.
@@ -786,7 +790,7 @@ def list_site_images(site_id: int, db: Session = Depends(get_db)):
     return [_site_image_dict(r) for r in rows]
 
 
-@app.post("/api/sites/{site_id}/images")
+@app.post("/api/sites/{site_id}/images", dependencies=[Depends(require_staff)])
 async def add_site_image(site_id: int, file: UploadFile = File(...),
                          caption: Optional[str] = Form(None),
                          setAsPrimary: Optional[bool] = Form(False),
@@ -817,7 +821,7 @@ async def add_site_image(site_id: int, file: UploadFile = File(...),
     return _site_image_dict(img)
 
 
-@app.post("/api/sites/{site_id}/images/{image_id}/set-primary")
+@app.post("/api/sites/{site_id}/images/{image_id}/set-primary", dependencies=[Depends(require_staff)])
 def set_primary_site_image(site_id: int, image_id: int, db: Session = Depends(get_db)):
     """Choose which photo represents this site (the 'face')."""
     img = db.query(models.SiteImage).filter(
@@ -837,7 +841,7 @@ def set_primary_site_image(site_id: int, image_id: int, db: Session = Depends(ge
     return _site_image_dict(img)
 
 
-@app.delete("/api/sites/{site_id}/images/{image_id}")
+@app.delete("/api/sites/{site_id}/images/{image_id}", dependencies=[Depends(require_staff)])
 def delete_site_image(site_id: int, image_id: int, db: Session = Depends(get_db)):
     """Remove a photo from a site's library. If it was the cover, promote another one."""
     img = db.query(models.SiteImage).filter(
@@ -867,6 +871,8 @@ def delete_site_image(site_id: int, image_id: int, db: Session = Depends(get_db)
 @app.post("/api/auth/register")
 @app.post("/api/media-owners")
 def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_db)):
+    if not ALLOW_PUBLIC_SIGNUP:
+        raise HTTPException(status_code=403, detail="Company sign-up is by invitation during the pilot. Please contact BrandSculpt to get your account.")
     # Public sign-up: the caller must never pick a privileged role (e.g. SUPER_ADMIN).
     role = (req.role or "MEDIA_OWNER").strip().upper()
     if role not in SELF_SIGNUP_ROLES:
@@ -915,9 +921,41 @@ def create_media_owner(req: CreateMediaOwnerRequest, db: Session = Depends(get_d
         logger.error(f"Registration Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class AdvertiserSelfRegister(BaseModel):
+    companyName: str
+    contactName: str
+    email: str
+    password: str
+
+
+@app.post("/api/auth/register-advertiser")
+@limiter.limit("5/minute")
+def register_advertiser(request: Request, req: AdvertiserSelfRegister, db: Session = Depends(get_db)):
+    """Public: a brand signs itself up. Creates a NEW advertiser and its login in one step, so it can
+    never attach a login to somebody else's advertiser record (create-login is staff-only)."""
+    email = req.email.strip().lower()
+    if not req.companyName.strip() or not req.contactName.strip():
+        raise HTTPException(status_code=400, detail="Company name and your name are required")
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    if db.query(models.UserAccount).filter(models.UserAccount.email.ilike(email)).first():
+        raise HTTPException(status_code=409, detail="Email already registered")
+    adv = models.Advertiser(company_name=req.companyName.strip(), contact_person=req.contactName.strip(),
+                            email=email, status="ACTIVE")
+    db.add(adv)
+    db.flush()
+    db.add(models.UserAccount(email=email, password_hash=hash_password(req.password), role="ADVERTISER",
+                              advertiser_id=adv.id, display_name=adv.company_name, is_active=True))
+    db.commit()
+    log_activity(db, "Advertiser self sign-up", "advertiser", adv.id, email)
+    return {"message": "Account created"}
+
+
 # --- Sites ---
-@app.get("/api/sites")
-@app.get("/api/mobile/sites")
+@app.get("/api/sites", dependencies=[Depends(require_staff_or_field)])
+@app.get("/api/mobile/sites", dependencies=[Depends(require_staff_or_field)])
 def get_sites(ownerId: Optional[int] = None, vendorId: Optional[int] = None,
               availabilityStatus: Optional[str] = None, city: Optional[str] = None,
               state: Optional[str] = None, siteType: Optional[str] = None,
@@ -1044,7 +1082,7 @@ def register_push_token(req: PushTokenRequest, db: Session = Depends(get_db),
     return {"registered": True}
 
 
-@app.delete("/api/mobile/push-token")
+@app.delete("/api/mobile/push-token", dependencies=[Depends(require_field)])
 def unregister_push_token(req: PushTokenRequest, db: Session = Depends(get_db)):
     """Called on sign-out so a shared phone stops getting the previous worker's alerts."""
     db.query(models.PushToken).filter(models.PushToken.token == (req.token or "").strip()).delete()
@@ -1052,8 +1090,8 @@ def unregister_push_token(req: PushTokenRequest, db: Session = Depends(get_db)):
     return {"removed": True}
 
 
-@app.get("/api/mobile/sites/{site_id}")
-@app.get("/api/sites/{site_id}")
+@app.get("/api/mobile/sites/{site_id}", dependencies=[Depends(require_staff_or_field)])
+@app.get("/api/sites/{site_id}", dependencies=[Depends(require_staff_or_field)])
 def get_site_details(site_id: int, db: Session = Depends(get_db)):
     site = db.query(models.Site).filter(models.Site.id == site_id).options(joinedload(models.Site.owner)).first()
     if not site:
@@ -1069,7 +1107,7 @@ def get_site_details(site_id: int, db: Session = Depends(get_db)):
     } for a in assignments]
     return result
 
-@app.post("/api/sites")
+@app.post("/api/sites", dependencies=[Depends(require_staff)])
 def create_site(req: SiteCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     from datetime import date
     vendor_id = req.vendorId or req.ownerCompanyId  # vendorId takes precedence if provided
@@ -1094,7 +1132,7 @@ def create_site(req: SiteCreate, db: Session = Depends(get_db), current_user: di
     log_activity(db, "Created site", "site", site.id, site.name)
     return site_to_dict(site)
 
-@app.put("/api/sites/{site_id}")
+@app.put("/api/sites/{site_id}", dependencies=[Depends(require_staff)])
 def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     from datetime import date
     site = db.query(models.Site).filter(models.Site.id == site_id).first()
@@ -1135,7 +1173,7 @@ def update_site(site_id: int, req: SiteCreate, db: Session = Depends(get_db), cu
     log_activity(db, "Updated site", "site", site.id, site.name)
     return site_to_dict(site)
 
-@app.delete("/api/sites/{site_id}")
+@app.delete("/api/sites/{site_id}", dependencies=[Depends(require_staff)])
 def delete_site(site_id: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     # Cascade: clear every row that FKs to this site before deleting the site itself.
     # Tables pointing at sites.id directly: campaign_activities, site_audits,
@@ -1185,7 +1223,7 @@ def delete_site(site_id: int, db: Session = Depends(get_db), current_user: dict 
     log_activity(db, "Deleted site (cascade)", "site", site_id, site_name)
     return {"message": "Site deleted successfully"}
 
-@app.get("/api/sites/{site_id}/bookings")
+@app.get("/api/sites/{site_id}/bookings", dependencies=[Depends(require_staff)])
 def get_site_bookings(site_id: int, db: Session = Depends(get_db)):
     """Fetch booking schedule for a specific site from CampaignSiteAssignment."""
     assignments = db.query(models.CampaignSiteAssignment).options(
@@ -1211,24 +1249,26 @@ def get_site_bookings(site_id: int, db: Session = Depends(get_db)):
     return bookings
 
 # --- Uploads ---
-@app.post("/api/upload")
-@app.post("/api/mobile/upload")
+@app.post("/api/upload", dependencies=[Depends(require_staff_or_field)])
+@app.post("/api/mobile/upload", dependencies=[Depends(require_staff_or_field)])
 async def upload_file(file: UploadFile = File(...), folder: Optional[str] = "sites"):
     try:
         url = await upload_to_r2(file, folder=folder or "sites")
         return {"imageUrl": url, "success": True}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Upload error: {e}")
         return {"success": False, "error": str(e)}
 
 # --- Legacy endpoints ---
-@app.get("/api/media-owners/all")
+@app.get("/api/media-owners/all", dependencies=[Depends(require_staff)])
 def get_all_media_owners(db: Session = Depends(get_db)):
     gsts = db.query(models.GstRegistration).options(joinedload(models.GstRegistration.company)).all()
     return [{"companyId": g.company_id, "companyName": g.company.name if g.company else "Unknown",
              "gstNumber": g.gst_number, "gstId": g.id} for g in gsts]
 
-@app.get("/api/companies")
+@app.get("/api/companies", dependencies=[Depends(require_staff)])
 def get_companies(db: Session = Depends(get_db)):
     return db.query(models.Company).all()
 
