@@ -1,0 +1,104 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:      #070C1A;
+  --nav:     #0B1120;
+  --sidebar: #0D1428;
+  --card:    rgba(255,255,255,0.04);
+  --border:  rgba(255,255,255,0.08);
+  --blue:    #2563EB;
+  --blue2:   #3B82F6;
+  --red:     #DC143C;
+  --green:   #22C55E;
+  --orange:  #F59E0B;
+  --gray:    #9CA3AF;
+  --gray2:   #6B7280;
+  --gray3:   #374151;
+}
+
+html, body {
+  @apply antialiased;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: #F9FAFB;
+  overflow-x: hidden;
+}
+
+/* Syne for headings */
+.font-syne { font-family: 'Syne', sans-serif; }
+
+/* Dark scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* Glass card */
+.glass {
+  background: var(--card);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+}
+
+/* Brand gradient text */
+.brand-gradient-text {
+  background: linear-gradient(135deg, #2563EB, #DC143C);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glow effects */
+.glow-blue  { box-shadow: 0 0 40px rgba(37,99,235,0.25); }
+.glow-red   { box-shadow: 0 0 40px rgba(220,20,60,0.2); }
+
+/* Status badge colours */
+.badge-live      { @apply bg-green-500/15 text-green-400 border border-green-500/20; }
+.badge-draft     { @apply bg-gray-500/15 text-gray-400 border border-gray-500/20; }
+.badge-planned   { @apply bg-blue-500/15 text-blue-400 border border-blue-500/20; }
+.badge-sent      { @apply bg-purple-500/15 text-purple-400 border border-purple-500/20; }
+.badge-confirmed { @apply bg-amber-500/15 text-amber-400 border border-amber-500/20; }
+.badge-completed { @apply bg-gray-600/20 text-gray-500 border border-gray-600/20; }
+.badge-vacant    { @apply bg-green-500/15 text-green-400 border border-green-500/20; }
+.badge-booked    { @apply bg-red-500/15 text-red-400 border border-red-500/20; }
+.badge-soon      { @apply bg-amber-500/15 text-amber-400 border border-amber-500/20; }
+.badge-pending   { @apply bg-amber-500/15 text-amber-400 border border-amber-500/20; }
+.badge-done      { @apply bg-green-500/15 text-green-400 border border-green-500/20; }
+.badge-verified  { @apply bg-blue-500/15 text-blue-400 border border-blue-500/20; }
+
+/* Input base — in @layer components so Tailwind utilities (pl-*, pr-*) correctly override */
+@layer components {
+  .tq-input {
+    @apply w-full rounded-xl px-4 py-2.5 text-sm outline-none transition-all;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #F9FAFB;
+  }
+  .tq-input::placeholder { color: #6B7280; }
+  .tq-input:focus {
+    border-color: var(--blue);
+    background: rgba(37,99,235,0.08);
+  }
+}
+
+/* Select base — every dropdown's options use the dark theme so the OS-native
+   menu doesn't render white-on-white on Windows/Chrome */
+select option,
+select.tq-input option { background: #0D1428; color: #F9FAFB; }
+
+/* Legal pages (Privacy Policy, Terms of Service) — list rendering */
+.legal-prose ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.legal-prose ul li { margin: 0.4rem 0; line-height: 1.65; }
+.legal-prose ul li::marker { color: #60A5FA; }
+.legal-prose p { margin: 0.5rem 0; }
+.legal-prose strong { color: #fff; font-weight: 600; }
+.legal-prose a { color: #60A5FA; text-decoration: underline; }
+.legal-prose a:hover { color: #93C5FD; }
