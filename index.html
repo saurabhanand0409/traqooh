@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content="TraqOOH — The complete OOH media planning, inventory management and campaign execution platform for agencies, media owners and advertisers."/>
+<meta name="keywords" content="OOH media planning software, outdoor advertising management, campaign management platform, hoarding management system, OOH SaaS India"/>
+<meta property="og:title" content="TraqOOH — Plan. Execute. Track."/>
+<meta property="og:description" content="The complete platform for OOH media planning, inventory management and campaign execution."/>
+<title>TraqOOH — Plan. Execute. Track.</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='url(%23g)'/><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%232563EB'/><stop offset='100%25' stop-color='%23DC143C'/></linearGradient></defs><text x='16' y='22' font-family='Arial Black,Arial,sans-serif' font-weight='900' font-size='13' fill='white' text-anchor='middle'>tq</text></svg>"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#070C1A;--navy:#0D1428;--navy2:#111B35;
+  --orange:#FF5722;--orange2:#FF7043;
+  --blue:#2563EB;--blue2:#3B82F6;
+  --green:#25D366;
+  --white:#fff;--gray:#9CA3AF;--gray2:#6B7280;--gray3:#374151;
+  --glass:rgba(255,255,255,0.04);--glass-b:rgba(255,255,255,0.08);
+}
+html{scroll-behavior:smooth;overflow-x:hidden}
+body{background:var(--bg);color:var(--white);font-family:'Inter',sans-serif;overflow-x:hidden;max-width:100%;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--blue);border-radius:3px}
+.syne{font-family:'Syne',sans-serif}
+.tg{background:linear-gradient(135deg,#2563EB,#DC143C);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.tg-blue{background:linear-gradient(135deg,#2563EB,#60A5FA);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.glass{background:var(--glass);border:1px solid var(--glass-b);backdrop-filter:blur(12px)}
+.btn-orange{display:inline-flex;align-items:center;gap:8px;background:var(--blue);color:#fff;font-weight:700;border-radius:12px;transition:all .3s;box-shadow:0 8px 30px rgba(37,99,235,.35);border:none;cursor:pointer;font-family:'Inter',sans-serif;text-decoration:none}
+.btn-orange:hover{background:var(--blue2);transform:translateY(-2px);box-shadow:0 12px 40px rgba(37,99,235,.45)}
+.btn-blue{display:inline-flex;align-items:center;gap:8px;background:var(--blue);color:#fff;font-weight:700;border-radius:12px;transition:all .3s;box-shadow:0 8px 30px rgba(37,99,235,.3);border:none;cursor:pointer;font-family:'Inter',sans-serif;text-decoration:none}
+.btn-blue:hover{background:var(--blue2);transform:translateY(-2px)}
+.btn-ghost{display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.06);color:#fff;font-weight:600;border-radius:12px;transition:all .3s;border:1px solid rgba(255,255,255,.12);cursor:pointer;font-family:'Inter',sans-serif;text-decoration:none}
+.btn-ghost:hover{background:rgba(255,255,255,.1);transform:translateY(-2px)}
+/* Reveal */
+.rv{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease}
+.rv.show{opacity:1;transform:translateY(0)}
+.rv.fl{transform:translateX(-28px)}.rv.fr{transform:translateX(28px)}
+.rv.show.fl,.rv.show.fr{transform:translateX(0)}
+.d1{transition-delay:.08s}.d2{transition-delay:.16s}.d3{transition-delay:.24s}.d4{transition-delay:.32s}.d5{transition-delay:.4s}.d6{transition-delay:.48s}
+@keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.a1{animation:fadeUp .9s ease both}.a2{animation:fadeUp .9s .15s ease both}.a3{animation:fadeUp .9s .3s ease both}.a4{animation:fadeUp .9s .45s ease both}.a5{animation:fadeUp .9s .6s ease both}
+.ticker-inner{animation:ticker 35s linear infinite;display:flex;width:max-content}
+.grid-bg{background-image:linear-gradient(rgba(37,99,235,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(37,99,235,.03) 1px,transparent 1px);background-size:60px 60px}
+/* Nav */
+nav{position:fixed;top:0;left:0;right:0;z-index:999;padding:18px 0;transition:all .3s}
+nav.scrolled{background:rgba(7,12,26,.96);backdrop-filter:blur(20px);border-bottom:1px solid rgba(255,255,255,.06);padding:12px 0}
+.nav-inner{max-width:1280px;margin:0 auto;padding:0 24px;display:flex;align-items:center;justify-content:space-between}
+.logo{display:flex;align-items:center;gap:6px;text-decoration:none}
+.logo-icon{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#2563EB,#DC143C);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:900;font-size:.8rem;color:#fff;letter-spacing:.02em;box-shadow:0 4px 20px rgba(37,99,235,.35);flex-shrink:0}
+.logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:1.15rem;letter-spacing:.02em;line-height:1}
+.logo-text .traq{color:#2563EB}.logo-text .ooh{color:#DC143C}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{color:var(--gray);font-size:.875rem;font-weight:500;text-decoration:none;transition:.2s}
+.nav-links a:hover{color:#fff}
+.nav-ctas{display:flex;align-items:center;gap:10px}
+.hamburger{display:none;flex-direction:column;gap:5px;cursor:pointer;padding:4px}
+.hamburger span{display:block;width:22px;height:2px;background:#fff;border-radius:2px;transition:.3s}
+.mobile-menu{display:none;position:fixed;inset:0;z-index:998;background:rgba(7,12,26,.98);backdrop-filter:blur(20px);flex-direction:column;align-items:center;justify-content:center;gap:28px}
+.mobile-menu.open{display:flex}
+.mobile-menu a{color:#fff;font-size:1.4rem;font-family:'Syne',sans-serif;font-weight:700;text-decoration:none;opacity:.8;transition:.2s}
+.mobile-menu a:hover{opacity:1;color:var(--blue)}
+/* Hero */
+#hero{min-height:100vh;display:flex;align-items:center;position:relative;overflow:hidden}
+.hero-bg{position:absolute;inset:0;background-image:url('https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1800&auto=format&fit=crop&q=80');background-size:cover;background-position:center;filter:brightness(.15) saturate(1.5)}
+.hero-overlay{position:absolute;inset:0;background:linear-gradient(135deg,rgba(7,12,26,.95) 0%,rgba(7,12,26,.75) 60%,rgba(37,99,235,.05) 100%)}
+.hero-content{position:relative;max-width:1280px;margin:0 auto;padding:120px 24px 80px;width:100%}
+.hero-tag{display:inline-flex;align-items:center;gap:8px;background:rgba(37,99,235,.12);border:1px solid rgba(37,99,235,.25);color:#93C5FD;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.18em;padding:8px 18px;border-radius:100px;margin-bottom:28px}
+.hero-tag-dot{width:6px;height:6px;border-radius:50%;background:var(--blue);animation:pulse 2s infinite}
+.hero-h1{font-family:'Syne',sans-serif;font-weight:800;line-height:1.04;letter-spacing:-.03em;margin-bottom:24px;font-size:clamp(2.8rem,6vw,5rem)}
+.hero-sub{font-size:1.1rem;color:var(--gray);max-width:560px;line-height:1.75;margin-bottom:40px}
+.hero-ctas{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:60px}
+.hero-ctas .btn-orange,.hero-ctas .btn-ghost{padding:15px 28px;font-size:.95rem}
+.hero-chips{display:flex;flex-wrap:wrap;gap:10px}
+.hero-chip{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--gray);font-size:.75rem;font-weight:600;padding:6px 14px;border-radius:100px}
+.hero-chip span{color:var(--blue);font-size:.6rem}
+/* Ticker */
+.ticker-wrap{overflow:hidden;background:linear-gradient(135deg,#2563EB,#DC143C);padding:13px 0}
+.ticker-inner span{font-family:'Syne',sans-serif;font-weight:700;font-size:.8rem;text-transform:uppercase;letter-spacing:.1em;padding:0 28px;color:#fff;opacity:.9}
+.ticker-inner span.dot{opacity:.4;padding:0 4px}
+/* Sections */
+section{padding:96px 0}
+.container{max-width:1280px;margin:0 auto;padding:0 24px}
+.stag{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.2em;display:block;margin-bottom:12px}
+.sh2{font-family:'Syne',sans-serif;font-weight:800;letter-spacing:-.03em;line-height:1.1;font-size:clamp(2rem,4.5vw,3.2rem)}
+/* Features */
+#features{background:var(--navy)}
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:56px}
+.feat-card{border-radius:20px;padding:28px;transition:all .3s;cursor:default;position:relative;overflow:hidden}
+.feat-card:hover{transform:translateY(-5px)}
+.feat-card::before{content:'';position:absolute;inset:0;border-radius:20px;opacity:0;transition:.3s;background:linear-gradient(135deg,rgba(37,99,235,.06),transparent)}
+.feat-card:hover::before{opacity:1}
+.feat-icon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;font-size:1.4rem}
+.feat-h3{font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;margin-bottom:10px}
+.feat-desc{font-size:.85rem;color:var(--gray);line-height:1.7}
+/* How it works */
+#how{background:var(--bg)}
+.how-tabs{display:flex;gap:4px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:4px;width:fit-content;margin:0 auto 48px}
+.how-tab{padding:10px 24px;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:.2s;border:none;background:none;color:var(--gray)}
+.how-tab.active{background:var(--orange);color:#fff;box-shadow:0 4px 16px rgba(255,87,34,.3)}
+.how-content{display:none}
+.how-content.active{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}
+.how-steps{display:flex;flex-direction:column;gap:24px}
+.how-step{display:flex;align-items:flex-start;gap:16px;padding:20px;border-radius:16px;transition:.3s}
+.how-step:hover{background:var(--glass);border:1px solid var(--glass-b)}
+.how-step-num{width:36px;height:36px;border-radius:10px;background:rgba(255,87,34,.12);border:1px solid rgba(255,87,34,.2);color:var(--orange);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:.9rem;flex-shrink:0}
+.how-step-title{font-weight:700;font-size:.95rem;margin-bottom:4px}
+.how-step-desc{font-size:.8rem;color:var(--gray);line-height:1.6}
+.how-visual{border-radius:24px;overflow:hidden;aspect-ratio:4/3;position:relative}
+.how-visual img{width:100%;height:100%;object-fit:cover;display:block}
+.how-visual-placeholder{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;position:relative}
+.screen-mock{background:rgba(7,12,26,.9);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:20px;width:90%;max-width:340px}
+.screen-topbar{display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.06)}
+.screen-dot{width:8px;height:8px;border-radius:50%}
+.screen-line{height:6px;border-radius:3px;background:rgba(255,255,255,.08)}
+.screen-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px;margin-bottom:8px}
+/* Stats */
+#stats-section{background:linear-gradient(135deg,#1E1B4B,#2563EB,#DC143C);padding:80px 0;position:relative;overflow:hidden}
+#stats-section::before{content:'';position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px);background-size:24px 24px}
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:0;position:relative}
+.stat-box{text-align:center;padding:20px;border-right:1px solid rgba(255,255,255,.12)}
+.stat-box:last-child{border-right:none}
+.stat-num{font-family:'Syne',sans-serif;font-weight:800;font-size:3.2rem;color:#fff;line-height:1}
+.stat-lbl{font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:rgba(255,255,255,.65);margin-top:8px}
+/* Who */
+#who{background:var(--navy2)}
+.who-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:56px}
+.who-card{border-radius:24px;padding:36px;position:relative;overflow:hidden;transition:.3s}
+.who-card:hover{transform:translateY(-5px)}
+.who-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.wc1::before{background:linear-gradient(90deg,#2563EB,#DC143C)}
+.wc2::before{background:linear-gradient(90deg,#2563EB,#60A5FA)}
+.wc3::before{background:linear-gradient(90deg,#7C3AED,#A78BFA)}
+.who-icon{font-size:2.2rem;margin-bottom:16px}
+.who-title{font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;margin-bottom:8px}
+.who-desc{font-size:.875rem;color:var(--gray);line-height:1.7;margin-bottom:20px}
+.who-list{display:flex;flex-direction:column;gap:8px}
+.who-list li{font-size:.8rem;color:var(--gray2);list-style:none;display:flex;align-items:center;gap:8px}
+.who-list li::before{content:'✓';color:var(--orange);font-weight:700;font-size:.75rem}
+/* Workflow */
+#workflow{background:var(--bg)}
+.wf-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:64px;position:relative}
+.wf-steps::before{content:'';position:absolute;top:24px;left:12%;right:12%;height:1px;background:linear-gradient(90deg,transparent,rgba(37,99,235,.4),#2563EB,rgba(37,99,235,.4),transparent)}
+.wf-step{text-align:center;padding:0 16px;position:relative}
+.wf-num{width:48px;height:48px;border-radius:50%;background:var(--bg);border:2px solid var(--blue);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-family:'Syne',sans-serif;font-weight:800;color:var(--blue);font-size:1rem;position:relative;z-index:1}
+.wf-num::after{content:'';position:absolute;inset:-5px;border-radius:50%;background:rgba(37,99,235,.08)}
+.wf-title{font-family:'Syne',sans-serif;font-weight:700;font-size:.95rem;margin-bottom:8px}
+.wf-desc{font-size:.78rem;color:var(--gray);line-height:1.6}
+/* Integration */
+#integrations{background:var(--navy)}
+.int-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:48px}
+.int-card{border-radius:16px;padding:24px;text-align:center;transition:.3s}
+.int-card:hover{transform:translateY(-4px);border-color:rgba(255,255,255,.15)}
+.int-icon{font-size:2rem;margin-bottom:12px}
+.int-name{font-weight:700;font-size:.9rem;margin-bottom:4px}
+.int-desc{font-size:.75rem;color:var(--gray)}
+/* CTA */
+#cta{background:var(--bg);padding:120px 0;position:relative;overflow:hidden}
+#cta::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(37,99,235,.07),transparent)}
+.cta-box{text-align:center;max-width:700px;margin:0 auto}
+.cta-h2{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(2rem,4.5vw,3.5rem);letter-spacing:-.03em;margin-bottom:20px}
+.cta-sub{font-size:1.05rem;color:var(--gray);margin-bottom:48px;line-height:1.7}
+.cta-btns{display:flex;flex-wrap:wrap;gap:14px;justify-content:center}
+.cta-btns .btn-orange,.cta-btns .btn-ghost{padding:16px 32px;font-size:1rem}
+/* Footer */
+footer{background:#050911;padding:64px 0 32px;border-top:1px solid rgba(255,255,255,.05)}
+.footer-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:48px;margin-bottom:48px}
+.footer-col h4{font-family:'Syne',sans-serif;font-weight:700;font-size:.75rem;text-transform:uppercase;letter-spacing:.15em;margin-bottom:18px}
+.footer-col a,.footer-col p{display:block;font-size:.84rem;color:var(--gray2);text-decoration:none;margin-bottom:10px;transition:.2s}
+.footer-col a:hover{color:#fff}
+.footer-bottom{display:flex;align-items:center;justify-content:space-between;padding-top:28px;border-top:1px solid rgba(255,255,255,.05);font-size:.78rem;color:var(--gray3)}
+/* Advertiser Portal Section */
+.ap-feat{display:flex;align-items:flex-start;gap:14px;margin-bottom:22px}
+.ap-feat-icon{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.1rem}
+.ap-feat-title{font-weight:700;font-size:.9rem;color:#F9FAFB;margin-bottom:3px}
+.ap-feat-desc{font-size:.8rem;color:var(--gray);line-height:1.6}
+.ap-two-col{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;margin-top:56px}
+.portal-wrap{background:rgba(13,20,40,.97);border:1px solid rgba(255,255,255,.1);border-radius:20px;overflow:hidden;max-width:360px;width:100%;box-shadow:0 40px 80px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.04)}
+.portal-site{background:rgba(255,255,255,.05);border-radius:12px;padding:11px;margin-bottom:9px;display:flex;gap:10px;align-items:flex-start}
+.portal-site.fav{border:1px solid rgba(220,20,60,.3)}
+.portal-site.skip{border:1px solid rgba(255,255,255,.04);opacity:.5}
+.portal-img{width:54px;height:40px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.52rem;color:rgba(255,255,255,.4);font-weight:700;letter-spacing:.04em}
+/* Login dropdown */
+.login-dropdown{position:relative}
+.login-menu{
+  display:none;position:absolute;right:0;top:calc(100% + 10px);
+  min-width:220px;background:rgba(9,14,28,0.98);
+  border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:8px;
+  backdrop-filter:blur(24px);box-shadow:0 20px 60px rgba(0,0,0,0.65);z-index:1001
+}
+.login-dropdown.open .login-menu{display:block}
+.login-menu a{
+  display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:9px;
+  color:#D1D5DB;text-decoration:none;font-size:.8rem;font-weight:600;
+  transition:.15s;white-space:nowrap
+}
+.login-menu a:hover{background:rgba(37,99,235,.18);color:#fff}
+.login-menu-role{font-size:.65rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:.1em;color:#4B5563;padding:6px 14px 2px}
+.login-menu-sep{height:1px;background:rgba(255,255,255,.07);margin:4px 0}
+/* Responsive */
+@media(max-width:1024px){
+  .feat-grid,.who-grid,.wf-steps,.stats-row,.int-grid{grid-template-columns:repeat(2,1fr)}
+  .wf-steps::before{display:none}
+  .stat-box{border-right:none;border-bottom:1px solid rgba(255,255,255,.1)}
+  .stat-box:last-child{border-bottom:none}
+  .how-content.active{grid-template-columns:1fr}
+  .footer-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:768px){
+  section{padding:72px 0}
+  .nav-links,.nav-ctas{display:none}
+  .hamburger{display:flex}
+  .logo{flex-shrink:0;overflow:visible}
+  .logo-icon{flex-shrink:0}
+  .feat-grid,.who-grid,.wf-steps,.stats-row,.int-grid{grid-template-columns:1fr}
+  .hero-h1{font-size:2.6rem}
+  .hero-ctas{flex-direction:column}
+  .hero-ctas .btn-orange,.hero-ctas .btn-ghost{justify-content:center}
+  .how-tabs{flex-wrap:wrap;width:100%}
+  .footer-grid{grid-template-columns:1fr}
+  .footer-bottom{flex-direction:column;gap:12px;text-align:center}
+  .ap-two-col{grid-template-columns:1fr}
+  .portal-wrap{max-width:100%;margin:0 auto}
+  .cta-btns{flex-direction:column;align-items:center}
+}
+</style>
+</head>
+<body>
+
+<!-- Floating Sign In -->
+<div class="login-dropdown" id="floatDropdown" style="position:fixed;bottom:28px;right:28px;z-index:990">
+  <button onclick="toggleLoginDD(event,this)" style="background:var(--blue);color:#fff;font-weight:700;font-size:.8rem;padding:12px 20px;border-radius:50px;border:none;cursor:pointer;box-shadow:0 8px 30px rgba(37,99,235,.4);transition:.3s;display:flex;align-items:center;gap:8px;animation:float 3s ease-in-out infinite;font-family:'Inter',sans-serif">
+    <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Sign In ▾
+  </button>
+  <div class="login-menu" style="bottom:calc(100% + 10px);top:auto;right:0">
+    <span class="login-menu-role">Sign In</span>
+    <a href="https://app.brandsculpt.com/employeelogin" target="_blank">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c0-4 3.582-7 8-7s8 3 8 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      Employee
+    </a>
+    <a href="https://app.brandsculpt.com/adminlogin" target="_blank">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      Admin
+    </a>
+    <a href="https://app.brandsculpt.com/login" target="_blank">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M3 3h18v18H3zM9 9h6M9 12h6M9 15h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      Advertiser
+    </a>
+    <div class="login-menu-sep"></div>
+    <span class="login-menu-role">New Here?</span>
+    <a href="https://app.brandsculpt.com/register" target="_blank">
+      <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      Create Account
+    </a>
+  </div>
+</div>
+
+<!-- NAVBAR -->
+<nav id="navbar">
+  <div class="nav-inner">
+    <a href="#hero" class="logo">
+      <div class="logo-icon" style="flex-shrink:0">tq</div>
+      <div style="display:flex;flex-direction:column;line-height:1;gap:3px;flex-shrink:0">
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(1rem,4vw,1.45rem);letter-spacing:.01em;line-height:1;white-space:nowrap"><span style="color:#2563EB">traq</span><span style="color:#DC143C">OOH</span></span>
+        <span style="font-size:.48rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#6B7280;white-space:nowrap">by <a href="https://brandsculpt.com" target="_blank" style="text-decoration:none;letter-spacing:.12em"><span style="color:#2563EB">BRAND</span><span style="color:#DC143C">SCULPT</span></a></span>
+      </div>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How It Works</a>
+      <a href="#who">Who It's For</a>
+      <a href="#advertiser">Advertiser Portal</a>
+      <a href="#cta">Contact</a>
+    </div>
+    <div class="nav-ctas">
+      <div class="login-dropdown">
+        <button class="btn-ghost" onclick="toggleLoginDD(event,this)" style="padding:8px 18px;font-size:.8rem;border:none;cursor:pointer">Sign In ▾</button>
+        <div class="login-menu">
+          <span class="login-menu-role">Sign In</span>
+          <a href="https://app.brandsculpt.com/employeelogin" target="_blank">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c0-4 3.582-7 8-7s8 3 8 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Employee
+          </a>
+          <a href="https://app.brandsculpt.com/adminlogin" target="_blank">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Admin
+          </a>
+          <a href="https://app.brandsculpt.com/login" target="_blank">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M3 3h18v18H3zM9 9h6M9 12h6M9 15h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Advertiser
+          </a>
+        </div>
+      </div>
+      <div class="login-dropdown">
+        <button class="btn-orange" onclick="toggleLoginDD(event,this)" style="padding:8px 18px;font-size:.8rem;border:none;cursor:pointer">Get Started ▾</button>
+        <div class="login-menu">
+          <span class="login-menu-role">Create Account</span>
+          <a href="https://app.brandsculpt.com/register/advertiser" target="_blank">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M3 3h18v18H3zM9 9h6M9 12h6M9 15h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Advertiser
+          </a>
+          <a href="https://app.brandsculpt.com/register/admin" target="_blank">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            OOH Company / Admin
+          </a>
+          <a href="https://app.brandsculpt.com/register/employee" target="_blank">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M4 20c0-4 3.582-7 8-7s8 3 8 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Employee
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="hamburger" id="ham" onclick="toggleMenu()"><span></span><span></span><span></span></div>
+  </div>
+</nav>
+
+<!-- Mobile Menu -->
+<div class="mobile-menu" id="mobileMenu">
+  <button onclick="toggleMenu()" style="position:absolute;top:24px;right:24px;background:none;border:none;color:#fff;cursor:pointer;font-size:1.5rem">✕</button>
+  <!-- Logo in mobile menu -->
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+    <div style="width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#2563EB,#DC143C);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:900;font-size:.85rem;color:#fff;letter-spacing:.02em;box-shadow:0 4px 20px rgba(37,99,235,.35)">tq</div>
+    <div style="display:flex;flex-direction:column;line-height:1;gap:4px">
+      <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.45rem;letter-spacing:.01em;line-height:1"><span style="color:#2563EB">traq</span><span style="color:#DC143C">OOH</span></span>
+      <span style="font-size:.5rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B7280">by <span style="color:#2563EB">BRAND</span><span style="color:#DC143C">SCULPT</span></span>
+    </div>
+  </div>
+  <a href="#features" onclick="toggleMenu()">Features</a>
+  <a href="#how" onclick="toggleMenu()">How It Works</a>
+  <a href="#who" onclick="toggleMenu()">Who It's For</a>
+  <a href="#advertiser" onclick="toggleMenu()">Advertiser Portal</a>
+  <a href="#workflow" onclick="toggleMenu()">Workflow</a>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px;width:260px">
+    <div style="font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4B5563;padding:4px 2px">Sign In</div>
+    <a href="https://app.brandsculpt.com/employeelogin" target="_blank" onclick="toggleMenu()" style="background:var(--blue);color:#fff;text-align:center;padding:12px;border-radius:12px;font-weight:700;text-decoration:none;font-size:.875rem">👤 Employee Login</a>
+    <a href="https://app.brandsculpt.com/adminlogin" target="_blank" onclick="toggleMenu()" style="background:rgba(37,99,235,.25);border:1px solid rgba(37,99,235,.4);color:#93C5FD;text-align:center;padding:12px;border-radius:12px;font-weight:700;text-decoration:none;font-size:.875rem">🏢 Admin Login</a>
+    <a href="https://app.brandsculpt.com/login" target="_blank" onclick="toggleMenu()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#D1D5DB;text-align:center;padding:12px;border-radius:12px;font-weight:700;text-decoration:none;font-size:.875rem">📢 Advertiser Login</a>
+    <div style="font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4B5563;padding:8px 2px 4px">New Here? Create Account</div>
+    <a href="https://app.brandsculpt.com/register/advertiser" target="_blank" onclick="toggleMenu()" style="background:linear-gradient(135deg,#2563EB,#DC143C);color:#fff;text-align:center;padding:12px;border-radius:12px;font-weight:700;text-decoration:none;font-size:.875rem">Get Started →</a>
+  </div>
+</div>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-overlay"></div>
+  <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(37,99,235,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(37,99,235,.04) 1px,transparent 1px);background-size:60px 60px;pointer-events:none"></div>
+  <div style="position:absolute;top:20%;right:15%;width:400px;height:400px;background:rgba(37,99,235,.07);border-radius:50%;filter:blur(120px);pointer-events:none"></div>
+  <div style="position:absolute;bottom:25%;left:10%;width:320px;height:320px;background:rgba(255,87,34,.05);border-radius:50%;filter:blur(100px);pointer-events:none"></div>
+
+  <div class="hero-content">
+    <div class="max-w-3xl" style="max-width:720px">
+      <div class="a1">
+        <div class="hero-tag"><span class="hero-tag-dot"></span>OOH Media Management Platform</div>
+      </div>
+      <h1 class="hero-h1 a2">
+        Plan. Execute.<br><span class="tg">Track Every</span><br><span class="tg-blue">OOH Campaign.</span>
+      </h1>
+      <p class="hero-sub a3">
+        TraqOOH is the complete platform for managing outdoor advertising inventory, planning campaigns, and delivering professional proposals to clients — all in one place.
+      </p>
+      <div class="hero-ctas a4">
+        <a href="https://app.brandsculpt.com/employeelogin" target="_blank" class="btn-orange">
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Login to TraqOOH
+        </a>
+        <a href="#features" class="btn-ghost">Explore Features →</a>
+      </div>
+      <div class="hero-chips a5">
+        <div class="hero-chip"><span>●</span> Inventory Management</div>
+        <div class="hero-chip"><span>●</span> Campaign Execution</div>
+        <div class="hero-chip"><span>●</span> Advertiser Portal</div>
+        <div class="hero-chip"><span>●</span> Media Planning</div>
+        <div class="hero-chip"><span>●</span> Site Tracking</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TICKER -->
+<div class="ticker-wrap" aria-hidden="true">
+  <div class="ticker-inner">
+    <span>Inventory Management</span><span class="dot">·</span>
+    <span>Campaign Planning</span><span class="dot">·</span>
+    <span>Advertiser Portal</span><span class="dot">·</span>
+    <span>Site Availability</span><span class="dot">·</span>
+    <span>Cost Sheets</span><span class="dot">·</span>
+    <span>Vendor Management</span><span class="dot">·</span>
+    <span>Proof of Display</span><span class="dot">·</span>
+    <span>Media Planning</span><span class="dot">·</span>
+    <span>Digital Proposals</span><span class="dot">·</span>
+    <span>Multi-User Access</span><span class="dot">·</span>
+    <span>Inventory Management</span><span class="dot">·</span>
+    <span>Campaign Planning</span><span class="dot">·</span>
+    <span>Advertiser Portal</span><span class="dot">·</span>
+    <span>Site Availability</span><span class="dot">·</span>
+    <span>Cost Sheets</span><span class="dot">·</span>
+    <span>Vendor Management</span><span class="dot">·</span>
+    <span>Proof of Display</span><span class="dot">·</span>
+    <span>Media Planning</span><span class="dot">·</span>
+    <span>Digital Proposals</span><span class="dot">·</span>
+    <span>Multi-User Access</span><span class="dot">·</span>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="container">
+    <div class="rv" style="text-align:center;max-width:600px;margin:0 auto 0">
+      <span class="stag tg">Platform Features</span>
+      <h2 class="sh2">Everything You Need to<br><span class="tg">Run OOH Campaigns</span></h2>
+      <p style="color:var(--gray);margin-top:16px;font-size:.95rem;line-height:1.7">From adding a site to finalising a campaign — TraqOOH handles every step of the outdoor advertising workflow.</p>
+    </div>
+    <div class="feat-grid">
+
+      <div class="rv d1 glass feat-card">
+        <div class="feat-icon" style="background:rgba(255,87,34,.12);color:#FF7043">
+          <svg width="26" height="26" fill="none" viewBox="0 0 48 48"><rect x="6" y="8" width="36" height="22" rx="2" stroke="currentColor" stroke-width="2.5"/><path d="M16 30v10M32 30v10M12 40h24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </div>
+        <h3 class="feat-h3">Inventory Management</h3>
+        <p class="feat-desc">Add and manage all your OOH sites — hoardings, billboards, unipoles, LED boards. Track size, lighting, facing, rates, vendor and live availability status.</p>
+      </div>
+
+      <div class="rv d2 glass feat-card">
+        <div class="feat-icon" style="background:rgba(37,99,235,.12);color:#60A5FA">
+          <svg width="26" height="26" fill="none" viewBox="0 0 48 48"><rect x="6" y="6" width="36" height="36" rx="4" stroke="currentColor" stroke-width="2.5"/><path d="M16 24h16M16 32h10M16 16h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
+        <h3 class="feat-h3">Campaign Management</h3>
+        <p class="feat-desc">Create campaigns, link sites, assign booking dates and track status from DRAFT to LIVE. Full campaign history with site counts and cost tracking.</p>
+      </div>
+
+      <div class="rv d3 glass feat-card">
+        <div class="feat-icon" style="background:rgba(124,58,237,.12);color:#A78BFA">
+          <svg width="26" height="26" fill="none" viewBox="0 0 48 48"><circle cx="24" cy="16" r="8" stroke="currentColor" stroke-width="2.5"/><path d="M8 40c0-8.837 7.163-16 16-16s16 7.163 16 16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </div>
+        <h3 class="feat-h3">Advertiser Portal</h3>
+        <p class="feat-desc">Generate a secure access link and share it with your client. They can view proposed sites, shortlist favourites, set dates and finalize the campaign — without logging in.</p>
+      </div>
+
+      <div class="rv d2 glass feat-card">
+        <div class="feat-icon" style="background:rgba(34,197,94,.12);color:#4ADE80">
+          <svg width="26" height="26" fill="none" viewBox="0 0 48 48"><path d="M24 6l4 14h14l-11 8 4 14-11-8-11 8 4-14L6 20h14z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+        </div>
+        <h3 class="feat-h3">Site Availability Tracking</h3>
+        <p class="feat-desc">Real-time availability status — Vacant, Vacant Soon, or Booked. Set availability dates per site. Instantly see what's available for a new campaign.</p>
+      </div>
+
+      <div class="rv d3 glass feat-card">
+        <div class="feat-icon" style="background:rgba(234,179,8,.12);color:#FACC15">
+          <svg width="26" height="26" fill="none" viewBox="0 0 48 48"><path d="M8 36l8-8 6 6 8-10 10 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="4" width="40" height="32" rx="3" stroke="currentColor" stroke-width="2.5"/></svg>
+        </div>
+        <h3 class="feat-h3">Media Planning &amp; Cost Sheets</h3>
+        <p class="feat-desc">Add sites to campaigns in bulk, set per-site printing and mounting costs, generate professional cost sheets with grand total for client proposals.</p>
+      </div>
+
+      <div class="rv d4 glass feat-card">
+        <div class="feat-icon" style="background:rgba(236,72,153,.12);color:#F472B6">
+          <svg width="26" height="26" fill="none" viewBox="0 0 48 48"><path d="M12 36V20l12-10 12 10v16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><rect x="18" y="26" width="12" height="10" rx="1" stroke="currentColor" stroke-width="2"/><path d="M4 36h40" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </div>
+        <h3 class="feat-h3">Multi-Role Access</h3>
+        <p class="feat-desc">Separate logins for Admins, Employees and Advertisers. Employees see only their own campaigns. Admins see everything. Advertisers access only their proposals.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how">
+  <div class="container">
+    <div class="rv" style="text-align:center;margin-bottom:40px">
+      <span class="stag tg-blue">How It Works</span>
+      <h2 class="sh2">Built for Every Role in<br><span class="tg-blue">Your OOH Business</span></h2>
+    </div>
+    <div class="rv">
+      <div class="how-tabs">
+        <button class="how-tab active" onclick="switchTab('employee')">For Employees</button>
+        <button class="how-tab" onclick="switchTab('admin')">For Admins</button>
+        <button class="how-tab" onclick="switchTab('advertiser')">For Advertisers</button>
+      </div>
+    </div>
+
+    <!-- Employee -->
+    <div class="how-content active rv" id="tab-employee">
+      <div class="how-steps">
+        <div class="how-step"><div class="how-step-num">01</div><div><div class="how-step-title">Add Your Sites</div><div class="how-step-desc">Upload all your OOH inventory — images, size, type, location, rate. Takes minutes per site.</div></div></div>
+        <div class="how-step"><div class="how-step-num">02</div><div><div class="how-step-title">Create a Campaign</div><div class="how-step-desc">Link to an advertiser, set dates and budget. Add sites from your inventory in one click.</div></div></div>
+        <div class="how-step"><div class="how-step-num">03</div><div><div class="how-step-title">Send to Client</div><div class="how-step-desc">Generate a secure link and share it with your client. No login required on their end.</div></div></div>
+        <div class="how-step"><div class="how-step-num">04</div><div><div class="how-step-title">Track &amp; Execute</div><div class="how-step-desc">Monitor campaign status, update availability as sites get booked, manage execution.</div></div></div>
+      </div>
+      <div class="how-visual glass" style="border-radius:24px;padding:28px">
+        <div class="screen-mock">
+          <div class="screen-topbar">
+            <div class="screen-dot" style="background:#FF5722"></div>
+            <div class="screen-dot" style="background:#facc15"></div>
+            <div class="screen-dot" style="background:#22c55e"></div>
+            <div class="screen-line" style="width:120px;margin-left:8px"></div>
+          </div>
+          <div style="font-size:.65rem;color:var(--gray2);font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">My Inventory</div>
+          <div class="screen-card"><div style="display:flex;align-items:center;gap:10px"><div style="width:32px;height:24px;border-radius:4px;background:rgba(255,87,34,.2)"></div><div><div style="font-size:.7rem;font-weight:700;color:#fff">Patna Junction Hoarding</div><div style="font-size:.6rem;color:var(--gray2)">Bihar · 30×20 ft · ₹18,000/mo</div></div><div style="margin-left:auto;font-size:.6rem;background:rgba(34,197,94,.15);color:#4ade80;padding:2px 8px;border-radius:4px;font-weight:700">Vacant</div></div></div>
+          <div class="screen-card"><div style="display:flex;align-items:center;gap:10px"><div style="width:32px;height:24px;border-radius:4px;background:rgba(37,99,235,.2)"></div><div><div style="font-size:.7rem;font-weight:700;color:#fff">Lucknow Unipole NH-24</div><div style="font-size:.6rem;color:var(--gray2)">UP · 20×10 ft · ₹12,000/mo</div></div><div style="margin-left:auto;font-size:.6rem;background:rgba(255,87,34,.15);color:#ff8a65;padding:2px 8px;border-radius:4px;font-weight:700">Booked</div></div></div>
+          <div class="screen-card"><div style="display:flex;align-items:center;gap:10px"><div style="width:32px;height:24px;border-radius:4px;background:rgba(124,58,237,.2)"></div><div><div style="font-size:.7rem;font-weight:700;color:#fff">Ranchi Bus Shelter</div><div style="font-size:.6rem;color:var(--gray2)">Jharkhand · 8×4 ft · ₹5,000/mo</div></div><div style="margin-left:auto;font-size:.6rem;background:rgba(250,204,21,.15);color:#facc15;padding:2px 8px;border-radius:4px;font-weight:700">Soon</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin -->
+    <div class="how-content" id="tab-admin">
+      <div class="how-steps">
+        <div class="how-step"><div class="how-step-num">01</div><div><div class="how-step-title">Manage All Employees</div><div class="how-step-desc">See campaigns from all team members. Admins have full visibility across the entire account.</div></div></div>
+        <div class="how-step"><div class="how-step-num">02</div><div><div class="how-step-title">Oversee Advertisers</div><div class="how-step-desc">Manage all advertiser accounts, create logins, and monitor what proposals have been sent.</div></div></div>
+        <div class="how-step"><div class="how-step-num">03</div><div><div class="how-step-title">Track All Campaigns</div><div class="how-step-desc">Filter by status, advertiser, employee or date. Full control over the entire campaign pipeline.</div></div></div>
+        <div class="how-step"><div class="how-step-num">04</div><div><div class="how-step-title">Reports &amp; Analytics</div><div class="how-step-desc">Activity logs, campaign history, site utilisation — full visibility over your business.</div></div></div>
+      </div>
+      <div class="how-visual glass" style="border-radius:24px;padding:28px">
+        <div class="screen-mock">
+          <div class="screen-topbar">
+            <div class="screen-dot" style="background:#2563EB"></div>
+            <div class="screen-dot" style="background:#60a5fa"></div>
+            <div class="screen-dot" style="background:#93c5fd"></div>
+            <div class="screen-line" style="width:100px;margin-left:8px"></div>
+          </div>
+          <div style="font-size:.65rem;color:var(--gray2);font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px">All Campaigns</div>
+          <div class="screen-card"><div style="font-size:.7rem;font-weight:700;color:#fff;margin-bottom:4px">Tata Motors — Bihar Blitz</div><div style="font-size:.6rem;color:var(--gray2);display:flex;gap:8px"><span>12 Sites</span><span>₹2,40,000</span><span style="color:#4ade80">● LIVE</span></div></div>
+          <div class="screen-card"><div style="font-size:.7rem;font-weight:700;color:#fff;margin-bottom:4px">Asian Paints — UP Campaign</div><div style="font-size:.6rem;color:var(--gray2);display:flex;gap:8px"><span>8 Sites</span><span>₹1,10,000</span><span style="color:#60a5fa">● PLANNED</span></div></div>
+          <div class="screen-card"><div style="font-size:.7rem;font-weight:700;color:#fff;margin-bottom:4px">Bajaj Finance — Jharkhand</div><div style="font-size:.6rem;color:var(--gray2);display:flex;gap:8px"><span>5 Sites</span><span>₹75,000</span><span style="color:#9ca3af">● DRAFT</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Advertiser -->
+    <div class="how-content" id="tab-advertiser">
+      <div class="how-steps">
+        <div class="how-step"><div class="how-step-num">01</div><div><div class="how-step-title">Receive a Secure Link</div><div class="how-step-desc">Your media agency sends you a secure campaign link. No account, no password, no app install needed.</div></div></div>
+        <div class="how-step"><div class="how-step-num">02</div><div><div class="how-step-title">Browse Proposed Sites</div><div class="how-step-desc">View all proposed locations with photos, dimensions, city, rate per month and availability.</div></div></div>
+        <div class="how-step"><div class="how-step-num">03</div><div><div class="how-step-title">Shortlist &amp; Set Dates</div><div class="how-step-desc">Mark preferred sites with ❤, skip the rest. Set campaign dates per site. Cost updates live.</div></div></div>
+        <div class="how-step"><div class="how-step-num">04</div><div><div class="how-step-title">Approve &amp; Done</div><div class="how-step-desc">One click to approve. Your agency is instantly notified and campaign execution begins.</div></div></div>
+      </div>
+      <div class="how-visual glass" style="border-radius:24px;padding:24px">
+        <div class="screen-mock" style="max-width:100%">
+          <!-- Portal header mini -->
+          <div style="background:linear-gradient(135deg,#1d50c8,#DC143C);border-radius:10px;padding:10px 14px;margin-bottom:10px">
+            <div style="font-size:.58rem;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.65);margin-bottom:2px">🔒 TraqOOH · Secure Proposal</div>
+            <div style="font-size:.78rem;font-weight:800;color:#fff;font-family:'Syne',sans-serif">Summer Sale 2026 &nbsp;<span style="font-size:.6rem;font-weight:600;opacity:.7">· 8 Sites · ₹1,85,000</span></div>
+          </div>
+          <div style="font-size:.6rem;color:var(--gray2);font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Shortlisted Sites (2 of 8)</div>
+          <div class="screen-card" style="border-color:rgba(220,20,60,.25)">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:.7rem;font-weight:700;color:#f87171">♥ Patna — Ashok Rajpath</div>
+              <div style="font-size:.6rem;color:var(--gray2)">₹18,000/mo</div>
+            </div>
+            <div style="font-size:.6rem;color:#60a5fa;margin-top:3px">Apr 1 → Jun 30, 2026</div>
+          </div>
+          <div class="screen-card" style="border-color:rgba(220,20,60,.25)">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:.7rem;font-weight:700;color:#f87171">♥ Lucknow — Hazratganj</div>
+              <div style="font-size:.6rem;color:var(--gray2)">₹14,000/mo</div>
+            </div>
+            <div style="font-size:.6rem;color:#60a5fa;margin-top:3px">Apr 1 → Jun 30, 2026</div>
+          </div>
+          <!-- Cost + Approve -->
+          <div style="background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.2);border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:.65rem;color:var(--gray)">2 sites · 3 months</div>
+            <div style="font-size:.8rem;font-weight:800;color:#fff;font-family:'Syne',sans-serif">₹96,000</div>
+          </div>
+          <div style="background:linear-gradient(135deg,#2563EB,#DC143C);border-radius:8px;padding:8px;text-align:center;font-size:.72rem;font-weight:700;color:#fff">✓ Approve This Campaign</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<section id="stats-section" style="padding:80px 0">
+  <div class="container">
+    <div class="stats-row">
+      <div class="stat-box rv d1"><div class="stat-num" data-target="1000">0</div><div class="stat-lbl">Sites Managed</div></div>
+      <div class="stat-box rv d2"><div class="stat-num" data-target="475">0</div><div class="stat-lbl">Campaigns Executed</div></div>
+      <div class="stat-box rv d3"><div class="stat-num" data-target="48">0</div><div class="stat-lbl">Active Clients</div></div>
+      <div class="stat-box rv d4"><div class="stat-num">4</div><div class="stat-lbl">States Covered</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- WHO IS IT FOR -->
+<section id="who">
+  <div class="container">
+    <div class="rv" style="text-align:center;margin-bottom:0">
+      <span class="stag tg">Who Uses TraqOOH</span>
+      <h2 class="sh2">One Platform.<br><span class="tg">Three Powerful Users.</span></h2>
+    </div>
+    <div class="who-grid">
+      <div class="rv d1 glass wc1 who-card">
+        <div class="who-icon">🏢</div>
+        <div class="who-title">OOH Agencies &amp; Media Companies</div>
+        <p class="who-desc">Run your entire outdoor advertising business from one platform — inventory, campaigns, proposals and clients.</p>
+        <ul class="who-list">
+          <li>Manage 100s of sites across multiple cities</li>
+          <li>Create professional client proposals</li>
+          <li>Track campaigns from plan to execution</li>
+          <li>Multi-employee team access</li>
+        </ul>
+      </div>
+      <div class="rv d2 glass wc2 who-card">
+        <div class="who-icon">📊</div>
+        <div class="who-title">Media Planners &amp; Buyers</div>
+        <p class="who-desc">Plan multi-city, multi-format OOH campaigns efficiently. Filter by state, city, type and availability in seconds.</p>
+        <ul class="who-list">
+          <li>Filter inventory by city, type, rate</li>
+          <li>Bulk assign sites to campaigns</li>
+          <li>Auto-generate cost sheets</li>
+          <li>Track booking status in real time</li>
+        </ul>
+      </div>
+      <div class="rv d3 glass wc3 who-card">
+        <div class="who-icon">🎯</div>
+        <div class="who-title">Advertisers &amp; Brand Clients</div>
+        <p class="who-desc">Review OOH proposals, shortlist sites and approve campaigns without any software knowledge — just a secure link.</p>
+        <ul class="who-list">
+          <li>View all proposed sites with photos</li>
+          <li>Shortlist preferred locations</li>
+          <li>Set custom dates per site</li>
+          <li>Approve campaigns with one click</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WORKFLOW -->
+<section id="workflow">
+  <div class="container">
+    <div class="rv" style="text-align:center;margin-bottom:0">
+      <span class="stag tg-blue">Campaign Workflow</span>
+      <h2 class="sh2">From Brief to Billboard<br><span class="tg-blue">in 4 Steps</span></h2>
+    </div>
+    <div class="wf-steps rv">
+      <div class="wf-step">
+        <div class="wf-num">01</div>
+        <div class="wf-title">Add Inventory</div>
+        <div class="wf-desc">Upload your OOH sites with images, dimensions, rates, location and availability status.</div>
+      </div>
+      <div class="wf-step">
+        <div class="wf-num">02</div>
+        <div class="wf-title">Build Campaign</div>
+        <div class="wf-desc">Create a campaign for your client, select sites from inventory and set campaign dates.</div>
+      </div>
+      <div class="wf-step">
+        <div class="wf-num">03</div>
+        <div class="wf-title">Send Proposal</div>
+        <div class="wf-desc">Generate a secure link and share the professional proposal with your client for review.</div>
+      </div>
+      <div class="wf-step">
+        <div class="wf-num">04</div>
+        <div class="wf-title">Execute &amp; Track</div>
+        <div class="wf-desc">Client approves, sites get booked, campaign goes live. Track everything in one dashboard.</div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:56px" class="rv">
+      <a href="https://app.brandsculpt.com/employeelogin" target="_blank" class="btn-orange" style="padding:16px 36px;font-size:1rem">
+        Start Using TraqOOH →
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ADVERTISER PORTAL SECTION -->
+<section id="advertiser" style="background:var(--navy2);overflow:hidden">
+  <div class="container">
+    <div class="rv" style="text-align:center;max-width:640px;margin:0 auto">
+      <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(220,20,60,.1);border:1px solid rgba(220,20,60,.2);color:#F87171;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.18em;padding:8px 18px;border-radius:100px;margin-bottom:20px">
+        <span style="width:6px;height:6px;border-radius:50%;background:#DC143C;display:inline-block;animation:pulse 2s infinite"></span>
+        For Advertisers
+      </div>
+      <h2 class="sh2">Your Clients Get a<br><span class="tg">Premium Campaign Portal</span></h2>
+      <p style="color:var(--gray);margin-top:16px;font-size:.95rem;line-height:1.7">No software to install. No accounts to create. Just a secure link that opens a beautiful, professional proposal — ready to review and approve from any device.</p>
+    </div>
+
+    <div class="ap-two-col">
+
+      <!-- Left: Feature list -->
+      <div class="rv fl">
+        <div class="ap-feat">
+          <div class="ap-feat-icon" style="background:rgba(37,99,235,.12);color:#60A5FA">🔒</div>
+          <div><div class="ap-feat-title">Zero Login Required</div><div class="ap-feat-desc">One secure tokenised link opens directly in browser. No account setup, no password, no app install.</div></div>
+        </div>
+        <div class="ap-feat">
+          <div class="ap-feat-icon" style="background:rgba(220,20,60,.12);color:#F87171">📋</div>
+          <div><div class="ap-feat-title">Professional Proposal View</div><div class="ap-feat-desc">Branded campaign layout with all proposed sites, site photos, costs and a full campaign summary.</div></div>
+        </div>
+        <div class="ap-feat">
+          <div class="ap-feat-icon" style="background:rgba(124,58,237,.12);color:#A78BFA">📍</div>
+          <div><div class="ap-feat-title">Full Site Details</div><div class="ap-feat-desc">Photo, city, dimensions, illumination type, monthly rate and availability — per site, at a glance.</div></div>
+        </div>
+        <div class="ap-feat">
+          <div class="ap-feat-icon" style="background:rgba(239,68,68,.12);color:#F87171">❤️</div>
+          <div><div class="ap-feat-title">Shortlist Preferred Sites</div><div class="ap-feat-desc">Mark favourites, skip the rest. Cost summary updates live as selections change.</div></div>
+        </div>
+        <div class="ap-feat">
+          <div class="ap-feat-icon" style="background:rgba(234,179,8,.12);color:#FACC15">📅</div>
+          <div><div class="ap-feat-title">Set Custom Campaign Dates</div><div class="ap-feat-desc">Choose start and end dates per site to fit your marketing calendar perfectly.</div></div>
+        </div>
+        <div class="ap-feat">
+          <div class="ap-feat-icon" style="background:rgba(34,197,94,.12);color:#4ADE80">✅</div>
+          <div><div class="ap-feat-title">One-Click Approval</div><div class="ap-feat-desc">Happy with the proposal? Approve it instantly. Your agency is notified and execution begins.</div></div>
+        </div>
+        <div class="ap-feat">
+          <div class="ap-feat-icon" style="background:rgba(14,165,233,.12);color:#38BDF8">📱</div>
+          <div><div class="ap-feat-title">Works on Any Device</div><div class="ap-feat-desc">Fully mobile-responsive — review and approve on phone, tablet or desktop, anywhere.</div></div>
+        </div>
+        <a href="https://app.brandsculpt.com/login" target="_blank" class="btn-ghost" style="padding:13px 28px;font-size:.88rem;margin-top:6px;display:inline-flex">
+          Access Advertiser Portal →
+        </a>
+      </div>
+
+      <!-- Right: Mock portal UI -->
+      <div class="rv fr" style="display:flex;justify-content:center">
+        <div class="portal-wrap">
+
+          <!-- Portal header bar -->
+          <div style="background:linear-gradient(135deg,#1d50c8 0%,#DC143C 100%);padding:18px 20px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <div style="width:28px;height:28px;border-radius:7px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:900;color:#fff;font-family:'Syne',sans-serif;flex-shrink:0">tq</div>
+              <div style="font-size:.58rem;text-transform:uppercase;letter-spacing:.14em;color:rgba(255,255,255,.65);font-weight:700">TraqOOH · Secure Proposal</div>
+              <div style="margin-left:auto;display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.18);padding:3px 9px;border-radius:20px;flex-shrink:0">
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" fill="rgba(255,255,255,.7)" stroke="none"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
+                <span style="font-size:.56rem;color:#fff;font-weight:800">Secured</span>
+              </div>
+            </div>
+            <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;color:#fff;margin-bottom:3px">Summer Launch 2026</div>
+            <div style="font-size:.68rem;color:rgba(255,255,255,.6)">Shared by Brandsculpt Media &nbsp;·&nbsp; 3 sites proposed</div>
+          </div>
+
+          <!-- Sites list -->
+          <div style="padding:14px">
+
+            <!-- Site 1 – shortlisted (red heart) -->
+            <div class="portal-site fav">
+              <div class="portal-img" style="background:linear-gradient(135deg,rgba(37,99,235,.45),rgba(220,20,60,.3))">PHOTO</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:.75rem;font-weight:700;color:#fff;margin-bottom:2px">Patna — Ashok Rajpath</div>
+                <div style="font-size:.62rem;color:var(--gray2)">Bihar · 30×20 ft · ₹18,000/mo</div>
+                <div style="font-size:.62rem;color:#60A5FA;margin-top:2px">Apr 1 → Jun 30, 2026</div>
+              </div>
+              <div style="color:#F87171;font-size:1.15rem;flex-shrink:0;line-height:1">♥</div>
+            </div>
+
+            <!-- Site 2 – shortlisted -->
+            <div class="portal-site fav">
+              <div class="portal-img" style="background:linear-gradient(135deg,rgba(124,58,237,.45),rgba(37,99,235,.3))">PHOTO</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:.75rem;font-weight:700;color:#fff;margin-bottom:2px">Lucknow — Hazratganj</div>
+                <div style="font-size:.62rem;color:var(--gray2)">UP · 20×10 ft · ₹14,000/mo</div>
+                <div style="font-size:.62rem;color:#60A5FA;margin-top:2px">Apr 1 → Jun 30, 2026</div>
+              </div>
+              <div style="color:#F87171;font-size:1.15rem;flex-shrink:0;line-height:1">♥</div>
+            </div>
+
+            <!-- Site 3 – not shortlisted (greyed) -->
+            <div class="portal-site skip">
+              <div class="portal-img" style="background:rgba(255,255,255,.06)">PHOTO</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:.75rem;font-weight:600;color:#9CA3AF;margin-bottom:2px">Ranchi — Main Road</div>
+                <div style="font-size:.62rem;color:var(--gray3)">Jharkhand · 15×10 ft · ₹9,000/mo</div>
+              </div>
+              <div style="color:#374151;font-size:1.15rem;flex-shrink:0;line-height:1">♡</div>
+            </div>
+
+            <!-- Cost summary pill -->
+            <div style="background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.25);border-radius:12px;padding:12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div style="font-size:.62rem;font-weight:700;color:#93C5FD;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px">2 Sites Selected</div>
+                <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.05rem;color:#fff">₹96,000</div>
+              </div>
+              <div style="text-align:right;font-size:.6rem;color:var(--gray2);line-height:1.6">3 months<br>Apr – Jun 2026</div>
+            </div>
+
+            <!-- Approve button -->
+            <button style="width:100%;padding:12px;background:linear-gradient(135deg,#2563EB,#DC143C);border:none;border-radius:10px;color:#fff;font-weight:700;font-size:.82rem;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.01em;margin-bottom:7px">
+              ✓ &nbsp;Approve This Campaign
+            </button>
+            <button style="width:100%;padding:9px;background:none;border:1px solid rgba(255,255,255,.1);border-radius:10px;color:var(--gray);font-weight:600;font-size:.75rem;cursor:pointer;font-family:'Inter',sans-serif">
+              Request Changes
+            </button>
+
+          </div><!-- /padding -->
+        </div><!-- /portal-wrap -->
+      </div>
+
+    </div><!-- /ap-two-col -->
+
+    <!-- Bottom callout strip -->
+    <div class="rv" style="text-align:center;margin-top:56px">
+      <div style="display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:100px;padding:10px 24px 10px 10px">
+        <div style="background:linear-gradient(135deg,#2563EB,#DC143C);border-radius:100px;padding:7px 18px;font-size:.75rem;font-weight:700;color:#fff;white-space:nowrap">Advertiser?</div>
+        <span style="font-size:.85rem;color:var(--gray)">Already received a proposal link? Access your campaign portal below.</span>
+        <a href="https://app.brandsculpt.com/login" target="_blank" style="font-size:.85rem;font-weight:700;color:#60A5FA;text-decoration:none;white-space:nowrap">Open Portal →</a>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- INTEGRATIONS / TECH -->
+<section id="integrations">
+  <div class="container">
+    <div class="rv" style="text-align:center;margin-bottom:0">
+      <span class="stag tg">Built On</span>
+      <h2 class="sh2">Reliable. Fast.<br><span class="tg">Production-Ready.</span></h2>
+    </div>
+    <div class="int-grid">
+      <div class="rv d1 glass int-card">
+        <div class="int-icon">⚡</div>
+        <div class="int-name">FastAPI Backend</div>
+        <div class="int-desc">High-performance Python API with real-time data</div>
+      </div>
+      <div class="rv d2 glass int-card">
+        <div class="int-icon">🗄️</div>
+        <div class="int-name">PostgreSQL Database</div>
+        <div class="int-desc">Robust relational database for all your data</div>
+      </div>
+      <div class="rv d3 glass int-card">
+        <div class="int-icon">☁️</div>
+        <div class="int-name">Cloudflare R2 Storage</div>
+        <div class="int-desc">Fast, reliable image storage for site photos</div>
+      </div>
+      <div class="rv d4 glass int-card">
+        <div class="int-icon">🔒</div>
+        <div class="int-name">Secure Access Links</div>
+        <div class="int-desc">Token-based advertiser portal — no password needed</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section id="cta">
+  <div class="container">
+    <div class="cta-box rv">
+      <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.2);color:#93C5FD;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.18em;padding:8px 20px;border-radius:100px;margin-bottom:28px">
+        Get Started Today
+      </div>
+      <h2 class="cta-h2">Ready to Transform<br><span class="tg">Your OOH Business?</span></h2>
+      <p class="cta-sub">TraqOOH is already live and running. Log in now to start managing your inventory, campaigns and client proposals — all in one place.</p>
+      <div class="cta-btns">
+        <a href="https://app.brandsculpt.com/employeelogin" target="_blank" class="btn-orange">
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Login to TraqOOH
+        </a>
+        <a href="mailto:marketing@brandsculpt.com?subject=TraqOOH Demo Request" class="btn-ghost">Request a Demo →</a>
+      </div>
+      <p style="font-size:.78rem;color:var(--gray2);margin-top:20px">A product by Brandsculpt Media Solutions Pvt. Ltd.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="logo" style="margin-bottom:16px;display:inline-flex;align-items:center;gap:6px">
+          <div class="logo-icon">tq</div>
+          <div style="display:flex;flex-direction:column;line-height:1;gap:3px">
+            <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.45rem;letter-spacing:.01em"><span style="color:#2563EB">traq</span><span style="color:#DC143C">OOH</span></span>
+            <span style="font-size:.5rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6B7280">by <a href="https://brandsculpt.com" target="_blank" style="text-decoration:none"><span style="color:#2563EB">BRAND</span><span style="color:#DC143C">SCULPT</span></a></span>
+          </div>
+        </div>
+        <p style="font-size:.875rem;color:var(--gray2);line-height:1.7;max-width:280px">The complete OOH media management platform for agencies, planners and advertisers.</p>
+        <p style="font-size:.78rem;color:var(--gray3);margin-top:16px">A product by<br><strong style="color:var(--gray2)">Brandsculpt Media Solutions Pvt. Ltd.</strong></p>
+      </div>
+      <div class="footer-col">
+        <h4>Platform</h4>
+        <a href="#features">Features</a>
+        <a href="#how">How It Works</a>
+        <a href="#who">Who It's For</a>
+        <a href="#workflow">Workflow</a>
+        <a href="https://app.brandsculpt.com" target="_blank">Live App →</a>
+      </div>
+      <div class="footer-col">
+        <h4>Login</h4>
+        <a href="https://app.brandsculpt.com/employeelogin" target="_blank">Employee Login</a>
+        <a href="https://app.brandsculpt.com/adminlogin" target="_blank">Admin Login</a>
+        <a href="https://app.brandsculpt.com/login" target="_blank">Advertiser Portal</a>
+        <a href="#who" style="margin-top:8px">OOH Agencies</a>
+        <a href="#who">Media Planners</a>
+      </div>
+      <div class="footer-col">
+        <h4>Contact</h4>
+        <a href="https://brandsculpt.com">brandsculpt.com</a>
+        <a href="mailto:marketing@brandsculpt.com">marketing@brandsculpt.com</a>
+        <a href="tel:+918674996199">+91 86749 96199</a>
+        <p style="margin-top:12px;font-size:.75rem;color:var(--gray3)">Patna · Noida</p>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© <span id="yr"></span> Brandsculpt Media Solutions Pvt. Ltd. All rights reserved.</span>
+      <div style="display:flex;gap:20px">
+        <a href="https://brandsculpt.com" style="color:inherit;text-decoration:none">brandsculpt.com</a>
+        <a href="https://app.brandsculpt.com" style="color:inherit;text-decoration:none" target="_blank">traqooh.brandsculpt.com</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+document.getElementById('yr').textContent = new Date().getFullYear();
+
+// Login dropdown toggle — click to open/close, click outside to close
+function toggleLoginDD(e, btn) {
+  e.stopPropagation();
+  const dd = btn.closest('.login-dropdown');
+  const wasOpen = dd.classList.contains('open');
+  // Close any other open dropdowns first
+  document.querySelectorAll('.login-dropdown.open').forEach(el => el.classList.remove('open'));
+  if (!wasOpen) dd.classList.add('open');
+}
+// Close all login dropdowns when clicking anywhere outside them
+document.addEventListener('click', function() {
+  document.querySelectorAll('.login-dropdown.open').forEach(el => el.classList.remove('open'));
+});
+// Prevent clicks inside the menu from closing it
+document.querySelectorAll('.login-menu').forEach(function(menu) {
+  menu.addEventListener('click', function(e) { e.stopPropagation(); });
+});
+
+// Nav scroll
+const nav = document.getElementById('navbar');
+window.addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 50));
+
+// Mobile menu
+function toggleMenu() { document.getElementById('mobileMenu').classList.toggle('open'); }
+
+// Scroll reveal
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('show'); });
+}, { threshold: 0.1 });
+document.querySelectorAll('.rv').forEach(el => obs.observe(el));
+
+// Counter
+function animCount(el, target) {
+  let n = 0, step = Math.ceil(target / 60);
+  const t = setInterval(() => {
+    n = Math.min(n + step, target);
+    el.textContent = n.toLocaleString('en-IN') + '+';
+    if (n >= target) clearInterval(t);
+  }, 20);
+}
+const cObs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      const t = parseInt(e.target.dataset.target);
+      if (t) { animCount(e.target, t); cObs.unobserve(e.target); }
+    }
+  });
+}, { threshold: 0.5 });
+document.querySelectorAll('[data-target]').forEach(el => cObs.observe(el));
+
+// Tab switcher
+function switchTab(tab) {
+  document.querySelectorAll('.how-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.how-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

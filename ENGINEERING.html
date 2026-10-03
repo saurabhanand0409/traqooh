@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TraqOOH — Engineering Brief</title>
+  
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    color: #0f172a;
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 32px 36px 48px;
+    line-height: 1.55;
+    font-size: 13px;
+  }
+  h1 {
+    font-size: 26px;
+    color: #2563EB;
+    border-bottom: 3px solid #2563EB;
+    padding-bottom: 8px;
+    margin: 0 0 18px;
+    letter-spacing: -0.3px;
+  }
+  h2 {
+    font-size: 18px;
+    color: #0f172a;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 6px;
+    margin: 30px 0 12px;
+    letter-spacing: -0.2px;
+  }
+  h3 {
+    font-size: 14px;
+    color: #1e293b;
+    margin: 20px 0 8px;
+    font-weight: 700;
+  }
+  h4 { font-size: 13px; color: #334155; margin: 14px 0 6px; }
+  blockquote {
+    border-left: 3px solid #2563EB;
+    background: #eff6ff;
+    padding: 10px 14px;
+    margin: 14px 0;
+    color: #1e40af;
+    font-size: 12px;
+    border-radius: 4px;
+  }
+  blockquote p { margin: 0; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code {
+    background: #f1f5f9;
+    color: #DC143C;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 11.5px;
+  }
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 11px;
+    line-height: 1.5;
+    margin: 10px 0;
+  }
+  pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+    font-size: 11.5px;
+  }
+  th {
+    background: #1e293b;
+    color: #fff;
+    font-weight: 700;
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f8fafc; }
+  hr {
+    border: none;
+    border-top: 1px solid #cbd5e1;
+    margin: 24px 0;
+  }
+  a { color: #2563EB; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  strong { color: #0f172a; }
+  .brand {
+    text-align: center;
+    margin-bottom: 28px;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  .brand-name {
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.8px;
+  }
+  .brand-name .b { color: #2563EB; }
+  .brand-name .r { color: #DC143C; }
+  .brand-by {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .footer {
+    margin-top: 40px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 10px;
+  }
+  @media print {
+    body { padding: 0; }
+    h2 { page-break-before: auto; page-break-after: avoid; }
+    pre, table, blockquote { page-break-inside: avoid; }
+  }
+</style>
+
+</head>
+<body>
+  
+<div class="brand">
+  <div class="brand-name"><span class="b">traq</span><span class="r">OOH</span></div>
+  <div class="brand-by">by BRANDSCULPT</div>
+</div>
+
+  <h1 id="traqooh-engineering-onboarding">TraqOOH — Engineering Onboarding</h1>
+<blockquote>
+<p>For the incoming architect / senior engineer. Tech detail, code paths, gotchas.
+Read alongside CLAUDE.md and OPERATIONS.md.
+Last updated: 2026-06-27</p>
+</blockquote>
+<hr />
+<h2 id="quick-orientation-1-minute">Quick orientation (1 minute)</h2>
+<ul>
+<li>Monorepo at <code>D:\Programming\eclipse-workspace\traqooh\</code>.</li>
+<li>3 apps: <code>traqooh-frontend</code> (React+Vite), <code>traqooh-backend-python</code> (FastAPI), <code>traqooh-app</code> (Expo Android).</li>
+<li>Backend: Render Free → auto-deploys on push to <code>main</code>. Cold-start 50s; UptimeRobot pings <code>/health</code> to keep warm.</li>
+<li>Frontend: Cloudflare Pages, deployed manually via Wrangler CLI.</li>
+<li>Mobile: EAS Build (cloud) → APK link via email.</li>
+<li>DB: Neon PostgreSQL Free + PgBouncer pooler (in <code>DATABASE_URL</code>).</li>
+<li>Media: Cloudflare R2 (10 GB free, egress free).</li>
+<li>Email: Resend, domain <code>brandsculpt.com</code> verified.</li>
+</ul>
+<hr />
+<h2 id="tech-stack">Tech stack</h2>
+<h3 id="frontend">Frontend</h3>
+<ul>
+<li><strong>React 18.3</strong> + <strong>Vite 5.4</strong> + <strong>TailwindCSS 3.4</strong></li>
+<li><strong>react-router-dom 7.9</strong> (no state lib — <code>localStorage</code> + props)</li>
+<li><strong>Recharts 3.8</strong> for charts, <strong>Leaflet</strong> for maps (no API key)</li>
+<li><strong>lucide-react</strong> for icons</li>
+<li>Fonts: Syne (headings) + Inter (body) from Google Fonts</li>
+<li>API client: <code>src/utils/apiFetch.js</code> — Bearer JWT auto-injected; skips Content-Type when body is FormData</li>
+<li>Image compression: <code>src/utils/imageCompress.js</code> (canvas, ~5x smaller)</li>
+<li>Size formatting: <code>src/utils/sizeFormat.js</code> — shared parser/renderer for the multi-row JSON in <code>site.size</code></li>
+</ul>
+<h3 id="backend">Backend</h3>
+<ul>
+<li><strong>FastAPI</strong> + <strong>Uvicorn</strong></li>
+<li><strong>SQLAlchemy</strong> + <strong>psycopg2-binary</strong></li>
+<li><strong>python-jose</strong> for JWT (HS256, 7-day expiry)</li>
+<li><strong>passlib + bcrypt</strong> for passwords</li>
+<li><strong>slowapi</strong> rate limiting (10/min login, 5/min OTP)</li>
+<li><strong>boto3</strong> for R2 uploads (preserves uploaded Content-Type — important for video)</li>
+<li><strong>httpx</strong> for Resend email API</li>
+</ul>
+<h3 id="mobile">Mobile</h3>
+<ul>
+<li><strong>Expo SDK 56</strong> (React Native)</li>
+<li>Android only — package <code>com.brandsculpt.traqooh</code></li>
+<li>expo-location, expo-image-picker (new array API: <code>mediaTypes: ['images','videos']</code>)</li>
+<li>Builds via EAS — no local Android SDK needed</li>
+</ul>
+<hr />
+<h2 id="architecture-diagram">Architecture diagram</h2>
+<pre><code>                  END USERS
+  Admins/Employees  Advertisers  Field Workers
+        |              |             |
+        v              v             v
+   React Web         Same web       Expo APK
+ app.brandsculpt.com (token portal)  (Android)
+        \              |             /
+         \             |            / HTTPS + JWT
+          v            v           v
+   ┌──────────────────────────────────┐
+   │  FastAPI backend (Render Free)   │
+   │  CORSMiddleware + slowapi        │
+   │  Global exception handler        │
+   └────┬────────────────────┬────────┘
+        | SQLAlchemy         | boto3
+        v                    v
+   ┌──────────────┐  ┌──────────────────┐
+   │ Neon Postgres│  │ Cloudflare R2    │
+   │ (PgBouncer)  │  │ (public bucket)  │
+   └──────────────┘  └──────────────────┘
+                     ┌──────────────────┐
+                     │ Resend (email)   │
+                     └──────────────────┘
+</code></pre>
+<hr />
+<h2 id="auth-jwt-flow">Auth + JWT flow</h2>
+<ol>
+<li>User logs in (4 paths: email+pwd, OTP, field PIN, mobile login).</li>
+<li>Backend issues JWT with: <code>userId, email, role, companyId, vendorId, advertiserId, displayName, workerName</code>.</li>
+<li>Frontend stores at <code>localStorage.tq_user.token</code>.</li>
+<li>Every protected call: <code>Authorization: Bearer &lt;token&gt;</code> via <code>apiFetch</code>.</li>
+<li>Backend validates via <code>Depends(get_current_user)</code> in <code>jwt_utils.py</code>.</li>
+</ol>
+<p><strong>Roles:</strong> <code>SUPER_ADMIN</code>, <code>ADMIN</code>, <code>EMPLOYEE</code>, <code>ADVERTISER</code>, <code>FIELD</code> (mobile only).</p>
+<p><strong>Important:</strong> Employees are now globally-scoped on Inventory + Dashboard (was company-scoped). Campaigns remain owned-or-shared.</p>
+<hr />
+<h2 id="database-schema-highlights">Database schema highlights</h2>
+<h3 id="critical-fk-chains">Critical FK chains</h3>
+<pre><code>sites &lt;-- site_images, site_audits, campaign_site_assignments, campaign_activities
+campaign_site_assignments &lt;-- campaign_activities (assignment_id)
+campaigns &lt;-- campaign_site_assignments, campaign_activities, campaign_shares
+advertisers &lt;-- campaigns, user_accounts, advertiser_access_links
+companies &lt;-- sites, user_accounts (vendor_id)
+</code></pre>
+<h3 id="site-delete-cascade-hardened-in-current-session">Site delete cascade (hardened in current session)</h3>
+<p>The trap: <code>campaign_activities</code> has FKs to BOTH <code>sites.id</code> AND <code>campaign_site_assignments.id</code>. If activity.site_id is null/different but activity.assignment_id points to one of this site's assignments, naive cascade fails. Correct order:</p>
+<pre><code class="language-python">1. CampaignActivity WHERE site_id=X OR assignment_id IN (X's assignments)
+2. SiteAudit WHERE site_id=X
+3. CampaignSiteAssignment WHERE site_id=X
+4. SiteImage WHERE site_id=X
+5. Site WHERE id=X
+</code></pre>
+<p>R2 objects intentionally orphaned. Wrapped in try/except → returns <code>HTTPException(500, detail=...)</code>.</p>
+<h3 id="sitessize-is-now-json"><code>sites.size</code> is now JSON</h3>
+<p>Was free-text. Now stores an array of size rows:</p>
+<pre><code class="language-json">[
+  {&quot;qty&quot;:&quot;25&quot;,&quot;width&quot;:&quot;55&quot;,&quot;length&quot;:&quot;&quot;,&quot;unit&quot;:&quot;inch&quot;,&quot;note&quot;:&quot;screens&quot;}
+]
+</code></pre>
+<ul>
+<li>Display: <code>formatSize()</code> in <code>utils/sizeFormat.js</code> — <code>25× 55"</code> format</li>
+<li>Cost math: <code>parseSqft()</code> in <code>Campaigns.jsx</code> sums <code>qty × w × l</code> per row, inch→ft is ÷144</li>
+<li>Legacy free-text rows still display via fallback</li>
+<li>Width(ft) / Length(ft) numeric form inputs were REMOVED from Inventory; DB cols still exist for legacy data</li>
+</ul>
+<h3 id="campaign_site_assignments-key-columns"><code>campaign_site_assignments</code> — key columns</h3>
+<ul>
+<li><code>agreed_cost</code> is the admin-set media cost (always takes precedence over <code>site.potentialMonthly</code> rate card)</li>
+<li><code>printing_type</code> includes "Not Applicable" for LED (no print needed)</li>
+<li><code>monitor_worker_name</code> is the stable match key (survives 72-hour PIN re-issue)</li>
+<li><code>pending_approval</code> flags sites added AFTER finalize (need advertiser re-approval)</li>
+</ul>
+<h3 id="campaign_activities"><code>campaign_activities</code></h3>
+<ul>
+<li><code>image_urls</code> is a JSON array — mixed photos AND videos (<code>.mp4</code>, <code>.mov</code>, etc.)</li>
+<li>Phase grouping (<code>_PHASE_MAP</code> in <code>routes/campaigns.py</code>):</li>
+<li>START phase: START, MOUNTING, PRINT, REPRINT</li>
+<li>MID phase: AUDIT, MAINTENANCE <em>(hidden from web UI)</em></li>
+<li>END phase: END, TAKEDOWN</li>
+</ul>
+<h3 id="field_pins"><code>field_pins</code></h3>
+<ul>
+<li>4-digit PIN, 72h expiry</li>
+<li><code>worker_name</code> is the STABLE identifier — re-issue keeps assignments intact</li>
+</ul>
+<hr />
+<h2 id="critical-gotcha-1-starlette-servererrormiddleware-bypasses-cors">CRITICAL gotcha #1: Starlette ServerErrorMiddleware bypasses CORS</h2>
+<p>Starlette's outer <code>ServerErrorMiddleware</code> catches unhandled exceptions BEFORE CORSMiddleware adds headers. Result: 500 response has no <code>Access-Control-Allow-Origin</code>, browser blocks JS from reading body, shows generic "Failed to fetch".</p>
+<p><strong>Fix</strong> (already in <code>main.py:266</code>):</p>
+<pre><code class="language-python">@app.exception_handler(Exception)
+async def _all_unhandled_exceptions(request, exc):
+    origin = request.headers.get(&quot;origin&quot;, &quot;&quot;)
+    headers = {}
+    if origin in _CORS_ALLOWED_ORIGINS:
+        headers[&quot;Access-Control-Allow-Origin&quot;] = origin
+        headers[&quot;Access-Control-Allow-Credentials&quot;] = &quot;true&quot;
+    return JSONResponse(
+        status_code=500,
+        content={&quot;detail&quot;: f&quot;{type(exc).__name__}: {str(exc)[:300]}&quot;},
+        headers=headers,
+    )
+</code></pre>
+<p>Don't remove. Without it, every error is invisible to the frontend.</p>
+<h2 id="critical-gotcha-2-filelist-cleared-before-async-iterate">CRITICAL gotcha #2: FileList cleared before async iterate</h2>
+<pre><code class="language-jsx">// WRONG — files becomes empty when value is cleared
+&lt;input onChange={e =&gt; { uploadFiles(e.target.files); e.target.value = &quot;&quot;; }} /&gt;
+
+// RIGHT — copy first
+&lt;input onChange={e =&gt; {
+  const files = Array.from(e.target.files);
+  e.target.value = &quot;&quot;;
+  uploadFiles(files);
+}} /&gt;
+</code></pre>
+<p>This bit us hard in Inventory.jsx and Campaigns.jsx. Search for <code>Array.from(.target.files</code> to verify the fix is in place.</p>
+<h2 id="critical-gotcha-3-video-content-type-preservation">CRITICAL gotcha #3: video Content-Type preservation</h2>
+<p>R2 upload via boto3 must preserve the uploaded file's Content-Type (not force <code>image/jpeg</code>). Otherwise videos upload but won't play (served as image). The site-image POST endpoint also has an <code>is_video</code> guard so videos never auto-promote to cover photo.</p>
+<h2 id="critical-gotcha-4-select-option-white-background">CRITICAL gotcha #4: select option white background</h2>
+<pre><code class="language-css">/* In index.css — DON'T REMOVE */
+select option { background: #0D1428; color: #F9FAFB; }
+</code></pre>
+<p>Windows Chrome renders <code>&lt;option&gt;</code> with OS-native white background by default. Without this rule, white-on-white text is invisible.</p>
+<hr />
+<h2 id="deploy-commands">Deploy commands</h2>
+<h3 id="backend_1">Backend</h3>
+<pre><code class="language-bash">cd traqooh-backend-python
+git add &lt;files&gt;
+git commit -m &quot;...&quot;
+git push                       # Render auto-deploys in ~2 min
+</code></pre>
+<h3 id="frontend_1">Frontend</h3>
+<pre><code class="language-bash">cd traqooh-frontend
+npm run build
+npx wrangler pages deploy dist --project-name traqooh-frontend --branch main --commit-dirty=true
+</code></pre>
+<h3 id="mobile_1">Mobile</h3>
+<pre><code class="language-bash">cd traqooh-app
+eas build --platform android --profile preview --non-interactive --no-wait
+</code></pre>
+<hr />
+<h2 id="render-env-vars">Render env vars</h2>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATABASE_URL</code></td>
+<td>Neon with PgBouncer pooler. URL-encode password: <code>@</code>→<code>%40</code>, <code>#</code>→<code>%23</code>, <code>!</code>→<code>%21</code>. Append <code>&amp;channel_binding=require</code>.</td>
+</tr>
+<tr>
+<td><code>JWT_SECRET</code></td>
+<td><code>openssl rand -hex 32</code></td>
+</tr>
+<tr>
+<td><code>RESEND_API_KEY</code></td>
+<td><code>re_...</code> from resend.com</td>
+</tr>
+<tr>
+<td><code>OTP_FROM_EMAIL</code></td>
+<td><code>noreply@brandsculpt.com</code></td>
+</tr>
+<tr>
+<td><code>R2_ACCESS_KEY</code>, <code>R2_SECRET_KEY</code>, <code>R2_BUCKET</code>, <code>R2_ENDPOINT</code></td>
+<td>Cloudflare R2</td>
+</tr>
+<tr>
+<td><code>FRONTEND_URL</code> (opt)</td>
+<td>Default <code>https://app.brandsculpt.com</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="day-1-reading-list">Day-1 reading list</h2>
+<p>In order:</p>
+<ol>
+<li><code>traqooh-backend-python/main.py</code> — top to ~line 280 for app setup, CORS, global exception handler, migrations</li>
+<li><code>traqooh-backend-python/routes/campaigns.py</code> — most complex business logic; <code>auto_advance_status</code>, <code>_PHASE_MAP</code>, monitoring endpoint</li>
+<li><code>traqooh-backend-python/jwt_utils.py</code> — short, the auth dependency</li>
+<li><code>traqooh-frontend/src/pages/Campaigns.jsx</code> — most complex UI; size builder, cost editor, monitoring board, cost sheet PDF</li>
+<li><code>traqooh-frontend/src/pages/AccessView.jsx</code> — public advertiser portal; shortlist auto-save, Live Tracking</li>
+<li><code>traqooh-frontend/src/utils/sizeFormat.js</code> — single source of truth for size rendering</li>
+<li><code>traqooh-frontend/src/utils/apiFetch.js</code> — short, the API wrapper</li>
+</ol>
+<hr />
+<h2 id="whats-healthy-vs-whats-fragile">What's healthy vs what's fragile</h2>
+<h3 id="healthy">Healthy</h3>
+<ul>
+<li>Backend route handlers are small and focused</li>
+<li>DB migrations run idempotently at startup</li>
+<li>Frontend pages are self-contained (no global state lib)</li>
+<li>Auth flow is simple and consistent</li>
+<li>The 4 known gotchas above are all FIXED with comments explaining why</li>
+</ul>
+<h3 id="fragile">Fragile</h3>
+<ul>
+<li><strong>Render free tier cold start</strong>: 50s. UptimeRobot helps but isn't 100%. Upgrade to $7/mo Starter before real traffic.</li>
+<li><strong>Neon 10-conn limit</strong>: PgBouncer pooler helps but still finite. Watch for it on bursty load.</li>
+<li><strong>No Sentry</strong>: every error today is invisible unless someone reads Render logs. Add Sentry before launch.</li>
+<li><strong>Single-region</strong>: Render Oregon, Neon us-east-1, R2 global. Latency for Indian users isn't terrible but isn't great either. Consider Indian region later.</li>
+<li><strong>No tests</strong>: there's no test suite. Don't refactor large surfaces without one.</li>
+<li><strong>CHANGELOG.md / CLAUDE.md / OPERATIONS.md drift</strong>: keep these updated. They're the only memory across sessions.</li>
+</ul>
+<hr />
+<h2 id="pending-todo-engineering">Pending / TODO (engineering)</h2>
+<ul>
+<li>Add Sentry or Rollbar for backend + frontend error monitoring</li>
+<li>Set up CI (GitHub Actions): lint + build on push</li>
+<li>Add a basic test suite (pytest backend, vitest frontend)</li>
+<li>Implement auto-archive for expired field PINs (cron job)</li>
+<li>Move R2 orphan cleanup to a background job</li>
+<li>Consider read replicas if Neon limits become painful</li>
+<li>Vendor-level direct logins (vendors as users, not just companies)</li>
+<li>Add request-ID logging for traceability</li>
+<li>Document the per-tab data refresh strategy (currently mostly <code>window.location.reload()</code> after writes — could be smarter)</li>
+</ul>
+<hr />
+<p>End of engineering brief.</p>
+  
+<div class="footer">
+  TraqOOH · BrandSculpt Media Solutions · Confidential ·
+  saurabh.anand24@gmail.com
+</div>
+
+</body>
+</html>

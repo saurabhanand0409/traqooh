@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TraqOOH — Onboarding Brief</title>
+  
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    color: #0f172a;
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 32px 36px 48px;
+    line-height: 1.55;
+    font-size: 13px;
+  }
+  h1 {
+    font-size: 26px;
+    color: #2563EB;
+    border-bottom: 3px solid #2563EB;
+    padding-bottom: 8px;
+    margin: 0 0 18px;
+    letter-spacing: -0.3px;
+  }
+  h2 {
+    font-size: 18px;
+    color: #0f172a;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 6px;
+    margin: 30px 0 12px;
+    letter-spacing: -0.2px;
+  }
+  h3 {
+    font-size: 14px;
+    color: #1e293b;
+    margin: 20px 0 8px;
+    font-weight: 700;
+  }
+  h4 { font-size: 13px; color: #334155; margin: 14px 0 6px; }
+  blockquote {
+    border-left: 3px solid #2563EB;
+    background: #eff6ff;
+    padding: 10px 14px;
+    margin: 14px 0;
+    color: #1e40af;
+    font-size: 12px;
+    border-radius: 4px;
+  }
+  blockquote p { margin: 0; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code {
+    background: #f1f5f9;
+    color: #DC143C;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 11.5px;
+  }
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 11px;
+    line-height: 1.5;
+    margin: 10px 0;
+  }
+  pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+    font-size: 11.5px;
+  }
+  th {
+    background: #1e293b;
+    color: #fff;
+    font-weight: 700;
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f8fafc; }
+  hr {
+    border: none;
+    border-top: 1px solid #cbd5e1;
+    margin: 24px 0;
+  }
+  a { color: #2563EB; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  strong { color: #0f172a; }
+  .brand {
+    text-align: center;
+    margin-bottom: 28px;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  .brand-name {
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.8px;
+  }
+  .brand-name .b { color: #2563EB; }
+  .brand-name .r { color: #DC143C; }
+  .brand-by {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .footer {
+    margin-top: 40px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 10px;
+  }
+  @media print {
+    body { padding: 0; }
+    h2 { page-break-before: auto; page-break-after: avoid; }
+    pre, table, blockquote { page-break-inside: avoid; }
+  }
+</style>
+
+</head>
+<body>
+  
+<div class="brand">
+  <div class="brand-name"><span class="b">traq</span><span class="r">OOH</span></div>
+  <div class="brand-by">by BRANDSCULPT</div>
+</div>
+
+  <h1 id="traqooh-complete-onboarding-brief">TraqOOH — Complete Onboarding Brief</h1>
+<blockquote>
+<p>A comprehensive briefing for a new architect or product owner stepping into this project.
+Last updated: 2026-06-27</p>
+</blockquote>
+<hr />
+<h2 id="1-what-the-product-is">1. What the Product Is</h2>
+<p><strong>TraqOOH</strong> is a full-stack SaaS platform for <strong>Out-of-Home (OOH) advertising in India</strong>, built and operated by <strong>BrandSculpt</strong> (saurabh.anand24@gmail.com).</p>
+<p>It connects:
+- <strong>Media Owners / Vendors</strong> — billboard and OOH inventory companies that own physical sites
+- <strong>Advertisers</strong> — brands that want to book OOH campaigns
+- <strong>Field workers</strong> — people who physically install, mount, audit, and take down OOH ads
+- <strong>Internal staff</strong> — admins (full control), employees (planning campaigns globally), super admins (cross-company oversight)</p>
+<h3 id="the-job-it-does">The job it does</h3>
+<ol>
+<li>Vendors register their inventory (billboards, hoardings, LED displays etc.) with photos, dimensions, rates.</li>
+<li>Internal staff create OOH campaigns, pick sites from inventory, build cost sheets.</li>
+<li>Advertisers see a self-serve portal (no login needed — token link) to review, shortlist, and finalize proposals.</li>
+<li>Once finalized, field workers execute on-ground via an Android app — capture PRINT/MOUNTING/AUDIT/TAKEDOWN photos and videos, geo-tagged.</li>
+<li>Advertisers watch progress live in the same portal with proof photos and GPS metadata.</li>
+</ol>
+<p><strong>Market:</strong> India, B2B. Branded as <strong>BrandSculpt</strong> at the parent level, <strong>TraqOOH</strong> is the product.</p>
+<hr />
+<h2 id="2-tech-stack-every-layer">2. Tech Stack — Every Layer</h2>
+<h3 id="frontend-traqooh-frontend">Frontend (<code>traqooh-frontend</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Choice</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Framework</td>
+<td>React 18.3</td>
+<td>Standard, mature</td>
+</tr>
+<tr>
+<td>Bundler</td>
+<td>Vite 5.4</td>
+<td>Fast HMR, simple config</td>
+</tr>
+<tr>
+<td>Styling</td>
+<td>TailwindCSS 3.4 + CSS variables in <code>src/index.css</code></td>
+<td>Design tokens centralised</td>
+</tr>
+<tr>
+<td>Routing</td>
+<td>react-router-dom 7.9</td>
+<td></td>
+</tr>
+<tr>
+<td>Charts</td>
+<td>Recharts 3.8</td>
+<td></td>
+</tr>
+<tr>
+<td>Maps</td>
+<td>Leaflet 1.9 + react-leaflet 5.0</td>
+<td>Free, no API key</td>
+</tr>
+<tr>
+<td>Icons</td>
+<td>lucide-react 0.561</td>
+<td></td>
+</tr>
+<tr>
+<td>Fonts</td>
+<td>Syne 800 (headings), Inter 400/500/600 (body) — Google Fonts</td>
+<td></td>
+</tr>
+<tr>
+<td>Auth</td>
+<td>JWT in <code>localStorage</code> as <code>tq_user.token</code></td>
+<td>7-day expiry</td>
+</tr>
+<tr>
+<td>API client</td>
+<td><code>src/utils/apiFetch.js</code> — auto-injects Bearer token; skips Content-Type when body is FormData</td>
+<td>One wrapper, no Axios</td>
+</tr>
+<tr>
+<td>Image compression</td>
+<td><code>src/utils/imageCompress.js</code> — canvas resize 1280 px / JPEG 0.75</td>
+<td>~5x smaller uploads</td>
+</tr>
+<tr>
+<td>Size formatting</td>
+<td><code>src/utils/sizeFormat.js</code> — shared formatter for <code>site.size</code> JSON across all pages</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="backend-traqooh-backend-python">Backend (<code>traqooh-backend-python</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Choice</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Framework</td>
+<td>FastAPI</td>
+</tr>
+<tr>
+<td>Server</td>
+<td>Uvicorn</td>
+</tr>
+<tr>
+<td>ORM</td>
+<td>SQLAlchemy</td>
+</tr>
+<tr>
+<td>DB driver</td>
+<td>psycopg2-binary</td>
+</tr>
+<tr>
+<td>Auth</td>
+<td>python-jose[cryptography] — JWT HS256, 7-day</td>
+</tr>
+<tr>
+<td>Password hash</td>
+<td>passlib + bcrypt</td>
+</tr>
+<tr>
+<td>Rate limiting</td>
+<td>slowapi (10/min login, 5/min OTP)</td>
+</tr>
+<tr>
+<td>S3/R2 upload</td>
+<td>boto3 (preserves Content-Type — works for images AND videos)</td>
+</tr>
+<tr>
+<td>HTTP client</td>
+<td>httpx</td>
+</tr>
+<tr>
+<td>Email</td>
+<td>Resend HTTP API via httpx</td>
+</tr>
+</tbody>
+</table>
+<h3 id="mobile-traqooh-app">Mobile (<code>traqooh-app</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Choice</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Framework</td>
+<td>Expo SDK 56 (React Native)</td>
+</tr>
+<tr>
+<td>Platform</td>
+<td>Android only, APK via EAS Build</td>
+</tr>
+<tr>
+<td>Location</td>
+<td>expo-location (GPS)</td>
+</tr>
+<tr>
+<td>Media picker</td>
+<td>expo-image-picker 16.1.x — uses array API <code>mediaTypes: ['images','videos']</code></td>
+</tr>
+<tr>
+<td>Build</td>
+<td>EAS Build (cloud, no local Android SDK needed)</td>
+</tr>
+<tr>
+<td>Package</td>
+<td><code>com.brandsculpt.traqooh</code></td>
+</tr>
+<tr>
+<td>EAS Project ID</td>
+<td><code>f41cf806-a1de-4667-8a6c-07f9c68153ea</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="infrastructure">Infrastructure</h3>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Provider</th>
+<th>Plan</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Frontend hosting</td>
+<td>Cloudflare Pages</td>
+<td>Free</td>
+<td><code>app.brandsculpt.com</code></td>
+</tr>
+<tr>
+<td>Backend hosting</td>
+<td>Render</td>
+<td>Free (sleeps after 15 min idle)</td>
+<td>UptimeRobot keeps warm; recommend $7/mo Starter upgrade for production</td>
+</tr>
+<tr>
+<td>Database</td>
+<td>Neon PostgreSQL</td>
+<td>Free (0.5 GB, 10 conn)</td>
+<td>PgBouncer pooler enabled in DATABASE_URL — multiplexes to ~100 conn</td>
+</tr>
+<tr>
+<td>Media storage</td>
+<td>Cloudflare R2</td>
+<td>Free (10 GB, egress free)</td>
+<td>Public bucket at <code>pub-a80f750f955d44d1b642d35b2534766f.r2.dev</code></td>
+</tr>
+<tr>
+<td>Email</td>
+<td>Resend</td>
+<td>Free tier</td>
+<td>Domain <code>brandsculpt.com</code> verified; sends from <code>noreply@brandsculpt.com</code></td>
+</tr>
+<tr>
+<td>Mobile build</td>
+<td>EAS (Expo)</td>
+<td>Free (30 builds/mo)</td>
+<td></td>
+</tr>
+<tr>
+<td>Keep-alive</td>
+<td>UptimeRobot</td>
+<td>Free</td>
+<td>Pings <code>/health</code> every 5 min</td>
+</tr>
+<tr>
+<td>DNS</td>
+<td>Cloudflare</td>
+<td><code>brandsculpt.com</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-live-urls">3. Live URLs</h2>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>URL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Marketing site</td>
+<td>https://traqooh.brandsculpt.com (Vercel)</td>
+</tr>
+<tr>
+<td>Web App</td>
+<td>https://app.brandsculpt.com</td>
+</tr>
+<tr>
+<td>Backend API</td>
+<td>https://traqooh-backend-python.onrender.com</td>
+</tr>
+<tr>
+<td>Health check</td>
+<td>https://traqooh-backend-python.onrender.com/health</td>
+</tr>
+<tr>
+<td>API docs (Swagger)</td>
+<td>https://traqooh-backend-python.onrender.com/docs</td>
+</tr>
+</tbody>
+</table>
+<p>All service dashboards use <code>saurabh.anand24@gmail.com</code>.</p>
+<hr />
+<h2 id="4-folder-layout-monorepo">4. Folder Layout (Monorepo)</h2>
+<pre><code>D:\Programming\eclipse-workspace\traqooh\
+├── CLAUDE.md                    ← reference for AI sessions
+├── CHANGELOG.md                 ← chronological session-by-session log
+├── OPERATIONS.md                ← deploy + diagnostic runbook
+├── ONBOARDING.md                ← this file
+├── ENGINEERING.md               ← engineering-focused split
+├── PRODUCT.md                   ← product-focused split
+├── traqooh-frontend\            ← React + Vite web app
+├── traqooh-backend-python\      ← FastAPI backend
+└── traqooh-app\                 ← Expo React Native Android app
+</code></pre>
+<p>GitHub repos: <code>saurabhanand0409/traqooh-frontend</code> and <code>saurabhanand0409/traqooh-backend-python</code>. Mobile app lives in this monorepo only.</p>
+<hr />
+<h2 id="5-authentication-roles">5. Authentication &amp; Roles</h2>
+<h3 id="4-login-methods">4 login methods</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Used by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Email + password</td>
+<td><code>POST /api/auth/login</code></td>
+<td>Admin, Employee, Advertiser, Super Admin</td>
+</tr>
+<tr>
+<td>OTP (email -&gt; 6-digit)</td>
+<td><code>POST /api/auth/send-otp</code> + <code>verify-otp</code></td>
+<td>Mobile app users</td>
+</tr>
+<tr>
+<td>Field PIN (4-digit, 72h expiry)</td>
+<td><code>POST /api/auth/field-login</code></td>
+<td>Field workers on mobile</td>
+</tr>
+<tr>
+<td>Mobile email+pwd</td>
+<td><code>POST /api/mobile/login</code></td>
+<td>Alias of /api/auth/login</td>
+</tr>
+</tbody>
+</table>
+<h3 id="5-user-roles">5 user roles</h3>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Login Page</th>
+<th>Dashboard</th>
+<th>Access Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SUPER_ADMIN</code></td>
+<td><code>/masterlogin</code></td>
+<td><code>/dashboard/master</code></td>
+<td>All companies, all data</td>
+</tr>
+<tr>
+<td><code>ADMIN</code></td>
+<td><code>/adminlogin</code></td>
+<td><code>/dashboard/admin</code></td>
+<td>Own company — full CRUD</td>
+</tr>
+<tr>
+<td><code>EMPLOYEE</code></td>
+<td><code>/employeelogin</code></td>
+<td><code>/dashboard/employee</code></td>
+<td>All sites globally. Campaigns scoped to own/shared.</td>
+</tr>
+<tr>
+<td><code>ADVERTISER</code></td>
+<td><code>/login</code></td>
+<td><code>/dashboard/advertiser</code></td>
+<td>Own campaigns + proof photos</td>
+</tr>
+<tr>
+<td><code>FIELD</code> (mobile only)</td>
+<td>App / PIN</td>
+<td>App home</td>
+<td>Sites assigned to their worker_name OR browse vendor inventory</td>
+</tr>
+</tbody>
+</table>
+<h3 id="jwt-flow">JWT flow</h3>
+<ol>
+<li>User logs in via one of 4 methods.</li>
+<li>Backend creates JWT via <code>jwt_utils.py</code> with <code>userId, email, role, companyId, vendorId, advertiserId, displayName, workerName</code>.</li>
+<li>Stored as <code>JSON.parse(localStorage.getItem("tq_user")).token</code>.</li>
+<li>Every protected call sends <code>Authorization: Bearer &lt;token&gt;</code> via <code>apiFetch</code>.</li>
+<li>Backend validates via <code>Depends(get_current_user)</code>.</li>
+<li>JWT expires after 7 days.</li>
+</ol>
+<h3 id="security">Security</h3>
+<ul>
+<li>Rate limiting: 10/min login, 5/min OTP (slowapi)</li>
+<li>CORS allowed: <code>app.brandsculpt.com</code>, <code>traqooh.brandsculpt.com</code>, <code>localhost:5173/3000</code>, <code>127.0.0.1:5173</code></li>
+<li>Passwords: bcrypt-hashed</li>
+<li>Access link tokens: <strong>SHA-256 hashed in DB</strong> — plaintext never persisted</li>
+<li><code>JWT_SECRET</code>: 64-char random hex env var on Render</li>
+</ul>
+<h3 id="important-security-gotcha-fixed">Important security gotcha (FIXED)</h3>
+<p><strong>Starlette's <code>ServerErrorMiddleware</code> sits OUTSIDE the CORSMiddleware.</strong> Unhandled exceptions in route handlers (or in dependencies like <code>get_db</code>/<code>get_current_user</code>) returned a 500 without CORS headers — the browser blocked JS from reading the body, showing "Failed to fetch" instead of the real error. Solved by adding a global <code>@app.exception_handler(Exception)</code> that re-emits the 500 with <code>Access-Control-Allow-Origin</code> attached. See <code>main.py:266</code>.</p>
+<hr />
+<h2 id="6-database-schema">6. Database Schema</h2>
+<h3 id="tables">Tables</h3>
+<pre><code>otp_tokens                      ← 6-digit OTPs for mobile login
+companies                       ← Media-owner / vendor companies
+gst_registrations               ← GST per company
+contacts                        ← Contacts per GST
+user_accounts                   ← ALL logins (admin/employee/advertiser/super)
+sites                           ← Billboard / hoarding inventory
+site_images                     ← Per-site photo gallery
+advertisers                     ← Advertiser companies
+advertiser_access_links         ← Secure 7-day token links (SHA-256 hashed)
+advertiser_company_links        ← M:M advertiser &lt;-&gt; company
+advertiser_shares               ← Employees an advertiser is shared with
+campaigns                       ← OOH campaigns
+campaign_site_assignments       ← Which sites are booked for which campaign
+campaign_shares                 ← Employees a campaign is shared with
+site_audits                     ← Scheduled audits
+campaign_activities             ← Execution log (PRINT/MOUNTING/AUDIT/...) with photos/videos
+activity_log                    ← System-wide audit trail
+field_pins                      ← 4-digit PINs (72-hour expiry)
+</code></pre>
+<h3 id="campaign-workflow">Campaign workflow</h3>
+<pre><code>DRAFT -&gt; PLANNED -&gt; FINALIZED -&gt; RUNNING -&gt; COMPLETE
+                                       \-&gt; CANCELLED (anytime)
+</code></pre>
+<p>Hybrid auto-advance in <code>routes/campaigns.py::auto_advance_status</code>:
+- <code>FINALIZED</code> + <code>start_date &lt;= today</code> -&gt; <code>RUNNING</code>
+- <code>FINALIZED|RUNNING</code> + <code>end_date &lt; today</code> -&gt; <code>COMPLETE</code>
+- Never touches <code>DRAFT</code>, <code>PLANNED</code>, <code>COMPLETE</code>, <code>CANCELLED</code> (manual overrides preserved)
+- Forward-only; never downgrades</p>
+<h3 id="site-delete-cascade-hardened">Site delete cascade (hardened)</h3>
+<p>A site has FKs from 4 tables. Delete order matters because <code>campaign_activities</code> has FKs to BOTH <code>sites.id</code> AND <code>campaign_site_assignments.id</code>:</p>
+<pre><code>1. campaign_activities WHERE site_id = X OR assignment_id IN (assignments of X)
+2. site_audits WHERE site_id = X
+3. campaign_site_assignments WHERE site_id = X
+4. site_images WHERE site_id = X
+5. sites WHERE id = X
+</code></pre>
+<p>R2 objects are intentionally left orphaned. The whole block runs inside try/except so failures surface as clean HTTPException(500) with <code>detail</code> message.</p>
+<h3 id="sitessize-multi-row-json"><code>sites.size</code> — multi-row JSON</h3>
+<p>Was a free-text VARCHAR. Now stores a JSON array for new inventory:</p>
+<pre><code class="language-json">[
+  {&quot;qty&quot;:&quot;25&quot;,&quot;width&quot;:&quot;55&quot;,&quot;length&quot;:&quot;&quot;,&quot;unit&quot;:&quot;inch&quot;,&quot;note&quot;:&quot;screens&quot;},
+  {&quot;qty&quot;:&quot;1&quot;,&quot;width&quot;:&quot;15&quot;,&quot;length&quot;:&quot;30&quot;,&quot;unit&quot;:&quot;ft&quot;,&quot;note&quot;:&quot;&quot;}
+]
+</code></pre>
+<ul>
+<li>Each row: <code>qty × (width × length) unit + note</code></li>
+<li>Reads as: <code>25× 55" screens + 1× 15'×30'</code></li>
+<li>Supports LED video-wall setups (e.g. "20 screens of 42 inch") that don't fit a single Width×Length</li>
+<li>Frontend display uses <code>formatSize()</code> in <code>utils/sizeFormat.js</code>; standard physical notation: <code>'</code> for feet, <code>"</code> for inch</li>
+<li>Legacy free-text rows still display correctly via fallback</li>
+<li>Cost-per-sqft (<code>parseSqft</code> in <code>Campaigns.jsx</code>) auto-converts inches to feet (÷144)</li>
+</ul>
+<h3 id="site_images-per-site-photo-library"><code>site_images</code> — per-site photo library</h3>
+<ul>
+<li>Multiple images per site</li>
+<li>Exactly one <code>is_primary = true</code> (the cover)</li>
+<li>Videos uploadable only for LED sites (frontend gate) and never become cover (backend guard)</li>
+<li>Legacy single-image sites auto-import into the gallery on first GET</li>
+</ul>
+<h3 id="field_pins"><code>field_pins</code></h3>
+<ul>
+<li>4-digit PIN, 72-hour expiry</li>
+<li><code>worker_name</code> is the stable identifier — re-issuing a PIN with the same name keeps site assignments intact</li>
+</ul>
+<hr />
+<h2 id="7-frontend-page-map">7. Frontend Page Map</h2>
+<table>
+<thead>
+<tr>
+<th>URL</th>
+<th>File</th>
+<th>Roles</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/</code></td>
+<td>redirect</td>
+<td>all</td>
+<td>-&gt; traqooh.brandsculpt.com</td>
+</tr>
+<tr>
+<td><code>/login</code></td>
+<td>AdvertiserLogin.jsx</td>
+<td>ADVERTISER</td>
+<td></td>
+</tr>
+<tr>
+<td><code>/employeelogin</code></td>
+<td>EmployeeLogin.jsx</td>
+<td>EMPLOYEE</td>
+<td></td>
+</tr>
+<tr>
+<td><code>/adminlogin</code></td>
+<td>AdminLogin.jsx</td>
+<td>ADMIN</td>
+<td></td>
+</tr>
+<tr>
+<td><code>/masterlogin</code></td>
+<td>MasterLogin.jsx</td>
+<td>SUPER_ADMIN</td>
+<td></td>
+</tr>
+<tr>
+<td><code>/dashboard/employee</code></td>
+<td>Dashboard.jsx</td>
+<td>EMPLOYEE, ADMIN</td>
+<td>Global KPIs</td>
+</tr>
+<tr>
+<td><code>/dashboard/admin</code></td>
+<td>AdminDashboard.jsx</td>
+<td>ADMIN</td>
+<td>8 tabs</td>
+</tr>
+<tr>
+<td><code>/dashboard/master</code></td>
+<td>MasterDashboard.jsx</td>
+<td>SUPER_ADMIN</td>
+<td>All companies</td>
+</tr>
+<tr>
+<td><code>/dashboard/advertiser</code></td>
+<td>AdvertiserDashboard.jsx</td>
+<td>ADVERTISER</td>
+<td>Video-aware proofs</td>
+</tr>
+<tr>
+<td><code>/inventory</code></td>
+<td>Inventory.jsx</td>
+<td>EMPLOYEE, ADMIN</td>
+<td>Default "All Vendors"; multi-row Size Builder</td>
+</tr>
+<tr>
+<td><code>/campaigns</code></td>
+<td>Campaigns.jsx</td>
+<td>EMPLOYEE, ADMIN</td>
+<td>Lifecycle; Monitoring tab whenever &gt;=1 site linked</td>
+</tr>
+<tr>
+<td><code>/campaigns/:id</code></td>
+<td>CampaignDetail.jsx</td>
+<td>EMPLOYEE, ADMIN</td>
+<td>Activity log, photo upload</td>
+</tr>
+<tr>
+<td><code>/advertisers</code></td>
+<td>Advertisers.jsx</td>
+<td>EMPLOYEE, ADMIN</td>
+<td></td>
+</tr>
+<tr>
+<td><code>/vendors</code></td>
+<td>Vendors.jsx</td>
+<td>EMPLOYEE, ADMIN</td>
+<td>Edit/delete admin-only</td>
+</tr>
+<tr>
+<td><code>/activities</code></td>
+<td>Activities.jsx</td>
+<td>EMPLOYEE, ADMIN</td>
+<td>Global execution log</td>
+</tr>
+<tr>
+<td><code>/reports</code></td>
+<td>Reports.jsx</td>
+<td>EMPLOYEE, ADMIN</td>
+<td>Global analytics</td>
+</tr>
+<tr>
+<td><code>/access/:token</code></td>
+<td>AccessView.jsx</td>
+<td>public</td>
+<td>Token-based advertiser portal — read-only</td>
+</tr>
+<tr>
+<td><code>/account</code></td>
+<td>Account.jsx</td>
+<td>all</td>
+<td>User profile</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="8-backend-route-map-key-endpoints">8. Backend Route Map (Key Endpoints)</h2>
+<h3 id="auth">Auth</h3>
+<pre><code>POST /api/auth/login           # Email + password -&gt; JWT
+POST /api/auth/send-otp        # Send 6-digit OTP (rate: 5/min)
+POST /api/auth/verify-otp      # Verify OTP -&gt; JWT
+POST /api/auth/field-login     # 4-digit field PIN -&gt; JWT
+GET  /health                   # UptimeRobot keep-alive target
+</code></pre>
+<h3 id="sites">Sites</h3>
+<pre><code>GET    /api/sites              # ?ownerId / ?vendorId / ?city / ?state / ?siteType
+GET    /api/mobile/sites       # Alias
+POST   /api/sites              # Create
+PUT    /api/sites/{id}         # Update
+DELETE /api/sites/{id}         # Hardened cascade
+GET    /api/sites/{id}/images  # Per-site gallery
+POST   /api/sites/{id}/images  # Upload (videos never auto-cover)
+DELETE /api/sites/{id}/images/{img_id}
+POST   /api/upload             # Generic R2 upload
+</code></pre>
+<h3 id="campaigns">Campaigns</h3>
+<pre><code>GET    /api/campaigns
+POST   /api/campaigns/{id}/assign-site
+POST   /api/campaigns/{id}/assign-sites-bulk
+PUT    /api/campaigns/{id}/assignment/{aid}
+GET    /api/campaigns/{id}/monitoring
+POST   /api/campaigns/{id}/share
+</code></pre>
+<h3 id="activities">Activities</h3>
+<pre><code>POST   /api/activities/mobile/log               # One-shot: create activity + auto-discover campaign + upload media
+POST   /api/activities/{id}/upload-image
+DELETE /api/activities/{id}/image               # Per-URL delete for monitoring board
+</code></pre>
+<h3 id="advertisers">Advertisers</h3>
+<pre><code>POST   /api/advertisers/send-access-link        # purpose=proposal/live/update
+GET    /api/access/{token}                      # Hydrate advertiser portal
+POST   /api/access/{token}/shortlist            # Auto-saved on heart-click
+POST   /api/access/{token}/finalize
+</code></pre>
+<h3 id="admin">Admin</h3>
+<pre><code>POST   /api/admin/field-pins                    # Create 4-digit PIN
+DELETE /api/admin/field-pins/{id}
+</code></pre>
+<hr />
+<h2 id="9-design-system-hard-rules">9. Design System — Hard Rules</h2>
+<h3 id="css-variables-srcindexcss">CSS variables (<code>src/index.css</code>)</h3>
+<pre><code>--bg:       #070C1A
+--nav:      #0B1120
+--sidebar:  #0D1428
+--card:     rgba(255,255,255,0.04)
+--border:   rgba(255,255,255,0.08)
+--blue:     #2563EB
+--red:      #DC143C
+--green:    #22C55E
+--orange:   #F59E0B
+--gray:     #9CA3AF
+--gray2:    #6B7280
+</code></pre>
+<h3 id="brand-gradient">Brand gradient</h3>
+<pre><code class="language-css">background: linear-gradient(135deg, #2563EB, #DC143C);
+</code></pre>
+<h3 id="critical-css-rule-dont-remove">Critical CSS rule (don't remove)</h3>
+<pre><code class="language-css">select option { background: #0D1428; color: #F9FAFB; }
+</code></pre>
+<p>Without this, Windows Chrome renders <code>&lt;option&gt;</code> with white OS-native background — white text becomes invisible.</p>
+<h3 id="enforced-rules">Enforced rules</h3>
+<ul>
+<li>All protected pages wrap content in <code>&lt;AppShell user={user}&gt;</code></li>
+<li><strong>Never</strong> use white/light backgrounds — no <code>bg-white</code>, <code>bg-gray-50</code>, <code>bg-gray-100</code></li>
+<li>Dark modals: <code>background: "#0D1428"</code>, <code>border: "1px solid var(--border)"</code></li>
+<li>Headings: <code>font-syne font-bold text-xl text-white</code></li>
+<li>Table headers + form labels: <code>text-[10px] font-bold uppercase tracking-wider</code> in <code>var(--gray2)</code></li>
+<li>Primary buttons: brand gradient</li>
+<li>Cancel buttons: <code>rgba(255,255,255,0.06)</code> + <code>var(--gray)</code> text</li>
+<li>Error boxes: <code>rgba(220,20,60,0.12)</code> bg, <code>rgba(220,20,60,0.3)</code> border, <code>#F87171</code> text</li>
+</ul>
+<hr />
+<h2 id="10-local-development">10. Local Development</h2>
+<h3 id="backend">Backend</h3>
+<pre><code class="language-bash">cd traqooh-backend-python
+pip install -r requirements.txt
+uvicorn main:app --reload      # http://localhost:8000, Swagger at /docs
+</code></pre>
+<h3 id="frontend">Frontend</h3>
+<pre><code class="language-bash">cd traqooh-frontend
+npm install
+npm run dev                     # http://localhost:5173
+# .env.local: VITE_API_BASE=http://localhost:8000 to hit local backend
+</code></pre>
+<h3 id="mobile-android-emulator">Mobile (Android emulator)</h3>
+<pre><code class="language-bash"># 1. Android Studio -&gt; Virtual Device Manager -&gt; start Medium Phone API 35
+# 2. If emulator off-screen: D:\Programming\fix-emulator.ps1
+cd traqooh-app
+npx expo start --port 8082
+# 3. Other terminal:
+adb -s emulator-5554 reverse tcp:8082 tcp:8082
+# 4. Emulator: Ctrl+M -&gt; Change Bundle Location -&gt; localhost:8082 -&gt; Apply
+</code></pre>
+<hr />
+<h2 id="11-deploy-process">11. Deploy Process</h2>
+<h3 id="backend-auto-deploy-on-push-to-main">Backend (auto-deploy on push to <code>main</code>)</h3>
+<pre><code class="language-bash">cd traqooh-backend-python
+git add &lt;files&gt;
+git commit -m &quot;...&quot;
+git push                       # Render auto-deploys in ~2 min
+</code></pre>
+<h3 id="frontend-manual-via-wrangler">Frontend (manual via Wrangler)</h3>
+<pre><code class="language-bash">cd traqooh-frontend
+npm run build
+npx wrangler pages deploy dist --project-name traqooh-frontend --branch main --commit-dirty=true
+</code></pre>
+<p>Wrangler needs <code>wrangler login</code> once (browser OAuth).</p>
+<h3 id="mobile-eas">Mobile (EAS)</h3>
+<pre><code class="language-bash">cd traqooh-app
+eas build --platform android --profile preview --non-interactive --no-wait
+</code></pre>
+<p>APK link arrives via email when done.</p>
+<hr />
+<h2 id="12-backend-environment-variables-render">12. Backend Environment Variables (Render)</h2>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Source / Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DATABASE_URL</code></td>
+<td>Neon. URL-encode special password chars: <code>@</code>-&gt;<code>%40</code>, <code>#</code>-&gt;<code>%23</code>, <code>!</code>-&gt;<code>%21</code>. PgBouncer pooler hostname with <code>&amp;channel_binding=require</code> — bypasses 10-conn limit</td>
+</tr>
+<tr>
+<td><code>JWT_SECRET</code></td>
+<td><code>openssl rand -hex 32</code></td>
+</tr>
+<tr>
+<td><code>RESEND_API_KEY</code></td>
+<td><code>re_...</code> from resend.com</td>
+</tr>
+<tr>
+<td><code>OTP_FROM_EMAIL</code></td>
+<td><code>noreply@brandsculpt.com</code></td>
+</tr>
+<tr>
+<td><code>R2_ACCESS_KEY</code>, <code>R2_SECRET_KEY</code>, <code>R2_BUCKET</code>, <code>R2_ENDPOINT</code></td>
+<td>Cloudflare R2</td>
+</tr>
+<tr>
+<td><code>FRONTEND_URL</code> (optional)</td>
+<td>Defaults to <code>https://app.brandsculpt.com</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="13-major-recent-changes-current-session">13. Major Recent Changes (current session)</h2>
+<h3 id="inventory-size-description-rewrite">Inventory size description rewrite</h3>
+<ul>
+<li>Removed Width(ft) / Length(ft) numeric inputs from Add/Edit Site form (legacy data preserved in DB).</li>
+<li>Added structured "Size Description" multi-row builder: Qty + Width + Length + Unit (ft/inch) + Note. Stored as JSON.</li>
+<li>New shared utility <code>src/utils/sizeFormat.js</code> renders everywhere.</li>
+<li>Standard physical notation: <code>'</code> feet, <code>"</code> inches.</li>
+<li><code>parseSqft()</code> sums <code>qty × width × length</code> across rows; auto inch-&gt;ft (÷144).</li>
+</ul>
+<h3 id="led-only-video-upload-delete-on-live">LED-only video upload + delete-on-live</h3>
+<ul>
+<li>Inventory gallery: video upload (<code>&lt;video&gt;</code> tile + play overlay + VIDEO badge) gated to LED sites.</li>
+<li>Backend: videos never auto-promote to cover (the <code>make_primary</code> flag excludes any <code>video/*</code>).</li>
+<li>Monitoring board: red trash button on each photo/video tile; deletes via <code>DELETE /api/activities/{id}/image?imageUrl=…</code>; if all media gone, deletes the activity.</li>
+</ul>
+<h3 id="cost-ux-fixes">Cost UX fixes</h3>
+<ul>
+<li>Media Cost ₹/sqft field no longer pre-fills from rate card — blank unless admin enters it.</li>
+<li>Advertiser Cost Sheet Media Cost column now uses <code>computeSiteBase(site, id)</code> — matches Total column.</li>
+<li>Cost Sheet download:</li>
+<li>Defaults to all sites when none ticked</li>
+<li>Popup-blocker fallback: saves HTML file to Downloads with clear message</li>
+<li>Button label dynamic: <code>Download Cost Sheet (all 3)</code> or <code>Download (2 sites)</code></li>
+</ul>
+<h3 id="backend-hardening">Backend hardening</h3>
+<ul>
+<li>Site DELETE cascade hardened (handles FK orphans)</li>
+<li>Global exception handler with CORS headers — solves "Failed to fetch instead of real error" problem</li>
+</ul>
+<h3 id="other">Other</h3>
+<ul>
+<li>"Not Applicable" added as first option in PRINTING_TYPES (Campaigns + AccessView) — for LED sites</li>
+<li>Delete inventory: optimistic UI removal + spinner state on button + clearer 🗑 Trash2 icon</li>
+<li>Neon PgBouncer pooler enabled — bypasses free-tier 10-connection limit</li>
+</ul>
+<hr />
+<h2 id="14-hybrid-auto-advance-logic-campaign-status">14. Hybrid Auto-Advance Logic (campaign status)</h2>
+<p>The single piece of business logic that confuses people most. Read <code>routes/campaigns.py::auto_advance_status</code>. Rules:</p>
+<ol>
+<li><strong>Forward-only.</strong> Never downgrades.</li>
+<li><strong><code>DRAFT</code></strong> stays manual.</li>
+<li><strong><code>PLANNED</code></strong> -&gt; <code>FINALIZED</code> is manual (admin clicks "Finalize" or advertiser hits "Finalize" via portal).</li>
+<li><strong><code>FINALIZED</code> + start_date &lt;= today</strong> -&gt; <code>RUNNING</code>.</li>
+<li><strong><code>FINALIZED|RUNNING</code> + end_date &lt; today</strong> -&gt; <code>COMPLETE</code>.</li>
+<li><strong><code>CANCELLED</code></strong> is sticky.</li>
+</ol>
+<p>Legacy <code>LIVE</code>/<code>COMPLETED</code> were renamed to <code>RUNNING</code>/<code>COMPLETE</code> in a startup migration; frontend recognizes the old names as aliases.</p>
+<hr />
+<h2 id="15-common-problems-fixes">15. Common Problems &amp; Fixes</h2>
+<table>
+<thead>
+<tr>
+<th>Problem</th>
+<th>Cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Backend 500 intermittent</td>
+<td>Neon free-tier 10-conn limit</td>
+<td>PgBouncer pooler enabled; retry with backoff</td>
+</tr>
+<tr>
+<td>Render 50s response</td>
+<td>Free tier cold start</td>
+<td>UptimeRobot mitigates; upgrade to Starter for production</td>
+</tr>
+<tr>
+<td>OTP not delivered</td>
+<td><code>RESEND_API_KEY</code> missing OR domain unverified</td>
+<td>Check env vars + Resend dashboard</td>
+</tr>
+<tr>
+<td>Dropdown white-on-white</td>
+<td>OS-native <code>&lt;option&gt;</code> styling</td>
+<td>Already fixed via global CSS — don't remove</td>
+</tr>
+<tr>
+<td>Photo upload silently does nothing</td>
+<td><code>e.target.value = ""</code> cleared FileList</td>
+<td>Already fixed — <code>Array.from()</code> before clearing</td>
+</tr>
+<tr>
+<td>"Failed to fetch" on backend error</td>
+<td>Starlette ServerErrorMiddleware bypasses CORS</td>
+<td>Already fixed via global exception handler</td>
+</tr>
+<tr>
+<td>EAS build fails: <code>splash not permitted</code></td>
+<td>SDK 56 deprecated top-level <code>splash</code></td>
+<td>Use <code>expo-splash-screen</code> plugin instead</td>
+</tr>
+<tr>
+<td>New APK won't open</td>
+<td>Old app signing conflict</td>
+<td>Uninstall old TraqOOH first</td>
+</tr>
+<tr>
+<td>Emulator off-screen</td>
+<td>Windows multi-monitor glitch</td>
+<td><code>D:\Programming\fix-emulator.ps1</code></td>
+</tr>
+<tr>
+<td>Metro port 8081 blocked</td>
+<td>Apache/EDB on that port</td>
+<td><code>--port 8082</code> + <code>adb reverse tcp:8082 tcp:8082</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="16-scaling-cost-reference">16. Scaling &amp; Cost Reference</h2>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Photos/mo</th>
+<th>Render</th>
+<th>Neon</th>
+<th>R2</th>
+<th>Total</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Launch (now)</td>
+<td>0–200</td>
+<td>Free</td>
+<td>Free</td>
+<td>Free</td>
+<td><strong>$0/mo</strong> (cold starts hurt)</td>
+</tr>
+<tr>
+<td>Recommended go-live</td>
+<td>0–600</td>
+<td>$7 Starter</td>
+<td>Free</td>
+<td>Free</td>
+<td><strong>$7/mo</strong></td>
+</tr>
+<tr>
+<td>Growth</td>
+<td>600–1,500</td>
+<td>$25 Standard</td>
+<td>Free</td>
+<td>~$0.12</td>
+<td><strong>~$25/mo</strong></td>
+</tr>
+<tr>
+<td>Scale</td>
+<td>1,500–2,500</td>
+<td>$25</td>
+<td>$19 Launch</td>
+<td>~$0.75</td>
+<td><strong>~$45/mo</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="17-pending-todo">17. Pending / TODO</h2>
+<h3 id="strongly-recommended-before-general-launch">Strongly recommended before general launch</h3>
+<ul>
+<li>Upgrade Render to Starter ($7/mo) — kills cold starts</li>
+<li>Run one pilot campaign end-to-end (employee + advertiser + field worker)</li>
+<li>Verify Neon free-tier daily backup is enabled</li>
+<li>Privacy policy + terms page (required for Play Store submission)</li>
+</ul>
+<h3 id="nice-to-have">Nice-to-have</h3>
+<ul>
+<li>Publish Android app to Google Play Store</li>
+<li>Add site photo upload in mobile app (currently web-only)</li>
+<li>Invoice / billing module</li>
+<li>Razorpay payment gateway (preferred for Indian B2B / UPI / GST)</li>
+<li>WhatsApp notifications (Twilio or Meta Cloud API)</li>
+<li>Campaign approval workflow (submit -&gt; approve/reject)</li>
+<li>Sentry / Rollbar for error monitoring</li>
+<li>Auto-archive expired field PINs (cleanup job)</li>
+</ul>
+<h3 id="future-architecture">Future architecture</h3>
+<ul>
+<li>Vendor-level direct logins (vendors as users)</li>
+<li>Multi-tenant isolation hardening</li>
+<li>Read replicas if Neon limits become painful</li>
+</ul>
+<hr />
+<h2 id="18-day-1-priorities-for-a-new-architectpo">18. Day-1 Priorities for a New Architect/PO</h2>
+<ol>
+<li><strong>Read this brief + CLAUDE.md + skim CHANGELOG.md.</strong></li>
+<li><strong>Get your access</strong> — saurabh.anand24@gmail.com is on every service; ask Saurabh to onboard you to Render, Cloudflare, Neon, Resend, Expo, GitHub, UptimeRobot.</li>
+<li><strong>Spin up locally</strong> — backend + frontend + emulator. Log in as admin, employee, advertiser.</li>
+<li><strong>Trigger a full advertiser flow</strong> — create a campaign, share via access link, accept on portal, finalize. This exposes 80% of the surface area.</li>
+<li><strong>Read these key files in order:</strong>
+   - <code>traqooh-backend-python/main.py</code> (top to ~line 280 for app setup)
+   - <code>traqooh-backend-python/routes/campaigns.py</code> (most complex business logic)
+   - <code>traqooh-frontend/src/pages/Campaigns.jsx</code> (most complex UI)
+   - <code>traqooh-frontend/src/pages/AccessView.jsx</code> (advertiser-facing — public)</li>
+<li><strong>Promote Render to Starter</strong> if going to production — first thing.</li>
+<li><strong>Add Sentry</strong> before traffic. Without it, every error today is invisible.</li>
+</ol>
+<hr />
+<p>End of brief.</p>
+  
+<div class="footer">
+  TraqOOH · BrandSculpt Media Solutions · Confidential ·
+  saurabh.anand24@gmail.com
+</div>
+
+</body>
+</html>
