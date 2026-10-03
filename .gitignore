@@ -1,0 +1,39 @@
+# ── Private: never commit ─────────────────────────────────────────────────────
+Login details and url.jpg
+backup/
+.env
+.env.local
+.env.*.local
+
+# ── Local tool / editor state ─────────────────────────────────────────────────
+.claude/
+.obsidian/
+.vercel/
+.wrangler/
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+traqooh-backend-python/uploads/
+*.db
+
+# ── Node / web / Expo build output ────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.vite/
+.expo/
+*.local
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
