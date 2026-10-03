@@ -8,6 +8,7 @@ import random
 from database import get_db
 import models
 from utils import log_activity
+from jwt_utils import get_current_user, require_roles
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -155,8 +156,11 @@ def delete_employee_alias(user_id: int, db: Session = Depends(get_db)):
 # --- Admin account creation ---
 
 @router.post("/create-super-admin")
-def create_super_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
-    """Create a SUPER_ADMIN (master) account."""
+def create_super_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db),
+                       current_user: dict = Depends(get_current_user)):
+    """Create a SUPER_ADMIN (master) account. Only an existing SUPER_ADMIN may do this;
+    the very first one is created with scripts/seed_admin.py."""
+    require_roles(current_user, "SUPER_ADMIN")
     from main import hash_password
     existing = db.query(models.UserAccount).filter(
         models.UserAccount.email.ilike(req.email.strip())
@@ -177,8 +181,10 @@ def create_super_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db
 
 
 @router.post("/create-admin")
-def create_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db)):
-    """Create an ADMIN account (for initial setup)."""
+def create_admin(req: CreateMediaUserRequest, db: Session = Depends(get_db),
+                 current_user: dict = Depends(get_current_user)):
+    """Create an ADMIN account. SUPER_ADMIN only."""
+    require_roles(current_user, "SUPER_ADMIN")
     from main import hash_password
 
     existing = db.query(models.UserAccount).filter(
