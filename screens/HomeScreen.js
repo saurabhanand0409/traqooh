@@ -6,7 +6,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import * as Location from "expo-location";
 import SiteCard from "../components/SiteCard";
-import { fetchNearbySites, fetchAllSites } from "../utils/api";
+import { fetchNearbySites, fetchAllSites, fetchMyAssignedSites } from "../utils/api";
 import { clearUser } from "../utils/storage";
 
 const BG = "#070C1A";
@@ -19,6 +19,7 @@ const GRAY2 = "#9CA3AF";
 
 export default function HomeScreen({ navigation, route }) {
   const user = route.params?.user || {};
+  const isField = user.role === "FIELD";
 
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +29,8 @@ export default function HomeScreen({ navigation, route }) {
   const [state, setState] = useState(null);
   const [locStatus, setLocStatus] = useState("detecting"); // "detecting"|"found"|"denied"|"error"
   const [filterAvail, setFilterAvail] = useState("ALL"); // ALL|AVAILABLE|OCCUPIED
+  // Field workers default to their assigned sites; can switch to browse all
+  const [mode, setMode] = useState(isField ? "assigned" : "all"); // "assigned" | "all"
 
   const detectLocation = useCallback(async () => {
     setLocStatus("detecting");
@@ -48,20 +51,28 @@ export default function HomeScreen({ navigation, route }) {
       setCity(detectedCity);
       setState(detectedState);
       setLocStatus("found");
-      loadSites(detectedCity, detectedState);
+      loadSites("all", detectedCity, detectedState);
     } catch (e) {
       setLocStatus("error");
-      loadSites(null, null);
+      loadSites("all", null, null);
     }
   }, []);
 
-  const loadSites = async (cityName, stateName) => {
+  const loadSites = async (modeArg, cityName, stateName) => {
     setLoading(true);
     try {
       let data;
-      if (cityName) {
+      if (isField && modeArg === "assigned") {
+        // Sites assigned to this field worker for monitoring
+        data = await fetchMyAssignedSites(user.workerName);
+        if (!Array.isArray(data)) data = [];
+      } else if (isField && user.vendorId) {
+        // Browse all of the vendor's sites
+        const res = await fetch(`https://traqooh-backend-python.onrender.com/api/sites?owner_id=${user.vendorId}`);
+        data = res.ok ? await res.json() : [];
+        if (!Array.isArray(data)) data = [];
+      } else if (cityName) {
         data = await fetchNearbySites(cityName, stateName);
-        // If no sites found in city, fall back to all
         if (data.length === 0) data = await fetchAllSites();
       } else {
         data = await fetchAllSites();
@@ -74,13 +85,22 @@ export default function HomeScreen({ navigation, route }) {
     }
   };
 
+  const switchMode = (m) => {
+    setMode(m);
+    loadSites(m, city, state);
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadSites(city, state);
+    await loadSites(mode, city, state);
     setRefreshing(false);
   };
 
-  useEffect(() => { detectLocation(); }, [detectLocation]);
+  useEffect(() => {
+    if (isField) loadSites("assigned");
+    else detectLocation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filtered = sites.filter(s => {
     const matchSearch = !search ||
@@ -103,7 +123,26 @@ export default function HomeScreen({ navigation, route }) {
 
   const renderHeader = () => (
     <View>
-      {/* Location banner */}
+      {/* Field-worker mode toggle: assigned sites vs browse all */}
+      {isField && (
+        <View style={s.modeRow}>
+          {[
+            { k: "assigned", label: "📋 My Assigned Sites" },
+            { k: "all", label: "🗺️ All Sites" },
+          ].map(t => (
+            <TouchableOpacity
+              key={t.k}
+              style={[s.modeChip, mode === t.k && s.modeChipActive]}
+              onPress={() => mode !== t.k && switchMode(t.k)}
+            >
+              <Text style={[s.modeText, mode === t.k && s.modeTextActive]}>{t.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* Location banner (hidden for field workers viewing their assignments) */}
+      {!(isField && mode === "assigned") && (
       <View style={s.locBanner}>
         {locStatus === "detecting" && (
           <><ActivityIndicator size="small" color={BLUE} style={{ marginRight: 8 }} />
@@ -125,6 +164,7 @@ export default function HomeScreen({ navigation, route }) {
           <Text style={s.locText}>Location unavailable — showing all sites</Text></>
         )}
       </View>
+      )}
 
       {/* Search */}
       <View style={s.searchWrap}>
@@ -172,10 +212,11 @@ export default function HomeScreen({ navigation, route }) {
       {/* Header */}
       <View style={s.header}>
         <View>
-          <Text style={s.headerBrand}>
-            <Text style={{ color: BLUE }}>traq</Text><Text style={{ color: RED }}>OOH</Text>
-          </Text>
-          <Text style={s.headerSub}>Hi, {user.displayName || user.email?.split("@")[0]} 👋</Text>
+          <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+            <Text style={[s.headerBrand, { color: BLUE }]}>traq</Text>
+            <Text style={[s.headerBrand, { color: RED }]}>OOH</Text>
+          </View>
+          <Text style={s.headerSub}>Hi, {user.workerName || user.displayName || user.email?.split("@")[0]} 👋</Text>
         </View>
         <TouchableOpacity onPress={handleSignOut} style={s.signOutBtn}>
           <Text style={s.signOutText}>Sign out</Text>
@@ -195,15 +236,23 @@ export default function HomeScreen({ navigation, route }) {
           renderItem={({ item }) => (
             <SiteCard
               site={item}
-              onPress={() => navigation.navigate("SiteDetail", { site: item })}
+              onPress={() => navigation.navigate("SiteDetail", { site: item, user })}
             />
           )}
           ListHeaderComponent={renderHeader}
           ListEmptyComponent={
             <View style={s.empty}>
-              <Text style={s.emptyIcon}>🏙️</Text>
-              <Text style={s.emptyText}>No sites found{city ? ` in ${city}` : ""}</Text>
-              <Text style={s.emptySubText}>Try changing your search or filters</Text>
+              <Text style={s.emptyIcon}>{isField && mode === "assigned" ? "📋" : "🏙️"}</Text>
+              <Text style={s.emptyText}>
+                {isField && mode === "assigned"
+                  ? "No sites assigned to you yet"
+                  : `No sites found${city ? ` in ${city}` : ""}`}
+              </Text>
+              <Text style={s.emptySubText}>
+                {isField && mode === "assigned"
+                  ? "Your admin will assign sites for you to monitor."
+                  : "Try changing your search or filters"}
+              </Text>
             </View>
           }
           contentContainerStyle={s.list}
@@ -230,6 +279,15 @@ const s = StyleSheet.create({
     borderRadius: 10, borderWidth: 1, borderColor: BORDER,
   },
   signOutText: { color: GRAY, fontSize: 12 },
+
+  modeRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
+  modeChip: {
+    flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: BORDER,
+  },
+  modeChipActive: { backgroundColor: "rgba(37,99,235,0.15)", borderColor: "rgba(37,99,235,0.45)" },
+  modeText: { fontSize: 13, color: GRAY, fontWeight: "700" },
+  modeTextActive: { color: BLUE },
 
   locBanner: {
     flexDirection: "row", alignItems: "center",

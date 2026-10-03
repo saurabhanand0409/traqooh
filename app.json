@@ -6,9 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "backgroundColor": "#070C1A"
-    },
     "ios": {
       "supportsTablet": false,
       "infoPlist": {
@@ -21,10 +18,13 @@
         "foregroundImage": "./assets/adaptive-icon.png"
       },
       "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO"
       ],
       "package": "com.brandsculpt.traqooh"
     },
@@ -38,7 +38,15 @@
         {
           "locationWhenInUsePermission": "TraqOOH uses your location to show nearby billboard sites."
         }
-      ]
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TraqOOH needs photo access to attach site activity photos.",
+          "cameraPermission": "TraqOOH needs camera access to take site activity photos."
+        }
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

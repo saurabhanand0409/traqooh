@@ -1,11 +1,13 @@
 import React, { useState, useRef } from "react";
+import { useFonts, Syne_800ExtraBold, Syne_700Bold } from "@expo-google-fonts/syne";
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from "@expo-google-fonts/inter";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
-  ScrollView, Animated,
+  KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import { sendOtp, verifyOtp } from "../utils/api";
+import { fieldLogin } from "../utils/api";
 import { saveUser } from "../utils/storage";
 
 const BG = "#070C1A";
@@ -17,83 +19,53 @@ const GRAY = "#6B7280";
 const GRAY2 = "#9CA3AF";
 
 export default function LoginScreen({ navigation }) {
-  const [step, setStep] = useState("email"); // "email" | "otp"
-  const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [fontsLoaded] = useFonts({
+    Syne_800ExtraBold, Syne_700Bold,
+    Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold,
+  });
+
+  const [pin, setPin] = useState(["", "", "", ""]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [resendTimer, setResendTimer] = useState(0);
-  const otpRefs = useRef([]);
-  const timerRef = useRef(null);
+  const pinRefs = useRef([]);
 
-  const startResendTimer = () => {
-    setResendTimer(30);
-    timerRef.current = setInterval(() => {
-      setResendTimer(t => {
-        if (t <= 1) { clearInterval(timerRef.current); return 0; }
-        return t - 1;
-      });
-    }, 1000);
-  };
+  if (!fontsLoaded) return (
+    <View style={{ flex: 1, backgroundColor: BG, alignItems: "center", justifyContent: "center" }}>
+      <ActivityIndicator size="large" color={BLUE} />
+    </View>
+  );
 
-  const handleSendOtp = async () => {
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed || !trimmed.includes("@")) return setError("Please enter a valid email address.");
-    setError(""); setLoading(true);
-    try {
-      await sendOtp(trimmed);
-      setStep("otp");
-      startResendTimer();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handlePinChange = (val, idx) => {
+    const digit = val.replace(/[^0-9]/g, "");
+    const newPin = [...pin];
 
-  const handleOtpChange = (val, idx) => {
-    const digits = val.replace(/[^0-9]/g, "");
-    const newOtp = [...otp];
-
-    // Handle paste of full 6-digit code
-    if (digits.length === 6) {
-      const arr = digits.split("");
-      setOtp(arr);
-      otpRefs.current[5]?.focus();
+    // Handle paste of full 4-digit code
+    if (digit.length === 4) {
+      const arr = digit.split("");
+      setPin(arr);
+      pinRefs.current[3]?.focus();
       return;
     }
 
-    newOtp[idx] = digits.slice(-1);
-    setOtp(newOtp);
-    if (digits && idx < 5) otpRefs.current[idx + 1]?.focus();
-    if (!digits && idx > 0) otpRefs.current[idx - 1]?.focus();
+    newPin[idx] = digit.slice(-1);
+    setPin(newPin);
+    if (digit && idx < 3) pinRefs.current[idx + 1]?.focus();
+    if (!digit && idx > 0) pinRefs.current[idx - 1]?.focus();
   };
 
-  const handleVerifyOtp = async () => {
-    const code = otp.join("");
-    if (code.length !== 6) return setError("Please enter the 6-digit code.");
-    setError(""); setLoading(true);
+  const handleLogin = async () => {
+    const code = pin.join("");
+    if (code.length !== 4) return setError("Please enter your 4-digit PIN.");
+    setError("");
+    setLoading(true);
     try {
-      const user = await verifyOtp(email.trim().toLowerCase(), code);
+      const user = await fieldLogin(code);
       await saveUser(user);
       navigation.replace("Home", { user });
     } catch (e) {
       setError(e.message);
-      setOtp(["", "", "", "", "", ""]);
-      otpRefs.current[0]?.focus();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResend = async () => {
-    if (resendTimer > 0) return;
-    setError(""); setOtp(["", "", "", "", "", ""]); setLoading(true);
-    try {
-      await sendOtp(email.trim().toLowerCase());
-      startResendTimer();
-    } catch (e) {
-      setError(e.message);
+      setPin(["", "", "", ""]);
+      pinRefs.current[0]?.focus();
     } finally {
       setLoading(false);
     }
@@ -106,107 +78,74 @@ export default function LoginScreen({ navigation }) {
 
         {/* Logo */}
         <View style={s.logoWrap}>
-          <View style={s.logoBox}>
+          <LinearGradient
+            colors={["#2563EB", "#DC143C"]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={s.logoBox}
+          >
             <Text style={s.logoText}>tq</Text>
+          </LinearGradient>
+          <View style={{ alignItems: "center" }}>
+            {/* traqOOH */}
+            <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+              <Text style={[s.brandWord, { color: BLUE }]}>traq</Text>
+              <Text style={[s.brandWord, { color: RED }]}>OOH</Text>
+            </View>
+            {/* by BRANDSCULPT */}
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 3 }}>
+              <Text style={s.brandBy}>by </Text>
+              <Text style={[s.brandSculptWord, { color: BLUE }]}>BRAND</Text>
+              <Text style={[s.brandSculptWord, { color: RED }]}>SCULPT</Text>
+            </View>
           </View>
-          <Text style={s.brandName}>
-            <Text style={{ color: BLUE }}>traq</Text>
-            <Text style={{ color: RED }}>OOH</Text>
-          </Text>
-          <Text style={s.brandSub}>BY BRANDSCULPT</Text>
         </View>
 
         {/* Card */}
         <View style={s.card}>
+          <Text style={s.cardTitle}>Field Login</Text>
+          <Text style={s.cardSub}>Enter the 4-digit PIN provided by your admin</Text>
 
-          {step === "email" ? (
-            <>
-              <Text style={s.cardTitle}>Sign In</Text>
-              <Text style={s.cardSub}>Enter your registered email to receive a login code</Text>
+          {error ? (
+            <View style={s.errBox}>
+              <Text style={s.errText}>{error}</Text>
+            </View>
+          ) : null}
 
-              {error ? <View style={s.errBox}><Text style={s.errText}>{error}</Text></View> : null}
-
-              <Text style={s.label}>EMAIL ADDRESS</Text>
+          {/* PIN boxes */}
+          <View style={s.pinRow}>
+            {pin.map((digit, i) => (
               <TextInput
-                style={s.input}
-                value={email}
-                onChangeText={t => { setEmail(t); setError(""); }}
-                placeholder="your@email.com"
-                placeholderTextColor={GRAY}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                onSubmitEditing={handleSendOtp}
-                returnKeyType="send"
+                key={i}
+                ref={r => pinRefs.current[i] = r}
+                style={[s.pinBox, digit ? s.pinBoxFilled : null]}
+                value={digit}
+                onChangeText={v => handlePinChange(v, i)}
+                keyboardType="number-pad"
+                maxLength={4}
+                selectTextOnFocus
+                textAlign="center"
+                onKeyPress={({ nativeEvent }) => {
+                  if (nativeEvent.key === "Backspace" && !digit && i > 0) {
+                    pinRefs.current[i - 1]?.focus();
+                  }
+                }}
               />
+            ))}
+          </View>
 
-              <TouchableOpacity
-                style={[s.btn, loading && s.btnDisabled]}
-                onPress={handleSendOtp}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                {loading
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={s.btnText}>Send OTP →</Text>
-                }
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <Text style={s.cardTitle}>Enter OTP</Text>
-              <Text style={s.cardSub}>
-                6-digit code sent to{"\n"}
-                <Text style={{ color: BLUE }}>{email}</Text>
-              </Text>
+          <TouchableOpacity
+            style={[s.btn, loading && s.btnDisabled]}
+            onPress={handleLogin}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            {loading
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Text style={s.btnText}>Enter →</Text>
+            }
+          </TouchableOpacity>
 
-              {error ? <View style={s.errBox}><Text style={s.errText}>{error}</Text></View> : null}
-
-              {/* OTP boxes */}
-              <View style={s.otpRow}>
-                {otp.map((digit, i) => (
-                  <TextInput
-                    key={i}
-                    ref={r => otpRefs.current[i] = r}
-                    style={[s.otpBox, digit ? s.otpBoxFilled : null]}
-                    value={digit}
-                    onChangeText={v => handleOtpChange(v, i)}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    selectTextOnFocus
-                    textAlign="center"
-                  />
-                ))}
-              </View>
-
-              <TouchableOpacity
-                style={[s.btn, loading && s.btnDisabled]}
-                onPress={handleVerifyOtp}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                {loading
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={s.btnText}>Verify & Sign In</Text>
-                }
-              </TouchableOpacity>
-
-              {/* Resend */}
-              <View style={s.resendRow}>
-                <Text style={s.resendText}>Didn't receive it? </Text>
-                <TouchableOpacity onPress={handleResend} disabled={resendTimer > 0}>
-                  <Text style={[s.resendLink, resendTimer > 0 && { color: GRAY }]}>
-                    {resendTimer > 0 ? `Resend in ${resendTimer}s` : "Resend OTP"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Change email */}
-              <TouchableOpacity onPress={() => { setStep("email"); setError(""); setOtp(["","","","","",""]); }} style={s.changeEmail}>
-                <Text style={s.changeEmailText}>← Change email</Text>
-              </TouchableOpacity>
-            </>
-          )}
+          <Text style={s.hint}>Don't have a PIN? Contact your site admin.</Text>
         </View>
 
         <Text style={s.footer}>TraqOOH · Outdoor Intelligence Platform</Text>
@@ -221,41 +160,47 @@ const s = StyleSheet.create({
 
   logoWrap: { alignItems: "center", marginBottom: 32 },
   logoBox: {
-    width: 64, height: 64, borderRadius: 18,
-    background: undefined,
-    backgroundColor: BLUE,
+    width: 72, height: 72, borderRadius: 20,
     alignItems: "center", justifyContent: "center",
-    marginBottom: 12,
-    shadowColor: BLUE, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.5, shadowRadius: 16,
+    marginBottom: 14,
+    shadowColor: "#8B2FC9", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.5, shadowRadius: 16,
+    elevation: 12,
   },
-  logoText: { fontSize: 22, fontWeight: "900", color: "#fff" },
-  brandName: { fontSize: 26, fontWeight: "900", letterSpacing: 1 },
-  brandSub: { fontSize: 10, color: GRAY, letterSpacing: 3, marginTop: 2, fontWeight: "600" },
+  logoText: { fontSize: 30, fontFamily: "Syne_800ExtraBold", color: "#fff", letterSpacing: 2 },
+  brandWord: { fontSize: 22, fontFamily: "Syne_800ExtraBold", letterSpacing: 1 },
+  brandBy: { fontSize: 9, color: GRAY, fontFamily: "Inter_400Regular", letterSpacing: 0.5 },
+  brandSculptWord: { fontSize: 9, fontFamily: "Inter_400Regular", letterSpacing: 2 },
 
   card: {
     backgroundColor: CARD,
     borderRadius: 24,
-    padding: 24,
+    padding: 28,
     borderWidth: 1,
     borderColor: BORDER,
   },
   cardTitle: { fontSize: 22, fontWeight: "800", color: "#fff", marginBottom: 6 },
-  cardSub: { fontSize: 13, color: GRAY2, marginBottom: 24, lineHeight: 20 },
+  cardSub: { fontSize: 13, color: GRAY2, marginBottom: 28, lineHeight: 20 },
 
   errBox: {
     backgroundColor: "rgba(220,20,60,0.12)",
     borderWidth: 1, borderColor: "rgba(220,20,60,0.3)",
-    borderRadius: 12, padding: 12, marginBottom: 16,
+    borderRadius: 12, padding: 12, marginBottom: 20,
   },
   errText: { color: "#F87171", fontSize: 13 },
 
-  label: { fontSize: 10, fontWeight: "700", color: GRAY, letterSpacing: 1.5, marginBottom: 8 },
-  input: {
+  pinRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 28, gap: 12 },
+  pinBox: {
+    flex: 1,
+    height: 72,
+    borderRadius: 16,
     backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1, borderColor: BORDER,
-    borderRadius: 14, padding: 14,
-    color: "#fff", fontSize: 15,
-    marginBottom: 20,
+    borderWidth: 2, borderColor: BORDER,
+    color: "#fff", fontSize: 32, fontWeight: "800",
+    textAlign: "center",
+  },
+  pinBoxFilled: {
+    borderColor: BLUE,
+    backgroundColor: "rgba(37,99,235,0.15)",
   },
 
   btn: {
@@ -264,27 +209,9 @@ const s = StyleSheet.create({
     shadowColor: BLUE, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12,
   },
   btnDisabled: { opacity: 0.6 },
-  btnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  btnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
-  otpRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 24 },
-  otpBox: {
-    width: 46, height: 56, borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1, borderColor: BORDER,
-    color: "#fff", fontSize: 22, fontWeight: "800",
-    textAlign: "center",
-  },
-  otpBoxFilled: {
-    borderColor: BLUE,
-    backgroundColor: "rgba(37,99,235,0.12)",
-  },
-
-  resendRow: { flexDirection: "row", justifyContent: "center", marginTop: 16 },
-  resendText: { color: GRAY, fontSize: 13 },
-  resendLink: { color: BLUE, fontSize: 13, fontWeight: "700" },
-
-  changeEmail: { alignItems: "center", marginTop: 12 },
-  changeEmailText: { color: GRAY, fontSize: 13 },
+  hint: { textAlign: "center", color: GRAY, fontSize: 12, marginTop: 16 },
 
   footer: { textAlign: "center", color: "rgba(255,255,255,0.15)", fontSize: 11, marginTop: 32 },
 });
