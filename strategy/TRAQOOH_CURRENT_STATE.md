@@ -115,7 +115,7 @@ Resend (email), Cloudflare R2, Expo push (server side), Sentry (unconfigured), U
 ## 9. Strengths (keep these)
 
 - **S1. A complete, real OOH execution loop.** Planning → approval → proof → report works end to end and is live.
-- **S2. Verified delivery data.** Every proof photo carries GPS, accuracy, capture time, shot type and a reviewer verdict. Verified OOH delivery is rare in India and is the seed of a data moat.
+- **S2. Verified delivery data.** Every proof photo carries GPS, accuracy, capture time, shot type and a reviewer verdict. The *capability* is not unique (Oi Media, OOHAudit and Adarth offer geo-tagged proof; see `INDIA_MARKET_STUDY.md`), but the accumulating *dataset*, joined to prices paid and outcomes, is the seed of a data moat.
 - **S3. Real negotiated prices.** `campaign_site_assignments` stores what was actually paid per site, not just rate cards.
 - **S4. Low-friction advertiser UX.** One link, no login needed, WhatsApp delivery — matches how Indian SMB buyers actually work.
 - **S5. Cheap to run.** ~$0/month today; $7/month removes the cold start.

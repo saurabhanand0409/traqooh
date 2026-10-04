@@ -86,13 +86,13 @@ Scored 1–5 (competition: 5 = little competition; data: 5 = we have or can get 
 
 ## 6. Positioning
 
-- **Today (TraqOOH):** "Know your hoardings actually ran — every site, every photo, GPS-verified."
+- **Today (TraqOOH):** "Know your hoardings actually ran — every site, every photo, GPS-verified." *(Superseded the same day: geo-tagged proof is common in India. Lead with the Accountability Report instead: "Every offline rupee — proved, fairly priced, legal, and counted." See `TRAQADVT_UNIQUE_OFFER.md`.)*
 - **Next (TraqAdvt, regional):** "Plan offline media with real prices and proof, then see which medium brought the enquiries."
 - **Destination:** "Where should your next ₹10 lakh go?" — answered with ranges and confidence, from your own results plus benchmarks from campaigns like yours.
 
 ## 7. What makes it defensible
 
-1. **Verified delivery data** (already flowing): GPS-stamped, reviewer-checked proof per site per visit.
+1. **Verified delivery data** (already flowing): GPS-stamped, reviewer-checked proof per site per visit. The capture method is common; the moat is the network-wide photo corpus (for recycled-photo detection), display-day records and reliability history built on it.
 2. **Real transaction prices** (already stored): what was actually paid per site, per city, per format, per season.
 3. **Outcome series per medium** (next to build): leads/calls/walk-ins tagged by source and geography.
 4. **Experiment results** (later): geo holdouts in regional cities, each one a clean data point.

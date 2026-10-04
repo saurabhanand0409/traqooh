@@ -90,6 +90,30 @@
 ### D-116 — Verifiable reports · PROPOSED
 **Decision:** server-rendered PoD and plan reports with a verification code and public check page.
 
+### D-117 — Positioning: the Accountability Ledger · PROPOSED (2026-10-04, after the India market study)
+**Context:** geo-tagged proof photos are common in India (Oi Media, OOHAudit, Adarth, The Media Ant's vendor photos). No player answers, per rupee, whether it ran, whether the price was fair, whether it was legal, and what it produced.
+**Decision:** lead with "Every offline rupee — proved, fairly priced, legal, and counted" and the Campaign Accountability Report. See `TRAQADVT_UNIQUE_OFFER.md`.
+**Supersedes:** the "GPS-verified photos" positioning in the strategy doc.
+
+### D-118 — Two-tier verification labels · PROPOSED
+**Decision:** every proof visit is labelled *self-reported* (vendor/agency crew, passed ProofLock checks) or *independently verified* (TraqAdvt or partner auditor). Reports show the split.
+**Why:** a vendor's own crew is not independent; pretending otherwise would repeat the industry's trust problem.
+
+### D-119 — ProofLock defences against the five 2026 trust failures · PROPOSED
+**Decision:** in-app-only capture for proof, upload hash + server time, network-wide recycled-photo detection, site fingerprint, creative match, display-day ledger. Borderline cases go to human review.
+
+### D-120 — Integrate with CRMs and call-tracking; don't build a CRM · PROPOSED
+**Decision:** take site visits, bookings and admissions from LeadSquared, Sell.Do, Meritto or CSV; take calls from a missed-call provider; add WhatsApp click-to-chat links with medium codes.
+
+### D-121 — Compliance module, Bihar first · PROPOSED
+**Decision:** Patna Municipal Corporation registration fields and export pack; Bihar RERA and CCPA (coaching) checklists with human sign-off; compliance evidence read from the close-up proof photo. Not legal advice.
+
+### D-122 — Headline price metric: cost per verified display-day · PROPOSED
+**Why:** it normalises price by what was actually delivered, which no one in India publishes.
+
+### D-123 — Validate with a concierge pilot before automating · PROPOSED
+**Decision:** 18 interviews + 2–3 hand-run Accountability Ledgers; build only if the go criteria in `TRAQADVT_UNIQUE_OFFER.md` §7 are met.
+
 ## Open (the founder will decide)
 
 ### D-201 — Brand, legal entity and app package name · OPEN
