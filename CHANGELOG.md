@@ -6,6 +6,20 @@ Dates are in `YYYY-MM-DD`. Each entry lists: **what changed**, **why**, and **wh
 
 ---
 
+## 2026-10-04 — Accountability Ledger phase 0/1: foundations + ProofLock backend
+
+Plan: `C:\Users\lenovo\.claude\plans\jazzy-hopping-flute.md` (Proved · Fair price · Legal badge · Customers; build in phases with pilots running alongside).
+
+- **Migrations (Alembic):** `alembic.ini`, `migrations/`, `db_migrate.py`. Runs at start-up after the legacy `run_migrations()`. `0002_proof_foundations` adds the `job`, `proof_photo` and `proof_review` tables plus `campaign_activities.verification_tier` / `prooflock_status` and `field_pins.kind`. It **backfills one `proof_photo` row per existing photo/video and queues a check for each**, so the first deploy will fetch every old photo from R2 once in the background.
+- **Job queue** (`jobs.py`): Postgres table, background worker thread (FastAPI lifespan; `JOB_WORKER=off` disables it), retries with backoff, recovery of stuck jobs, every-N-minutes and daily schedules.
+- **ProofLock checks** (`prooflock.py`) per photo: exact re-upload (SHA-256) → FAIL; recycled picture (64-bit dHash) of another site → FAIL, or of an earlier visit to the same site → REVIEW; GPS more than 250 m off or weak → REVIEW; capture time in the future → FAIL, or late or outside the booking → REVIEW; gallery or undeclared source → REVIEW. A visit gets the worst result. Measured on synthetic scenes: re-compressed copies are 0–2 bits apart; 3% crops 1–13 (85% caught at the threshold of 8); genuine new shots 6–30.
+- **Honesty labels:** crew PIN → SELF_REPORTED, new admin-only **CHECKER** PINs → INDEPENDENT, web uploads → STAFF_UPLOAD.
+- **API:** `GET /api/proof/review-queue`, `GET /api/proof/activity/{id}`, `POST /api/proof/activity/{id}/recheck` (staff only). Monitoring now includes `verificationTier`, `prooflockStatus` and `photoChecks` per visit. Verify/Needs-retake decisions are recorded in `proof_review` against the machine's verdict. `mobile/log` accepts `shots`, `captureSource` and `appVersion` (older apps still work but go to review).
+- Deleting a visit, site or campaign now removes its proof rows first (the new foreign keys would have broken those deletes on Postgres).
+- **CI:** `.github/workflows/ci.yml` runs the backend tests and the web build on every push.
+- Tests: 153 checks (45 new: fingerprints, every check rule, end-to-end uploads, review queue, checker PINs, job retries, deletes with foreign keys on, migration backfill).
+- New dependencies: `alembic`, `Pillow`.
+
 ## 2026-10-03 (later) — API lockdown
 
 An audit found ~40 endpoints that changed or exposed data with no login check: anyone could create Super Admin accounts, read the full field-PIN list, delete campaigns/vendors/advertisers, mark photos verified, upload any file type to the public R2 bucket, and download the whole site inventory with rates (`GET /api/sites` returned 85 KB to anonymous callers). An advertiser login could also create/delete sites (endpoints only checked "any valid token").

@@ -20,6 +20,7 @@ from utils import log_activity, upload_to_r2
 from jwt_utils import get_current_user_optional, REQUIRE_FIELD_AUTH, require_staff
 from proofs import image_urls, image_labels, parse_client_datetime, iso
 import notifications
+import prooflock
 
 router = APIRouter(prefix="/api/activities", tags=["Campaign Activities"])
 
@@ -88,6 +89,8 @@ def activity_to_dict(a, db: Optional[Session] = None):
         "reviewNote": a.review_note,
         "reviewedBy": a.reviewed_by,
         "reviewedAt": iso(a.reviewed_at),
+        "verificationTier": a.verification_tier,
+        "prooflockStatus": a.prooflock_status,
         "createdAt": str(a.created_at) if a.created_at else None,
         "updatedAt": str(a.updated_at) if a.updated_at else None,
     }
@@ -184,6 +187,10 @@ def update_activity(activity_id: int, req: ActivityUpdate, background: Backgroun
             a.reviewed_by = (user or {}).get("displayName") or (user or {}).get("email")
             a.reviewed_at = datetime.utcnow()
             a.review_note = ((req.reviewNote or "").strip() or None) if st == "REJECTED" else None
+            db.add(models.ProofReview(
+                activity_id=a.id, decision="ACCEPT" if st == "VERIFIED" else "REJECT",
+                reason=(req.reviewNote or "").strip() or None,
+                prooflock_status_at_review=a.prooflock_status, reviewer=a.reviewed_by))
         else:
             a.review_note = None
             a.reviewed_by = None
@@ -222,12 +229,22 @@ def _notify_retake(db: Session, a, background: BackgroundTasks):
         reason=a.review_note or "Please take the photos again")
 
 
+def delete_proof_rows(db: Session, activity_ids):
+    """Remove the proof rows that point at these visits (call before deleting the visits)."""
+    ids = [i for i in activity_ids if i is not None]
+    if not ids:
+        return
+    db.query(models.ProofPhoto).filter(models.ProofPhoto.activity_id.in_(ids)).delete(synchronize_session=False)
+    db.query(models.ProofReview).filter(models.ProofReview.activity_id.in_(ids)).delete(synchronize_session=False)
+
+
 # ---------- Delete ----------
 @router.delete("/{activity_id}", dependencies=[Depends(require_staff)])
 def delete_activity(activity_id: int, db: Session = Depends(get_db)):
     a = db.query(models.CampaignActivity).filter(models.CampaignActivity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Activity not found")
+    delete_proof_rows(db, [activity_id])
     db.delete(a)
     db.commit()
     log_activity(db, "Deleted activity", "campaign_activity", activity_id)
@@ -240,11 +257,17 @@ async def upload_activity_image(activity_id: int, file: UploadFile = File(...), 
     a = db.query(models.CampaignActivity).filter(models.CampaignActivity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Activity not found")
+    sha = prooflock.hash_upload(file)
     url = await upload_to_r2(file, folder="campaign-activities")
     current = json.loads(a.image_urls) if a.image_urls else []
     current.append(url)
     a.image_urls = json.dumps(current)
+    a.verification_tier = a.verification_tier or "STAFF_UPLOAD"
+    photo = prooflock.new_photo(a, url, sha256=sha, capture_source="WEB")
+    db.add(photo)
+    a.prooflock_status = "PENDING"
     db.commit()
+    prooflock.enqueue_checks(db, [photo])
     return {"imageUrl": url, "allImages": current}
 
 
@@ -260,6 +283,10 @@ def remove_activity_image(activity_id: int, imageUrl: str, db: Session = Depends
     if imageUrl in labels:
         labels.pop(imageUrl)
         a.image_labels = json.dumps(labels) if labels else None
+    db.query(models.ProofPhoto).filter(models.ProofPhoto.activity_id == activity_id,
+                                       models.ProofPhoto.url == imageUrl).delete(synchronize_session=False)
+    db.flush()
+    prooflock.rollup_activity(db, activity_id)
     db.commit()
     return {"allImages": current}
 
@@ -315,6 +342,14 @@ def _discover_assignment(db: Session, site_id: int, worker_name: Optional[str] =
     return max(rows, key=score)[0]
 
 
+def _num(value, fallback=None):
+    """A float from app-supplied metadata, or the fallback when missing or not a number."""
+    try:
+        return float(value) if value is not None and value != "" else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _find_visit(db: Session, visit_id: Optional[str]):
     if not visit_id:
         return None
@@ -337,6 +372,9 @@ async def mobile_log_activity(
     gpsAccuracyM: Optional[float] = Form(None),
     clientVisitId: Optional[str] = Form(None),   # app-generated id; a repeat returns the existing visit
     labels: Optional[str] = Form(None),          # JSON list aligned with `files`, e.g. ["close-up","wide","landmark"]
+    shots: Optional[str] = Form(None),           # JSON list aligned with `files`: {label, capturedAt, latitude, longitude, accuracy}
+    captureSource: Optional[str] = Form(None),   # CAMERA_INAPP (app camera) or GALLERY; older builds send nothing
+    appVersion: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),     # single file (older app builds)
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
@@ -379,11 +417,19 @@ async def mobile_log_activity(
         label_list = []
     if not isinstance(label_list, list):
         label_list = []
-    urls, label_map = [], {}
+    try:
+        shot_list = json.loads(shots) if shots else []
+    except ValueError:
+        shot_list = []
+    if not isinstance(shot_list, list):
+        shot_list = []
+    urls, label_map, hashes = [], {}, []
     for i, f in enumerate(uploads):
+        hashes.append(prooflock.hash_upload(f))
         url = await upload_to_r2(f, folder="campaign-activities")
         urls.append(url)
-        label = label_list[i] if i < len(label_list) else None
+        shot = shot_list[i] if i < len(shot_list) and isinstance(shot_list[i], dict) else {}
+        label = label_list[i] if i < len(label_list) else shot.get("label")
         if isinstance(label, str) and label.strip():
             label_map[url] = label.strip()[:30]
 
@@ -411,9 +457,22 @@ async def mobile_log_activity(
         captured_at=captured,
         client_visit_id=visit_id,
         source="mobile",
+        verification_tier="INDEPENDENT" if (user or {}).get("fieldKind") == "CHECKER" else "SELF_REPORTED",
+        prooflock_status="PENDING" if urls else None,
     )
     db.add(a)
+    photos = []
     try:
+        db.flush()  # assigns a.id (and hits the unique visit id, if this is a retry)
+        for i, url in enumerate(urls):
+            shot = shot_list[i] if i < len(shot_list) and isinstance(shot_list[i], dict) else {}
+            photo = prooflock.new_photo(
+                a, url, label=label_map.get(url), sha256=hashes[i], capture_source=captureSource,
+                captured_at=parse_client_datetime(shot.get("capturedAt")) or captured,
+                latitude=_num(shot.get("latitude"), latitude), longitude=_num(shot.get("longitude"), longitude),
+                gps_accuracy_m=_num(shot.get("accuracy"), gpsAccuracyM))
+            db.add(photo)
+            photos.append(photo)
         db.commit()
     except IntegrityError:
         # Another retry of this visit was saved a moment ago: return that one.
@@ -423,6 +482,7 @@ async def mobile_log_activity(
             return activity_to_dict(existing, db)
         raise
     db.refresh(a)
+    prooflock.enqueue_checks(db, photos)
 
     log_activity(db, f"Mobile logged {at} ({len(urls)} file{'s' if len(urls) != 1 else ''})",
                  "campaign_activity", a.id, f"Campaign #{campaignId}, Site #{siteId}")

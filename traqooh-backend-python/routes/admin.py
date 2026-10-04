@@ -213,6 +213,9 @@ class CreateFieldPinRequest(BaseModel):
     workerName: str
     vendorId: Optional[int] = None
     adminEmail: str
+    kind: Optional[str] = "CREW"   # CREW (own field staff) or CHECKER (independent spot-checker)
+
+FIELD_PIN_KINDS = {"CREW", "CHECKER"}
 
 
 def field_pin_to_dict(fp, db: Session = None):
@@ -233,6 +236,7 @@ def field_pin_to_dict(fp, db: Session = None):
         "hoursLeft": hours_left,
         "createdAt": fp.created_at.isoformat() if fp.created_at else None,
         "createdByAdminEmail": fp.created_by_admin_email,
+        "kind": fp.kind or "CREW",
     }
 
 
@@ -247,9 +251,17 @@ def list_field_pins(admin_email: Optional[str] = None, db: Session = Depends(get
 
 
 @router.post("/field-pins", dependencies=[Depends(require_staff)])
-def create_field_pin(req: CreateFieldPinRequest, db: Session = Depends(get_db)):
+def create_field_pin(req: CreateFieldPinRequest, db: Session = Depends(get_db),
+                     current_user: dict = Depends(get_current_user)):
     """Generate a random 4-digit PIN for a field worker. Valid for 30 days
-    (extended from the original 72 hours so workers aren't re-issued PINs weekly)."""
+    (extended from the original 72 hours so workers aren't re-issued PINs weekly).
+    CHECKER PINs (independent spot-checkers) can only be created by an admin, so the
+    people checking a vendor's work aren't chosen by whoever is being checked."""
+    kind = (req.kind or "CREW").strip().upper()
+    if kind not in FIELD_PIN_KINDS:
+        raise HTTPException(status_code=400, detail="kind must be CREW or CHECKER")
+    if kind == "CHECKER":
+        require_roles(current_user, "SUPER_ADMIN", "ADMIN")
     # Generate a PIN unique among currently active PINs for this admin
     for _ in range(100):
         pin = "".join([str(random.randint(0, 9)) for _ in range(4)])
@@ -267,6 +279,7 @@ def create_field_pin(req: CreateFieldPinRequest, db: Session = Depends(get_db)):
         vendor_id=req.vendorId,
         created_by_admin_email=req.adminEmail,
         worker_name=req.workerName,
+        kind=kind,
         is_active=True,
         expires_at=expires_at,
     )

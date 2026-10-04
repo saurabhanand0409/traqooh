@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint, Float, Text, Boolean, Date
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, ForeignKey, UniqueConstraint, Float, Text, Boolean, Date
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
@@ -304,6 +304,10 @@ class CampaignActivity(Base):
     review_note = Column(Text, nullable=True)
     reviewed_by = Column(String, nullable=True)
     reviewed_at = Column(DateTime, nullable=True)
+    # Who captured it: SELF_REPORTED (vendor/agency crew PIN), INDEPENDENT (checker PIN), STAFF_UPLOAD (web)
+    verification_tier = Column(String, nullable=True)
+    # Machine checks over the visit's photos (worst of them): PENDING, PASS, REVIEW, FAIL
+    prooflock_status = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
@@ -360,6 +364,66 @@ class FieldPin(Base):
     vendor_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
     created_by_admin_email = Column(String, nullable=False)
     worker_name = Column(String, nullable=True)
+    # CREW = the vendor's or agency's own field staff; CHECKER = independent spot-checker
+    kind = Column(String, default="CREW")
     is_active = Column(Boolean, default=True)
     expires_at = Column(DateTime, nullable=False)  # 30 days from creation
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class Job(Base):
+    """Background work queue (see jobs.py). Postgres-backed so no extra service is needed."""
+    __tablename__ = "job"
+
+    id = Column(Integer, primary_key=True, index=True)
+    type = Column(String, nullable=False, index=True)
+    payload = Column(Text, nullable=True)           # JSON
+    status = Column(String, default="QUEUED", index=True)  # QUEUED, RUNNING, DONE, FAILED
+    attempts = Column(Integer, default=0)
+    max_attempts = Column(Integer, default=5)
+    run_after = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    locked_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    dedupe_key = Column(String, nullable=True, unique=True)  # one job per key (e.g. "nightly:ledger:2026-10-05")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+
+class ProofPhoto(Base):
+    """One uploaded proof file (photo or video) and the result of its ProofLock checks.
+    campaign_activities.image_urls stays the list shown everywhere; this table adds per-file
+    fingerprints and check results."""
+    __tablename__ = "proof_photo"
+
+    id = Column(Integer, primary_key=True, index=True)
+    activity_id = Column(Integer, ForeignKey("campaign_activities.id"), nullable=False, index=True)
+    site_id = Column(Integer, nullable=True, index=True)          # copied from the activity for fast look-ups
+    url = Column(String, nullable=False)
+    label = Column(String, nullable=True)                         # close-up / wide / landmark / video
+    media_type = Column(String, default="IMAGE")                  # IMAGE / VIDEO
+    sha256 = Column(String(64), nullable=True, index=True)
+    dhash = Column(BigInteger, nullable=True)                     # 64-bit difference hash, stored signed
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    capture_source = Column(String, nullable=True)                # CAMERA_INAPP / GALLERY / WEB / LEGACY
+    captured_at = Column(DateTime, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    gps_accuracy_m = Column(Float, nullable=True)
+    status = Column(String, default="PENDING", index=True)        # PENDING, PASS, REVIEW, FAIL
+    checks = Column(Text, nullable=True)                          # JSON list of {check, result, detail}
+    checked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class ProofReview(Base):
+    """A person's decision on a visit the machine checks flagged (or on any visit)."""
+    __tablename__ = "proof_review"
+
+    id = Column(Integer, primary_key=True, index=True)
+    activity_id = Column(Integer, ForeignKey("campaign_activities.id"), nullable=False, index=True)
+    decision = Column(String, nullable=False)       # ACCEPT / REJECT
+    reason = Column(Text, nullable=True)
+    prooflock_status_at_review = Column(String, nullable=True)
+    reviewer = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

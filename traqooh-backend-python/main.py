@@ -12,6 +12,7 @@ import models
 from database import engine, get_db, Base
 import traceback
 import logging
+from contextlib import asynccontextmanager
 import os
 import shutil
 import hashlib
@@ -20,6 +21,9 @@ from utils import log_activity, site_to_dict, upload_to_r2
 from jwt_utils import (create_access_token, get_current_user, get_current_user_optional, require_roles,
                        REQUIRE_FIELD_AUTH, require_staff, require_admin, require_staff_or_field, require_field)
 import proofs
+import jobs
+import prooflock  # noqa: F401  (registers its background job handlers)
+from db_migrate import upgrade_to_head
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -318,7 +322,17 @@ if os.environ.get("SENTRY_DSN"):
         logger.error(f"Sentry init failed: {e}")
 
 limiter = Limiter(key_func=get_remote_address)
-app = FastAPI(title="TraqOOH API", version="2.1.0")
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    """Start the background job worker (photo checks, scheduled jobs) with the API."""
+    jobs.start_worker()
+    yield
+    jobs.stop_worker()
+
+
+app = FastAPI(title="TraqOOH API", version="2.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 _CORS_ALLOWED_ORIGINS = [
@@ -366,6 +380,7 @@ async def _all_unhandled_exceptions(request: Request, exc: Exception):
     )
 
 run_migrations()
+upgrade_to_head()  # tracked Alembic migrations (migrations/versions); fails start-up if one breaks
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -378,7 +393,8 @@ from routes.campaigns import router as campaigns_router
 from routes.audits import router as audits_router
 from routes.dashboard import router as dashboard_router
 from routes.admin import router as admin_router
-from routes.activities import router as activities_router
+from routes.activities import router as activities_router, delete_proof_rows
+from routes.proof import router as proof_router
 
 app.include_router(vendors_router, dependencies=[Depends(require_staff)])
 app.include_router(advertisers_router)
@@ -387,6 +403,7 @@ app.include_router(audits_router)
 app.include_router(dashboard_router, dependencies=[Depends(require_staff)])
 app.include_router(admin_router)
 app.include_router(activities_router)
+app.include_router(proof_router, dependencies=[Depends(require_staff)])
 
 # --- Pydantic Schemas ---
 class LoginRequest(BaseModel):
@@ -678,12 +695,14 @@ def field_login(request: Request, req: FieldLoginRequest, db: Session = Depends(
         "role": "FIELD",
         "vendorId": fp.vendor_id,
         "workerName": fp.worker_name or "Field Worker",
+        "fieldKind": fp.kind or "CREW",   # CHECKER visits count as independently verified
     }, expire_hours=24 * 30)
     return {
         "success": True,
         "role": "FIELD",
         "pinId": fp.id,
         "workerName": fp.worker_name or "Field Worker",
+        "fieldKind": fp.kind or "CREW",
         "vendorId": fp.vendor_id,
         "companyName": company_name,
         "expiresAt": fp.expires_at.isoformat(),
@@ -1193,16 +1212,15 @@ def delete_site(site_id: int, db: Session = Depends(get_db), current_user: dict 
             a.id for a in db.query(models.CampaignSiteAssignment.id)
                 .filter(models.CampaignSiteAssignment.site_id == site_id).all()
         ]
-        # 2. Kill activities by EITHER site_id OR assignment_id (covers orphans)
+        # 2. Kill activities by EITHER site_id OR assignment_id (covers orphans),
+        #    after the proof rows that point at them
         if assignment_ids:
-            db.query(models.CampaignActivity).filter(
-                (models.CampaignActivity.site_id == site_id) |
-                (models.CampaignActivity.assignment_id.in_(assignment_ids))
-            ).delete(synchronize_session=False)
+            visits = ((models.CampaignActivity.site_id == site_id) |
+                      (models.CampaignActivity.assignment_id.in_(assignment_ids)))
         else:
-            db.query(models.CampaignActivity).filter(
-                models.CampaignActivity.site_id == site_id
-            ).delete(synchronize_session=False)
+            visits = models.CampaignActivity.site_id == site_id
+        delete_proof_rows(db, [r[0] for r in db.query(models.CampaignActivity.id).filter(visits).all()])
+        db.query(models.CampaignActivity).filter(visits).delete(synchronize_session=False)
         # 3. Audits
         db.query(models.SiteAudit).filter(models.SiteAudit.site_id == site_id).delete(synchronize_session=False)
         # 4. Assignments

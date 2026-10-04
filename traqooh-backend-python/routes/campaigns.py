@@ -11,6 +11,7 @@ from proofs import (phase_of, distance_m, image_urls, image_labels, iso,
                     OFFSITE_LIMIT_M, captured_at as proof_captured_at)
 from jwt_utils import get_current_user, require_roles
 import photo_zip
+import prooflock
 import notifications
 
 STAFF_ROLES = ("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER")
@@ -234,7 +235,7 @@ def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
     return result
 
 
-def _monitor_activity_dict(a):
+def _monitor_activity_dict(a, photos=None):
     return {
         "id": a.id,
         "activityType": a.activity_type,
@@ -253,6 +254,10 @@ def _monitor_activity_dict(a):
         "reviewNote": a.review_note,
         "reviewedBy": a.reviewed_by,
         "reviewedAt": iso(a.reviewed_at),
+        # ProofLock: who captured it and what the automatic checks found, per photo
+        "verificationTier": a.verification_tier,
+        "prooflockStatus": a.prooflock_status,
+        "photoChecks": prooflock.photo_checks_dict(photos),
     }
 
 
@@ -305,6 +310,7 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
     acts_by_site = {}
     for a in acts:
         acts_by_site.setdefault(a.site_id, []).append(a)
+    photos_by_act = prooflock.photos_by_activity(db, [a.id for a in acts])
 
     sites_out = []
     for a in finalized:
@@ -317,7 +323,7 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
                 size_str = site.size
         phases = {"START": [], "MID": [], "END": []}
         for act in acts_by_site.get(a.site_id, []):
-            d = _monitor_activity_dict(act)
+            d = _monitor_activity_dict(act, photos_by_act.get(act.id))
             dist = distance_m(site.latitude, site.longitude, act.latitude, act.longitude) if site else None
             d["distanceM"] = round(dist) if dist is not None else None
             d["offSite"] = dist is not None and dist > OFFSITE_LIMIT_M
@@ -444,7 +450,10 @@ def delete_campaign(campaign_id: int, db: Session = Depends(get_db)):
         {"cid": campaign_id}
     )
 
-    # Delete child records in dependency order
+    # Delete child records in dependency order (proof rows point at the visits)
+    visits = "SELECT id FROM campaign_activities WHERE campaign_id = :cid"
+    db.execute(text(f"DELETE FROM proof_photo  WHERE activity_id IN ({visits})"), {"cid": campaign_id})
+    db.execute(text(f"DELETE FROM proof_review WHERE activity_id IN ({visits})"), {"cid": campaign_id})
     db.execute(text("DELETE FROM campaign_activities       WHERE campaign_id = :cid"), {"cid": campaign_id})
     db.execute(text("DELETE FROM campaign_site_assignments WHERE campaign_id = :cid"), {"cid": campaign_id})
     db.execute(text("DELETE FROM site_audits              WHERE campaign_id = :cid"), {"cid": campaign_id})
