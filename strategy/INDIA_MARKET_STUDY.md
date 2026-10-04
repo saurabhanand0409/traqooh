@@ -6,6 +6,8 @@
 
 ---
 
+> **Scope note (founder decision D-124, 2026-10-04):** the "legal / compliance" idea was cut from the product offer. The regulatory findings below (sections 1 point 5, 3 step 4, 6) are kept as **background research** only; the only thing carried into the product is a small "registered hoarding" badge per site. Read "four questions" below as three: **proved, fairly priced, counted**.
+
 ## 1. Executive summary
 
 1. **Every single capability already exists somewhere in India.** Inventory marketplaces (GoHoardings, The Media Ant, EatAds), print/radio/cinema booking (releaseMyAd, UFO Moviez), OOH operations software with geo-tagged audit photos (Oi Media, Adarth/Moving Walls), independent photo audits (OOHAudit, Proof of Performance), rate benchmarks (Posterscope's rateOOHmeter), lead-source tracking in CRMs (LeadSquared, Sell.Do), and missed-call tracking numbers (Exotel). Programmatic digital screens (Lemma, AdOnMo, Moving Walls) and audience currency (RoadStar) cover the metro/digital end.

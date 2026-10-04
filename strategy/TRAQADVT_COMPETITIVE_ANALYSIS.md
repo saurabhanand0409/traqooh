@@ -89,7 +89,6 @@ Digital ad-automation and creative tools (Smartly.io, Madgicx, Albert and simila
 | Regional static OOH + local print/radio | ~ | ✓ | ~ | ✗ | OOH only | **✓** |
 | Geo/time-stamped proof per site | ~ | ✓ (vendor-supplied images + certificate) | ✓ (screens) | ✗ | ✗ | ✓ (built, **not unique**: Oi Media, OOHAudit, Adarth also offer it) |
 | Proof that can't be recycled/edited/substituted + display-day ledger | ✗ | ✗ | ? | ✗ | ✗ | **target** (see `TRAQADVT_UNIQUE_OFFER.md`) |
-| Regulatory compliance (municipal registry, RERA, CCPA) tied to what was displayed | ✗ | ✗ | ✗ | ✗ | ✗ | **target** |
 | Real transaction prices | ✓ (private) | ✓ (private) | ~ | ✗ | ✗ | **✓ (stored)** |
 | Per-medium lead outcomes | ~ | ? | ~ | ✓ (digital) | ✗ | **target** |
 | Neutral (no media commission) | ✗ | ✗ | ~ | ✓ | ✓ | **target** |
@@ -99,7 +98,7 @@ Digital ad-automation and creative tools (Smartly.io, Madgicx, Albert and simila
 
 **The whitespace is narrow but real:** neutral, proof-backed, outcome-measured planning of **offline media for regional, lead-driven advertisers**. Nobody combines verified delivery, real prices and per-medium leads for this segment.
 
-> **Update (deeper India study, same day):** `INDIA_MARKET_STUDY.md` profiles ~25 Indian players (GoHoardings, releaseMyAd, Oi Media, OOHAudit, Proof of Performance, Awign, UFO Moviez, Lemma, AdOnMo, LeadSquared, Sell.Do, Exotel, Posterscope's rateOOHmeter and more). It found that geo-tagged proof on its own is common, and that the true gap is the **whole row per rupee**: proof that can't be faked, fair price, regulatory compliance, and real enquiries by medium. That is detailed in `TRAQADVT_UNIQUE_OFFER.md`.
+> **Update (deeper India study, same day):** `INDIA_MARKET_STUDY.md` profiles ~25 Indian players (GoHoardings, releaseMyAd, Oi Media, OOHAudit, Proof of Performance, Awign, UFO Moviez, Lemma, AdOnMo, LeadSquared, Sell.Do, Exotel, Posterscope's rateOOHmeter and more). It found that geo-tagged proof on its own is common, and that the true gap is the **whole row per rupee**: proof that can't be faked, fair price, and real enquiries by medium. That is detailed in `TRAQADVT_UNIQUE_OFFER.md`. (The regulatory-compliance idea was trimmed to a single "registered hoarding" badge by the founder; see D-124.)
 
 ## 4. Threat ranking and response
 

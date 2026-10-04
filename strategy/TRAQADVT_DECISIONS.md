@@ -91,8 +91,8 @@
 **Decision:** server-rendered PoD and plan reports with a verification code and public check page.
 
 ### D-117 — Positioning: the Accountability Ledger · PROPOSED (2026-10-04, after the India market study)
-**Context:** geo-tagged proof photos are common in India (Oi Media, OOHAudit, Adarth, The Media Ant's vendor photos). No player answers, per rupee, whether it ran, whether the price was fair, whether it was legal, and what it produced.
-**Decision:** lead with "Every offline rupee — proved, fairly priced, legal, and counted" and the Campaign Accountability Report. See `TRAQADVT_UNIQUE_OFFER.md`.
+**Context:** geo-tagged proof photos are common in India (Oi Media, OOHAudit, Adarth, The Media Ant's vendor photos). No player answers, per rupee, whether it ran, whether the price was fair, and what it produced.
+**Decision:** lead with "Every offline rupee — proved, fairly priced, and counted" and the Campaign Accountability Report. See `TRAQADVT_UNIQUE_OFFER.md`. (Originally listed "legal" as a fourth claim; trimmed by the founder on 2026-10-04, see D-124.)
 **Supersedes:** the "GPS-verified photos" positioning in the strategy doc.
 
 ### D-118 — Two-tier verification labels · PROPOSED
@@ -105,14 +105,20 @@
 ### D-120 — Integrate with CRMs and call-tracking; don't build a CRM · PROPOSED
 **Decision:** take site visits, bookings and admissions from LeadSquared, Sell.Do, Meritto or CSV; take calls from a missed-call provider; add WhatsApp click-to-chat links with medium codes.
 
-### D-121 — Compliance module, Bihar first · PROPOSED
-**Decision:** Patna Municipal Corporation registration fields and export pack; Bihar RERA and CCPA (coaching) checklists with human sign-off; compliance evidence read from the close-up proof photo. Not legal advice.
+### D-121 — Compliance module, Bihar first · SUPERSEDED by D-124
+~~Patna Municipal Corporation registration fields and export pack; Bihar RERA and CCPA checklists with human sign-off; compliance evidence read from the close-up proof photo.~~ Cut by the founder: too much surface area, legal exposure and scope for the pilot.
 
 ### D-122 — Headline price metric: cost per verified display-day · PROPOSED
 **Why:** it normalises price by what was actually delivered, which no one in India publishes.
 
 ### D-123 — Validate with a concierge pilot before automating · PROPOSED
 **Decision:** 18 interviews + 2–3 hand-run Accountability Ledgers; build only if the go criteria in `TRAQADVT_UNIQUE_OFFER.md` §7 are met.
+
+### D-124 — "Legal" trimmed to a registered-hoarding badge · ACCEPTED (founder, 2026-10-04)
+**Decision:** the offer is **proved, fairly priced, counted**. The only legal-flavoured feature is a small badge per site: **Registered / Not registered / Unknown**, with registration number and expiry typed in by the agency or media owner, and an advertiser filter for "registered sites only".
+**Out of scope:** RERA and CCPA ad checks, reading QR codes or registration numbers from photos, a municipal paperwork/export service, any "compliant" or "legal" claim in marketing or reports.
+**Why:** compliance work is open-ended, creates liability if we get it wrong, and isn't needed to prove the core promise.
+**Supersedes:** D-121 and the "legal" part of D-117.
 
 ## Open (the founder will decide)
 

@@ -86,7 +86,7 @@ Scored 1–5 (competition: 5 = little competition; data: 5 = we have or can get 
 
 ## 6. Positioning
 
-- **Today (TraqOOH):** "Know your hoardings actually ran — every site, every photo, GPS-verified." *(Superseded the same day: geo-tagged proof is common in India. Lead with the Accountability Report instead: "Every offline rupee — proved, fairly priced, legal, and counted." See `TRAQADVT_UNIQUE_OFFER.md`.)*
+- **Today (TraqOOH):** "Know your hoardings actually ran — every site, every photo, GPS-verified." *(Superseded the same day: geo-tagged proof is common in India. Lead with the Accountability Report instead: "Every offline rupee — proved, fairly priced, and counted." See `TRAQADVT_UNIQUE_OFFER.md`.)*
 - **Next (TraqAdvt, regional):** "Plan offline media with real prices and proof, then see which medium brought the enquiries."
 - **Destination:** "Where should your next ₹10 lakh go?" — answered with ranges and confidence, from your own results plus benchmarks from campaigns like yours.
 
