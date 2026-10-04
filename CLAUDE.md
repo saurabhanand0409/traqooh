@@ -1,6 +1,8 @@
 # TraqOOH — Complete Project Reference
 
 > **For future Claude sessions:** this file is the single source of truth on what TraqOOH does and how it's built today. Companion files: `CHANGELOG.md` (chronological history of every change) and `OPERATIONS.md` (deploy commands, env vars, diagnostic recipes). Read all three before making changes.
+>
+> **Long-term direction (TraqOOH → TraqAdvt):** see `strategy/README.md`. Before any product or architecture change, check `strategy/TRAQADVT_DECISIONS.md`; most entries there are still *proposed* until the founder approves them.
 
 ---
 
