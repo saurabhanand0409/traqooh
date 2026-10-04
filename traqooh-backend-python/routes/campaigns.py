@@ -360,7 +360,8 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
         "pinId": p.id,
         "workerName": p.worker_name or "Field Worker",
         "pin": p.pin,
-        "expiresAt": p.expires_at.isoformat() if p.expires_at else None,
+        "expiresAt": p.expires_at.isoformat() + "Z" if p.expires_at else None,
+        "kind": p.kind or "CREW",
     } for p in pins]
 
     return {

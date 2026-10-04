@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MapPin, Mail, Clock, Facebook, Twitter, Instagram, Linkedin, FileText, Send, CheckCircle } from 'lucide-react';
-import Chatbot from '../components/Chatbot';
 
 export default function Contact() {
     const [formData, setFormData] = useState({
@@ -261,7 +260,6 @@ export default function Contact() {
                 <p className="text-white/60">© 2024 TraqOOH. All rights reserved.</p>
             </footer>
 
-            <Chatbot />
         </main>
     );
 }

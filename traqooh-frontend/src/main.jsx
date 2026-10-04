@@ -13,7 +13,6 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   });
 }
 
-import App from "./App.jsx";
 // Login pages
 import EmployeeLogin from "./pages/EmployeeLogin.jsx";
 import AdminLogin from "./pages/AdminLogin.jsx";
@@ -45,8 +44,6 @@ import Reports from "./pages/Reports.jsx";
 // Other pages
 import Account from "./pages/Account.jsx";
 import Contact from "./pages/Contact.jsx";
-import Payment from "./pages/Payment.jsx";
-import Pricing from "./pages/Pricing.jsx";
 import AccessView from "./pages/AccessView.jsx";
 // Legal pages
 import PrivacyPolicy from "./pages/PrivacyPolicy.jsx";
@@ -116,8 +113,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         {/* Other pages */}
         <Route path="/account" element={<Account />} />
         <Route path="/contact" element={<Contact />} />
-        <Route path="/payment" element={<Payment />} />
-        <Route path="/pricing" element={<Pricing />} />
+        {/* No self-serve plans or online payment yet: old links go to the contact form */}
+        <Route path="/payment" element={<Navigate to="/contact" replace />} />
+        <Route path="/pricing" element={<Navigate to="/contact" replace />} />
 
         {/* Legal (publicly accessible) */}
         <Route path="/privacy" element={<PrivacyPolicy />} />

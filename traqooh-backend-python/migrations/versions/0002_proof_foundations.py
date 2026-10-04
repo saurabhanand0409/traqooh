@@ -11,6 +11,7 @@ Revision ID: 0002_proof_foundations
 Revises: 0001_baseline
 Create Date: 2026-10-04
 """
+import datetime
 import json
 
 import sqlalchemy as sa
@@ -53,18 +54,19 @@ def upgrade():
 
     # One proof_photo row per existing URL, plus a check job for each
     rows = bind.execute(sa.text(
-        "SELECT id, site_id, image_urls, image_labels, latitude, longitude, gps_accuracy_m, captured_at "
-        "FROM campaign_activities WHERE image_urls IS NOT NULL AND image_urls <> ''")).fetchall()
+        "SELECT id, site_id, image_urls, image_labels, latitude, longitude, gps_accuracy_m, captured_at, created_at "
+        "FROM campaign_activities WHERE image_urls IS NOT NULL AND image_urls <> ''")
+        .columns(captured_at=sa.DateTime, created_at=sa.DateTime)).fetchall()  # real datetimes on SQLite too
     existing = {(r[0], r[1]) for r in bind.execute(sa.text("SELECT activity_id, url FROM proof_photo")).fetchall()}
     photos = sa.table(
         "proof_photo",
         sa.column("activity_id", sa.Integer), sa.column("site_id", sa.Integer), sa.column("url", sa.String),
         sa.column("label", sa.String), sa.column("media_type", sa.String), sa.column("capture_source", sa.String),
         sa.column("captured_at", sa.DateTime), sa.column("latitude", sa.Float), sa.column("longitude", sa.Float),
-        sa.column("gps_accuracy_m", sa.Float), sa.column("status", sa.String),
+        sa.column("gps_accuracy_m", sa.Float), sa.column("status", sa.String), sa.column("created_at", sa.DateTime),
     )
     new_rows = []
-    for act_id, site_id, urls_json, labels_json, lat, lng, acc, captured in rows:
+    for act_id, site_id, urls_json, labels_json, lat, lng, acc, captured, uploaded in rows:
         try:
             urls = json.loads(urls_json) or []
         except (TypeError, ValueError):
@@ -84,14 +86,15 @@ def upgrade():
                 "media_type": "VIDEO" if is_video else "IMAGE", "capture_source": "LEGACY",
                 "captured_at": captured, "latitude": lat, "longitude": lng, "gps_accuracy_m": acc,
                 "status": "PENDING",
+                "created_at": uploaded,  # keep the original upload time for the time check
             })
     if new_rows:
         op.bulk_insert(photos, new_rows)
         bind.execute(sa.text(
             "INSERT INTO job (type, payload, status, attempts, max_attempts, run_after, created_at) "
-            "SELECT 'prooflock.check_photo', '{\"photo_id\": ' || id || '}', 'QUEUED', 0, 5, "
-            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM proof_photo "
-            "WHERE capture_source = 'LEGACY' AND status = 'PENDING'"))
+            "SELECT 'prooflock.check_photo', '{\"photo_id\": ' || id || '}', 'QUEUED', 0, 5, :now, :now "
+            "FROM proof_photo WHERE capture_source = 'LEGACY' AND status = 'PENDING'"),
+            {"now": datetime.datetime.utcnow()})  # UTC like the rest of the app, whatever the DB's time zone
         bind.execute(sa.text(
             "UPDATE campaign_activities SET prooflock_status = 'PENDING' "
             "WHERE prooflock_status IS NULL AND id IN (SELECT activity_id FROM proof_photo)"))

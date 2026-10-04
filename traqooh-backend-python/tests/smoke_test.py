@@ -5,6 +5,8 @@ Run from the traqooh-backend-python folder (needs `pip install -r requirements.t
     python tests/smoke_test.py
 
 It uses a throwaway SQLite file (smoke.db, git-ignored) and never touches Neon or R2.
+To run it against Postgres instead, point SMOKE_DATABASE_URL at an EMPTY throwaway database
+(everything in it is overwritten), e.g. SMOKE_DATABASE_URL=postgresql://postgres@localhost:55432/traq_smoke
 The "Migration error ... near '('" lines it prints come from Postgres-only SQL in run_migrations()
 and are expected on SQLite; tables are created from the models instead.
 
@@ -18,7 +20,7 @@ import os
 import sys
 import zipfile
 
-os.environ["DATABASE_URL"] = "sqlite:///./smoke.db"
+os.environ["DATABASE_URL"] = os.environ.get("SMOKE_DATABASE_URL") or "sqlite:///./smoke.db"
 os.environ["JWT_SECRET"] = "test-secret"
 for k in ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT_URL", "RESEND_API_KEY", "SENTRY_DSN"]:
     os.environ.pop(k, None)
@@ -565,6 +567,11 @@ r = client.post(f"/api/proof/activity/{v5}/recheck", headers=staff)
 jobs.run_pending()
 check("Re-check queues and re-runs the checks", r.status_code == 200 and r.json().get("queued") == 1
       and verdict(v5)[0] == pl.REVIEW)
+client.post(f"/api/proof/activity/{v1}/recheck", headers=staff)
+jobs.run_pending()
+st, _, why = verdict(v1)
+check("Re-checking the original after copies were uploaded still passes (only the later copy is blamed)",
+      st == pl.PASS, (st, why))
 
 # 12e. Checker PINs → independently verified visits
 employee_h = {"Authorization": "Bearer " + create_access_token({"sub": "5", "role": "EMPLOYEE", "email": "emp@x.com"})}
@@ -645,8 +652,10 @@ def _fk_on(dbapi_conn, _record):
     dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
 
-event.listen(engine, "connect", _fk_on)
-engine.dispose()
+ON_SQLITE = engine.dialect.name == "sqlite"   # Postgres always enforces foreign keys
+if ON_SQLITE:
+    event.listen(engine, "connect", _fk_on)
+    engine.dispose()
 try:
     check("Deleting a checked visit works with foreign keys on",
           client.delete(f"/api/activities/{v7}", headers=staff).status_code == 200)
@@ -661,8 +670,9 @@ try:
     r = client.delete(f"/api/sites/{IDS['site2']}", headers=staff)
     check("Deleting a site with checked photos works with foreign keys on", r.status_code == 200, r.text[:200])
 finally:
-    event.remove(engine, "connect", _fk_on)
-    engine.dispose()
+    if ON_SQLITE:
+        event.remove(engine, "connect", _fk_on)
+        engine.dispose()
 
 # 12i. The migration backfills a database that already has proof photos
 if os.path.exists("mig_test.db"):
@@ -671,11 +681,11 @@ mig_engine = sa.create_engine("sqlite:///./mig_test.db")
 with mig_engine.begin() as conn:
     conn.execute(sa.text("CREATE TABLE campaign_activities (id INTEGER PRIMARY KEY, site_id INTEGER, image_urls TEXT, "
                          "image_labels TEXT, latitude FLOAT, longitude FLOAT, gps_accuracy_m FLOAT, captured_at DATETIME, "
-                         "source VARCHAR)"))
+                         "source VARCHAR, created_at DATETIME)"))
     conn.execute(sa.text("CREATE TABLE field_pins (id INTEGER PRIMARY KEY, pin VARCHAR(4))"))
     conn.execute(sa.text("INSERT INTO campaign_activities VALUES "
                          "(1, 5, '[\"https://cdn.x/a.jpg\", \"https://cdn.x/b.mp4\"]', '{\"https://cdn.x/a.jpg\": \"close-up\"}', "
-                         "25.6, 85.1, 9, NULL, 'mobile'), (2, 6, NULL, NULL, NULL, NULL, NULL, NULL, 'web')"))
+                         "25.6, 85.1, 9, NULL, 'mobile', '2026-09-01 10:00:00'), (2, 6, NULL, NULL, NULL, NULL, NULL, NULL, 'web', NULL)"))
 cfg = AlembicConfig("alembic.ini")
 cfg.set_main_option("script_location", "migrations")
 with mig_engine.begin() as conn:
@@ -684,6 +694,7 @@ with mig_engine.begin() as conn:
 with mig_engine.connect() as conn:
     head = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar()
     backfilled = conn.execute(sa.text("SELECT url, label, media_type, capture_source, status FROM proof_photo ORDER BY id")).fetchall()
+    uploaded = conn.execute(sa.text("SELECT DISTINCT created_at FROM proof_photo")).scalars().all()
     queued = conn.execute(sa.text("SELECT COUNT(*) FROM job WHERE type = 'prooflock.check_photo'")).scalar()
     tiers = dict(conn.execute(sa.text("SELECT id, verification_tier FROM campaign_activities")).fetchall())
     pin_cols = [c["name"] for c in sa.inspect(conn).get_columns("field_pins")]
@@ -693,6 +704,7 @@ check("Migration backfills one proof row per existing photo/video, with labels",
       [tuple(r) for r in backfilled] == [("https://cdn.x/a.jpg", "close-up", "IMAGE", "LEGACY", "PENDING"),
                                          ("https://cdn.x/b.mp4", None, "VIDEO", "LEGACY", "PENDING")], backfilled)
 check("Migration queues a check for each backfilled photo", queued == 2, queued)
+check("Migration keeps the original upload time", [str(u)[:16] for u in uploaded] == ["2026-09-01 10:00"], uploaded)
 check("Migration labels old visits (app = self-reported, web = staff upload) and adds PIN kind",
       tiers == {1: "SELF_REPORTED", 2: "STAFF_UPLOAD"} and "kind" in pin_cols, (tiers, pin_cols))
 os.remove("mig_test.db")

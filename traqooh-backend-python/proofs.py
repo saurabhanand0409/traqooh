@@ -58,7 +58,13 @@ def captured_at(a):
 
 
 def iso(dt):
-    return dt.isoformat() if isinstance(dt, (datetime.datetime, datetime.date)) else (str(dt) if dt else None)
+    """ISO 8601 for API responses. Naive datetimes in this app are UTC (utcnow / converted on the way in),
+    so they get a "Z"; without it browsers read them as local time, 5h30m early in India."""
+    if isinstance(dt, datetime.datetime):
+        return dt.isoformat() + ("Z" if dt.tzinfo is None else "")
+    if isinstance(dt, datetime.date):
+        return dt.isoformat()
+    return str(dt) if dt else None
 
 
 def distance_m(lat1, lng1, lat2, lng2):

@@ -705,7 +705,7 @@ def field_login(request: Request, req: FieldLoginRequest, db: Session = Depends(
         "fieldKind": fp.kind or "CREW",
         "vendorId": fp.vendor_id,
         "companyName": company_name,
-        "expiresAt": fp.expires_at.isoformat(),
+        "expiresAt": fp.expires_at.isoformat() + "Z",  # stored as UTC
         "token": token,
     }
 

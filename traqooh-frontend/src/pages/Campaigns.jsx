@@ -10,7 +10,7 @@ import {
   X, LayoutList, PlusCircle, CheckSquare, Square, Edit2,
   ChevronRight, Image as ImageIcon, Filter, Send, Copy, Check, ExternalLink, Share2,
   FileDown, ChevronDown, ChevronUp, Save, Camera, CheckCircle2, MapPinned, Clock, Upload,
-  RotateCcw, Archive
+  RotateCcw, Archive, ShieldCheck
 } from "lucide-react";
 
 const API = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
@@ -97,6 +97,7 @@ export default function Campaigns() {
   const [lightbox, setLightbox] = useState(null); // { url, meta }
   const [zipping, setZipping] = useState(false);   // photo zip download in progress
   const [review, setReview] = useState(null);       // needs-retake form: { activityId, reason, other }
+  const [flaggedOnly, setFlaggedOnly] = useState(false); // show only sites with visits the automatic checks flagged
   const [sendingLink, setSendingLink] = useState(false);
   const [linkMsg, setLinkMsg] = useState("");
   const [linkWa, setLinkWa] = useState(""); // WhatsApp click-to-chat URL for the link just sent
@@ -284,6 +285,24 @@ export default function Campaigns() {
     }
   };
   const toggleVerify = (activity) => setVisitStatus(activity, activity.status === "VERIFIED" ? "DONE" : "VERIFIED");
+
+  // Run the automatic photo checks again (e.g. after fixing the site's GPS or booking dates).
+  // They run in the background, so reload the board a few seconds later to show the results.
+  const recheckVisit = async (activity) => {
+    const res = await apiFetch(`/api/proof/activity/${activity.id}/recheck`, { method: "POST" });
+    if (!res.ok) { alert("Couldn't re-run the checks. Please try again."); return; }
+    setLightbox(lb => lb?.meta?.id === activity.id ? { ...lb, meta: { ...lb.meta, prooflockStatus: "PENDING" } } : lb);
+    setTimeout(async () => {
+      try {
+        const r = await apiFetch(`/api/campaigns/${detail.id}/monitoring`);
+        if (!r.ok) return;
+        const fresh = await r.json();
+        setMonitoring(fresh);
+        const updated = fresh.sites.flatMap(s => Object.values(s.phases || {}).flat()).find(a => a.id === activity.id);
+        if (updated) setLightbox(lb => lb?.meta?.id === activity.id ? { ...lb, meta: { ...lb.meta, ...updated } } : lb);
+      } catch { /* the next board load will show them */ }
+    }, 5000);
+  };
 
   // Create a field-access PIN inline and immediately assign it to a site
   const createFieldAccess = async (assignmentId, workerName) => {
@@ -1532,6 +1551,11 @@ export default function Campaigns() {
                       ) : (() => {
                         const pendingCount = monitoring.sites.filter(s => s.pendingApproval).length;
                         const approvedCount = monitoring.sites.length - pendingCount;
+                        const siteVisits = (s) => Object.values(s.phases || {}).flat();
+                        const flaggedCount = monitoring.sites.reduce((n, s) => n + siteVisits(s).filter(isFlaggedVisit).length, 0);
+                        const shownSites = flaggedOnly && flaggedCount > 0
+                          ? monitoring.sites.filter(s => siteVisits(s).some(isFlaggedVisit))
+                          : monitoring.sites;
                         return (
                         <div className="space-y-3">
                           <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1589,7 +1613,21 @@ export default function Campaigns() {
                             </div>
                           )}
 
-                          {monitoring.sites.map(site => (
+                          {flaggedCount > 0 && (
+                            <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl flex-wrap"
+                              style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)" }}>
+                              <span className="text-xs font-semibold" style={{ color: "#FBBF24" }}>
+                                ⚑ {flaggedCount} visit{flaggedCount !== 1 ? "s" : ""} flagged by the automatic photo checks. Open a flagged photo to see why, then verify it or send it back.
+                              </span>
+                              <button onClick={() => setFlaggedOnly(f => !f)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                                style={{ background: "rgba(245,158,11,0.2)", color: "#FBBF24", border: "1px solid rgba(245,158,11,0.4)" }}>
+                                {flaggedOnly ? "Show all sites" : "Show only flagged"}
+                              </button>
+                            </div>
+                          )}
+
+                          {shownSites.map(site => (
                             <MonitorSiteCard
                               key={site.assignmentId}
                               site={site}
@@ -1624,7 +1662,13 @@ export default function Campaigns() {
             ) : (
               <img src={lightbox.url} alt="" className="w-full max-h-[62vh] object-contain rounded-xl" />
             )}
-            {lightbox.meta && (
+            {lightbox.meta && (() => {
+              // The app records time and GPS per shot; fall back to the visit's values for older uploads.
+              const shot = photoCheckFor(lightbox.meta, lightbox.url);
+              const lat = shot?.latitude ?? lightbox.meta.latitude;
+              const lng = shot?.longitude ?? lightbox.meta.longitude;
+              const acc = shot?.accuracyM ?? lightbox.meta.gpsAccuracyM;
+              return (
               <div className="mt-3 rounded-xl p-4 text-sm" style={{ background: "#0D1428", border: "1px solid var(--border)" }}>
                 {lightbox.meta.id && (
                   <ReviewBar
@@ -1635,28 +1679,37 @@ export default function Campaigns() {
                     onReject={(reason) => { setVisitStatus(lightbox.meta, "REJECTED", reason); setReview(null); }}
                   />
                 )}
+                {lightbox.meta.id && (
+                  <ProofChecks key={lightbox.url} act={lightbox.meta} url={lightbox.url} onRecheck={() => recheckVisit(lightbox.meta)} />
+                )}
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                   <PhotoMeta icon={<Clock className="w-3.5 h-3.5" />} label="Taken on"
-                    value={fmtDateTime(lightbox.meta.capturedAt || lightbox.meta.createdAt)} />
+                    value={fmtDateTime(shot?.capturedAt || lightbox.meta.capturedAt || lightbox.meta.createdAt)} />
                   <PhotoMeta icon={<Camera className="w-3.5 h-3.5" />} label="Phase / Shot"
                     value={[lightbox.meta.activityType, shotLabel(lightbox.meta.imageLabels?.[lightbox.url])].filter(Boolean).join(" · ") || "—"} />
                   <PhotoMeta icon={<Target className="w-3.5 h-3.5" />} label="Logged by" value={lightbox.meta.performedBy || "—"} />
                   <PhotoMeta icon={<CheckCircle2 className="w-3.5 h-3.5" />} label="Status" value={lightbox.meta.status || "—"} />
-                  {(lightbox.meta.latitude != null && lightbox.meta.longitude != null) && (
+                  {lightbox.meta.verificationTier && (
+                    <div className="col-span-2">
+                      <PhotoMeta icon={<ShieldCheck className="w-3.5 h-3.5" />} label="Captured by"
+                        value={TIER_LABELS[lightbox.meta.verificationTier] || lightbox.meta.verificationTier} />
+                    </div>
+                  )}
+                  {(lat != null && lng != null) && (
                     <div className="col-span-2">
                       <PhotoMeta
                         icon={<MapPinned className="w-3.5 h-3.5" />}
                         label="GPS Location"
-                        value={`${Number(lightbox.meta.latitude).toFixed(6)}, ${Number(lightbox.meta.longitude).toFixed(6)}`
-                          + (lightbox.meta.gpsAccuracyM != null ? ` (±${Math.round(lightbox.meta.gpsAccuracyM)} m)` : "")}
+                        value={`${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`
+                          + (acc != null ? ` (±${Math.round(acc)} m)` : "")}
                       />
-                      <a href={`https://www.google.com/maps?q=${lightbox.meta.latitude},${lightbox.meta.longitude}`} target="_blank" rel="noreferrer"
+                      <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noreferrer"
                         className="inline-flex items-center gap-1 mt-1 text-xs font-bold" style={{ color: "#60A5FA" }}>
                         Open in Google Maps <ExternalLink className="w-3 h-3" />
                       </a>
                     </div>
                   )}
-                  {lightbox.meta.distanceM != null && (
+                  {lightbox.meta.distanceM != null && !shot?.checks?.some(c => c.check === "location") && (
                     <div className="col-span-2">
                       <PhotoMeta
                         icon={<MapPin className="w-3.5 h-3.5" />}
@@ -1672,7 +1725,8 @@ export default function Campaigns() {
                   )}
                 </div>
               </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
@@ -2097,6 +2151,72 @@ function fmtDateTime(iso) {
 
 const RETAKE_REASONS = ["Blurry", "Wrong site", "Ad not visible", "Incomplete set", "Other"];
 
+// Automatic photo checks (backend prooflock.py). They only flag; staff make the call.
+const CHECK_NAMES = {
+  source: "Capture method", reupload: "Same file before", recycled: "Copy of earlier photo",
+  location: "Location", time: "Capture time", file: "File",
+};
+const CHECK_STYLES = {
+  PASS:    { icon: "✓", color: "#4ADE80", bg: "rgba(34,197,94,0.12)",  border: "rgba(34,197,94,0.3)",  title: "Automatic checks passed" },
+  REVIEW:  { icon: "⚑", color: "#FBBF24", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.35)", title: "Automatic checks: needs a look" },
+  FAIL:    { icon: "✕", color: "#F87171", bg: "rgba(220,20,60,0.12)",  border: "rgba(220,20,60,0.35)",  title: "Automatic checks failed" },
+  PENDING: { icon: "…", color: "var(--gray)", bg: "rgba(255,255,255,0.05)", border: "var(--border)", title: "Automatic checks are running" },
+  INFO:    { icon: "·", color: "var(--gray2)", bg: "transparent", border: "transparent", title: "" },
+};
+const TIER_LABELS = {
+  SELF_REPORTED: "Field crew (self-reported)",
+  INDEPENDENT: "Independent checker",
+  STAFF_UPLOAD: "Office upload",
+};
+const photoCheckFor = (act, url) => act?.photoChecks?.[url] || null;
+// A visit the checks flagged that nobody has verified or sent back yet
+const isFlaggedVisit = (act) =>
+  ["REVIEW", "FAIL"].includes(act?.prooflockStatus) && !["VERIFIED", "REJECTED"].includes(act?.status);
+
+// What the automatic checks found for one photo, shown in the photo viewer.
+function ProofChecks({ act, url, onRecheck }) {
+  const [busy, setBusy] = useState(false);
+  const shot = photoCheckFor(act, url);
+  // While a re-check runs the visit is PENDING; show that over the photo's previous result
+  const status = act.prooflockStatus === "PENDING" ? "PENDING" : (shot?.status || act.prooflockStatus);
+  if (!status) return null;
+  const st = CHECK_STYLES[status] || CHECK_STYLES.PENDING;
+  return (
+    <div className="mb-3 pb-3" style={{ borderBottom: "1px solid var(--border)" }}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-xs font-bold px-2 py-1 rounded-md" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
+          {st.icon} {st.title}
+        </span>
+        <button disabled={busy || status === "PENDING"}
+          onClick={async () => { setBusy(true); try { await onRecheck(); } finally { setBusy(false); } }}
+          className="text-[11px] font-bold px-2 py-1 rounded-md transition disabled:opacity-50"
+          style={{ background: "rgba(255,255,255,0.06)", color: "var(--gray)", border: "1px solid var(--border)" }}>
+          {status === "PENDING" ? "Checking…" : busy ? "Queuing…" : "Re-run checks"}
+        </button>
+      </div>
+      {shot?.checks?.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {shot.checks.map(c => {
+            const cs = CHECK_STYLES[c.result] || CHECK_STYLES.INFO;
+            return (
+              <li key={c.check} className="flex items-start gap-2 text-xs">
+                <span className="w-3 text-center font-bold flex-shrink-0" style={{ color: cs.color }}>{cs.icon}</span>
+                <span className="font-semibold text-white whitespace-nowrap">{CHECK_NAMES[c.check] || c.check}</span>
+                <span style={{ color: "var(--gray)" }}>{c.detail}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {(status === "REVIEW" || status === "FAIL") && (
+        <p className="text-[11px] mt-2" style={{ color: "var(--gray2)" }}>
+          The checks only flag. If the photo is fine, mark it verified; if not, send it back for a retake.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // Verify / needs-retake controls for one visit, shown in the photo viewer.
 function ReviewBar({ act, review, setReview, onVerify, onReject }) {
   const open = review?.activityId === act.id;
@@ -2256,7 +2376,7 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
             <option value="">— Unassigned —</option>
             {opts.map(w => (
               <option key={w.pinId ?? w.workerName} value={w.pinId || ""}>
-                {w.workerName}{w.pin && w.pin !== "expired" ? ` (PIN ${w.pin})` : w.pin === "expired" ? " (PIN expired)" : ""}
+                {w.workerName}{w.kind === "CHECKER" ? " · checker" : ""}{w.pin && w.pin !== "expired" ? ` (PIN ${w.pin})` : w.pin === "expired" ? " (PIN expired)" : ""}
               </option>
             ))}
           </select>
@@ -2281,7 +2401,7 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
         )}
         {creating && (
           <p className="text-[10px] mt-1.5" style={{ color: "var(--gray3)" }}>
-            Creates a 4-digit PIN (valid 72h) the worker uses to log in. Re-issue later with the same name to keep this assignment.
+            Creates a 4-digit PIN (valid 30 days) the worker uses to log in. Re-issue later with the same name to keep this assignment.
           </p>
         )}
       </div>
@@ -2328,6 +2448,10 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
                     const rejected = act.status === "REJECTED";
                     const video = isVideoUrl(url);
                     const tileBorder = verified ? "2px solid #22C55E" : rejected ? "2px solid #DC143C" : "1px solid var(--border)";
+                    // Flag from the automatic checks, until someone verifies or sends the visit back
+                    const shot = photoCheckFor(act, url);
+                    const flag = !verified && !rejected && (shot?.status === "FAIL" || shot?.status === "REVIEW") ? shot.status : null;
+                    const flagWhy = flag ? (shot.checks || []).filter(c => c.result === flag).map(c => c.detail).join(" · ") : "";
                     return (
                       <div key={i} className={`relative group ${rejected ? "opacity-60" : ""}`}>
                         {video ? (
@@ -2371,6 +2495,15 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
                             className="absolute bottom-1 left-1 right-1 text-center text-[9px] font-bold rounded px-1 py-0.5 pointer-events-none truncate"
                             style={{ background: "rgba(220,20,60,0.92)", color: "#fff" }}>
                             ↺ Retake{act.reviewNote ? `: ${act.reviewNote}` : ""}
+                          </span>
+                        ) : flag ? (
+                          <span
+                            title={flagWhy}
+                            className="absolute bottom-1 left-1 right-1 text-center text-[9px] font-bold rounded px-1 py-0.5 pointer-events-none truncate"
+                            style={flag === "FAIL"
+                              ? { background: "rgba(220,20,60,0.92)", color: "#fff" }
+                              : { background: "rgba(245,158,11,0.92)", color: "#1A1200" }}>
+                            {flag === "FAIL" ? "✕ Check failed" : "⚑ Check this"}
                           </span>
                         ) : act.offSite && (
                           <span

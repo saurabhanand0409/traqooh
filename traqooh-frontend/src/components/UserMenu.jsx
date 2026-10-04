@@ -83,19 +83,6 @@ export default function UserMenu({ user }) {
                         <button
                             onClick={() => {
                                 setOpen(false);
-                                navigate("/pricing");
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
-                            </svg>
-                            Pricing Plans
-                        </button>
-
-                        <button
-                            onClick={() => {
-                                setOpen(false);
                                 navigate("/change-password");
                             }}
                             className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"

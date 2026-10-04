@@ -1,6 +1,5 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import Chatbot from "../components/Chatbot";
 
 export default function GetStarted() {
   return (
@@ -49,9 +48,9 @@ export default function GetStarted() {
           {/* Features list */}
           <ul className="space-y-3 text-white text-sm font-medium mb-8 flex-grow text-left w-full">
             <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Inventory Management</li>
-            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Dynamic Pricing</li>
-            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Booking Analytics</li>
-            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Revenue Optimization</li>
+            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Campaign Bookings &amp; Cost Sheets</li>
+            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Geo-tagged Proof from the Field App</li>
+            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Proof Reports for Advertisers</li>
           </ul>
 
           {/* CTA Button */}
@@ -85,10 +84,10 @@ export default function GetStarted() {
 
           {/* Features list */}
           <ul className="space-y-3 text-white text-sm font-medium mb-8 flex-grow text-left w-full">
-            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Location Discovery</li>
-            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Campaign Management</li>
-            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Performance Analytics</li>
-            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />ROI Optimization</li>
+            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Browse &amp; Shortlist Sites</li>
+            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Live Proof Photos with GPS</li>
+            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Cost Sheet Downloads</li>
+            <li className="flex items-center gap-3"><span className="h-2 w-2 rounded-full bg-[#5ad4ff] flex-shrink-0" />Campaign Status at a Glance</li>
           </ul>
 
           {/* CTA Button */}
@@ -108,7 +107,6 @@ export default function GetStarted() {
         </Link>
       </div>
 
-      <Chatbot />
     </main>
   );
 }

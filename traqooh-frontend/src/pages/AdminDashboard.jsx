@@ -34,7 +34,7 @@ export default function AdminDashboard() {
   // Field pins state
   const [fieldPins, setFieldPins] = useState([]);
   const [showPinModal, setShowPinModal] = useState(false);
-  const [pinForm, setPinForm] = useState({ workerName: "", vendorId: "" });
+  const [pinForm, setPinForm] = useState({ workerName: "", vendorId: "", kind: "CREW" });
   const [pinErr, setPinErr] = useState("");
   const [newPinResult, setNewPinResult] = useState(null);
 
@@ -193,7 +193,7 @@ export default function AdminDashboard() {
 
   // ---- Field PIN handlers ----
   const openCreatePin = () => {
-    setPinForm({ workerName: "", vendorId: "" });
+    setPinForm({ workerName: "", vendorId: "", kind: "CREW" });
     setPinErr("");
     setNewPinResult(null);
     setShowPinModal(true);
@@ -210,6 +210,7 @@ export default function AdminDashboard() {
         workerName: pinForm.workerName.trim(),
         vendorId: pinForm.vendorId ? Number(pinForm.vendorId) : null,
         adminEmail: user.email || "",
+        kind: pinForm.kind,
       }),
     });
     if (res.ok) {
@@ -643,7 +644,7 @@ export default function AdminDashboard() {
             <div>
               <h2 className="font-syne font-bold text-xl text-white">Field Access</h2>
               <p className="text-xs mt-0.5" style={{ color: "var(--gray2)" }}>
-                Generate 4-digit PINs for field workers to log into the mobile app. PINs expire automatically in 72 hours.
+                Generate 4-digit PINs for field workers to log into the mobile app. PINs expire automatically after 30 days. Visits logged with a checker PIN are labelled "independently verified".
               </p>
             </div>
             <button onClick={openCreatePin} className="px-4 py-2 rounded-xl text-sm font-bold text-white transition hover:brightness-110 shrink-0"
@@ -655,7 +656,7 @@ export default function AdminDashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  <TH>Worker Name</TH><TH>PIN</TH><TH>Vendor</TH><TH>Created</TH><TH>Expires In</TH><TH>Status</TH><TH>Actions</TH>
+                  <TH>Worker Name</TH><TH>Type</TH><TH>PIN</TH><TH>Vendor</TH><TH>Created</TH><TH>Expires In</TH><TH>Status</TH><TH>Actions</TH>
                 </tr>
               </thead>
               <tbody>
@@ -667,13 +668,18 @@ export default function AdminDashboard() {
                     <tr key={p.id} style={{ borderBottom: "1px solid var(--border)", opacity: (!p.isActive || expired) ? 0.55 : 1 }} {...trHover}>
                       <td className="px-4 py-3 font-medium text-white">{p.workerName || "—"}</td>
                       <td className="px-4 py-3">
+                        {p.kind === "CHECKER"
+                          ? <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: "rgba(168,85,247,0.15)", color: "#C4B5FD", border: "1px solid rgba(168,85,247,0.35)" }}>Checker</span>
+                          : <span className="text-xs" style={{ color: "var(--gray)" }}>Crew</span>}
+                      </td>
+                      <td className="px-4 py-3">
                         <span className="font-mono text-lg font-bold tracking-widest" style={{ color: "#60A5FA" }}>{p.pin}</span>
                       </td>
                       <td className="px-4 py-3" style={{ color: "var(--gray)" }}>{p.vendorName || "—"}</td>
                       <td className="px-4 py-3 text-xs" style={{ color: "var(--gray2)" }}>
                         {p.createdAt ? new Date(p.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" }) : "—"}
                       </td>
-                      <td className="px-4 py-3 text-xs text-white">{(!p.isActive || expired) ? "—" : `${p.hoursLeft}h`}</td>
+                      <td className="px-4 py-3 text-xs text-white">{(!p.isActive || expired) ? "—" : p.hoursLeft >= 48 ? `${Math.floor(p.hoursLeft / 24)} days` : `${p.hoursLeft}h`}</td>
                       <td className="px-4 py-3">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusCls}`}>{statusLabel}</span>
                       </td>
@@ -684,7 +690,7 @@ export default function AdminDashboard() {
                   );
                 })}
                 {fieldPins.length === 0 && (
-                  <tr><td colSpan={7} className="text-center py-10 text-sm" style={{ color: "var(--gray2)" }}>
+                  <tr><td colSpan={8} className="text-center py-10 text-sm" style={{ color: "var(--gray2)" }}>
                     No PINs generated yet. Click "+ Generate PIN" to create one for a field worker.
                   </td></tr>
                 )}
@@ -843,10 +849,21 @@ export default function AdminDashboard() {
                 <button type="button" onClick={() => setShowPinModal(false)} className="p-2 rounded-xl transition" style={{ background: "rgba(255,255,255,0.08)", color: "var(--gray)" }}>✕</button>
               </div>
               <div className="p-6 space-y-4">
-                <p className="text-sm" style={{ color: "var(--gray2)" }}>A random 4-digit PIN will be generated for this worker. Expires in 72 hours.</p>
+                <p className="text-sm" style={{ color: "var(--gray2)" }}>A random 4-digit PIN will be generated for this worker. Expires in 30 days.</p>
                 <ErrBox msg={pinErr} />
                 <div><FL>Worker Name *</FL>
                   <input value={pinForm.workerName} onChange={e => setPinForm({ ...pinForm, workerName: e.target.value })} className="tq-input" placeholder="e.g. Ramesh Kumar" required autoFocus />
+                </div>
+                <div><FL>Type</FL>
+                  <select value={pinForm.kind} onChange={e => setPinForm({ ...pinForm, kind: e.target.value })} className="tq-input">
+                    <option value="CREW">Field crew (installs and audits)</option>
+                    <option value="CHECKER">Independent checker (spot checks)</option>
+                  </select>
+                  {pinForm.kind === "CHECKER" && (
+                    <p className="text-[11px] mt-1.5" style={{ color: "var(--gray2)" }}>
+                      Give this only to someone who doesn't work for the vendor being checked. Their visits are labelled "independently verified" in reports.
+                    </p>
+                  )}
                 </div>
                 <div><FL>Assign to Vendor (optional)</FL>
                   <select value={pinForm.vendorId} onChange={e => setPinForm({ ...pinForm, vendorId: e.target.value })} className="tq-input">

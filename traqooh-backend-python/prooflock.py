@@ -19,6 +19,7 @@ import json
 import logging
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from sqlalchemy import and_, or_
 
 import jobs
 import models
@@ -125,9 +126,11 @@ def check_source(capture_source):
     return _r("source", REVIEW, "Capture method not declared (older app version)")
 
 
-def check_reupload(same_file):
+def check_reupload(same_file, compared=True):
     """same_file: photos in *other* visits with the identical SHA-256
     (dicts with photo_id, activity_id, site_id)."""
+    if not compared:
+        return _r("reupload", INFO, "Not compared (older video, uploaded before fingerprints)")
     if not same_file:
         return _r("reupload", PASS, "File not seen before")
     m = same_file[0]
@@ -263,15 +266,28 @@ def photos_by_activity(db, activity_ids):
 
 
 def photo_checks_dict(photos):
-    """{url: {status, checks}} for a visit's photos."""
+    """{url: {status, source, checks, and the photo's own capture time and GPS}} for a visit's photos.
+    Per-photo time/GPS matter because the app records them per shot, not once per visit."""
     out = {}
     for p in photos or []:
         try:
             checks = json.loads(p.checks) if p.checks else []
         except (TypeError, ValueError):
             checks = []
-        out[p.url] = {"status": p.status, "source": p.capture_source, "checks": checks}
+        out[p.url] = {"status": p.status, "source": p.capture_source, "checks": checks,
+                      "label": p.label, "capturedAt": proofs.iso(p.captured_at),
+                      "latitude": p.latitude, "longitude": p.longitude, "accuracyM": p.gps_accuracy_m}
     return out
+
+
+def _earlier_than(photo):
+    """SQL condition: proof photos uploaded before this one (ties broken by id)."""
+    P = models.ProofPhoto
+    if photo.created_at is None:
+        return P.id < photo.id
+    return or_(P.created_at < photo.created_at,
+               and_(P.created_at == photo.created_at, P.id < photo.id),
+               and_(P.created_at.is_(None), P.id < photo.id))
 
 
 # --- background jobs -----------------------------------------------------------------------------
@@ -285,7 +301,9 @@ def check_photo_job(db, payload):
         return
 
     unreadable = None
-    if photo.sha256 is None or (photo.media_type == "IMAGE" and photo.dhash is None):
+    # Only images are downloaded here. Videos are fingerprinted at upload; older ones are left alone
+    # rather than pulling whole video files into memory.
+    if photo.media_type == "IMAGE" and (photo.sha256 is None or photo.dhash is None):
         data = fetch_bytes(photo.url)
         if data is None:
             if int(payload.get("_attempt", 1)) < UNREADABLE_RETRIES:
@@ -301,20 +319,23 @@ def check_photo_job(db, payload):
                     img, photo.width, photo.height = parsed
                     photo.dhash = to_db(dhash64(img))
 
+    # Compare only with photos uploaded earlier: the later upload is the copy, never the original
+    # (matters when photos are checked after the fact, e.g. the backfill or a re-check).
+    earlier = _earlier_than(photo)
     same_file = []
     if photo.sha256:
         same_file = [{"photo_id": i, "activity_id": a, "site_id": s} for i, a, s in
                      db.query(models.ProofPhoto.id, models.ProofPhoto.activity_id, models.ProofPhoto.site_id)
                      .filter(models.ProofPhoto.sha256 == photo.sha256, models.ProofPhoto.id != photo.id,
-                             models.ProofPhoto.activity_id != photo.activity_id)]
+                             models.ProofPhoto.activity_id != photo.activity_id, earlier)]
     candidates = [{"photo_id": i, "activity_id": a, "site_id": s, "dhash": from_db(h)} for i, a, s, h in
                   db.query(models.ProofPhoto.id, models.ProofPhoto.activity_id, models.ProofPhoto.site_id,
                            models.ProofPhoto.dhash)
-                  .filter(models.ProofPhoto.dhash.isnot(None), models.ProofPhoto.id != photo.id)]
+                  .filter(models.ProofPhoto.dhash.isnot(None), models.ProofPhoto.id != photo.id, earlier)]
     site = db.get(models.Site, photo.site_id or act.site_id)
     start, end = contract_window(db, act)
 
-    results = [check_source(photo.capture_source), check_reupload(same_file)]
+    results = [check_source(photo.capture_source), check_reupload(same_file, compared=photo.sha256 is not None)]
     if unreadable:
         results.append(unreadable)
     results += [

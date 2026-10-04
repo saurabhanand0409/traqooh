@@ -232,9 +232,9 @@ def field_pin_to_dict(fp, db: Session = None):
         "vendorId": fp.vendor_id,
         "vendorName": company_name,
         "isActive": fp.is_active,
-        "expiresAt": fp.expires_at.isoformat(),
+        "expiresAt": fp.expires_at.isoformat() + "Z",  # stored as UTC
         "hoursLeft": hours_left,
-        "createdAt": fp.created_at.isoformat() if fp.created_at else None,
+        "createdAt": fp.created_at.isoformat() + "Z" if fp.created_at else None,
         "createdByAdminEmail": fp.created_by_admin_email,
         "kind": fp.kind or "CREW",
     }
