@@ -149,19 +149,24 @@ Questions: `INDIA_MARKET_STUDY.md` §9.
 
 ---
 
-## 8. Build plan (after validation; fits Roadmap Phase 1)
+## 8. Build plan (phases, with 2–3 pilots running from phase 1, D-125)
 
-| Sprint (~2 weeks each at current capacity) | Deliverables |
-|---|---|
-| **A** | Trust cleanup; field app v2 with **in-app-only proof capture** and capture hashing; campaign brief; response paths (QR, WhatsApp code links; missed-call numbers provisioned manually) |
-| **B** | Recycled-photo detection (background job); site reference photos + substitution review queue; Display-Day Ledger; Accountability Report v1 (server-rendered, verification code) |
-| **C** | Creative match; make-good calculator; media-owner reliability score; registered-hoarding badge |
-| **D** | Fair Price Check v0 (own data only); independent-auditor role and spot-check workflow; enquiry report v1 with CRM CSV import |
-| Later | Missed-call provider API; CRM connectors (LeadSquared, Sell.Do, Meritto); cross-tenant price ranges with consent; Season Memory → planner |
+| Phase | Build | Status |
+|---|---|---|
+| **0** | Foundations: database migrations, background job queue, CI, trust cleanup, backfills | ✅ 2026-10-04 |
+| **1** | Field app v2 (**in-app-only proof capture**, GPS per shot, offline outbox, Hindi/English, retakes); ProofLock v1 (re-upload, recycled photo, location, time, capture source); review queue; two-tier labels | ✅ built 2026-10-04; next: APK and pilots |
+| **2** | Customers: medium spend, response paths (QR, WhatsApp code links; missed-call numbers provisioned manually), `/r` redirect, front-desk register, CRM CSV import, funnel | |
+| **3** | Display-Day Ledger, make-good calculator, media-owner reliability score | |
+| **4** | Fair Price Check (own data only, ranges shown at n ≥ 5); registered-hoarding badge | |
+| **5** | Accountability Report with a public verification code | |
+| **6** | ProofLock v2: site match, creative match, independent-checker spot-check sampling | |
+| **7** | Missed-call provider API; CRM connectors (LeadSquared, Sell.Do, Meritto); WhatsApp Business webhook, as pilots need them | |
+
+Later still: cross-tenant price ranges with consent; Season Memory → planner.
 
 ### Technical notes and honest limits
 
-- **Recycled-photo detection:** perceptual hashes (64-bit) compared by Hamming distance. A genuine new photo of the same board from the same spot can look similar, so the rule targets **near-identical** images across different visits (tight threshold), plus any match across **different sites** (strong fraud signal). Borderline cases go to a human. Thresholds are tuned on real data.
+- **Recycled-photo detection:** perceptual hashes (64-bit) compared by Hamming distance, only against photos uploaded *earlier* (the later upload is the copy). Measured on synthetic scenes: re-compressed copies differ by 0–2 bits, 3% crops by 1–13 (about 85% caught at the current threshold of 8), genuine new shots of the same site by 6–30. A genuine new photo of the same board from the same spot can look similar, so the rule targets **near-identical** images across different visits (tight threshold), plus any match across **different sites** (strong fraud signal). Borderline cases go to a human. Thresholds are tuned on real data.
 - **Site fingerprint / creative match:** classical feature matching (keypoints + homography) against reference images, with a vision model as a second opinion and a human for final calls. Lighting and season changes cause false alarms; review queues absorb them.
 - **Device-integrity attestation:** Android's Play Integrity in an Expo app needs a native module; evaluate before promising it. Not needed for v1.
 - **Missed-call numbers:** a paid third-party dependency; start manually.

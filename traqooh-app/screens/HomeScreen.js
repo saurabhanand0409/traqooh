@@ -4,176 +4,158 @@ import {
   TextInput, ActivityIndicator, RefreshControl, Alert,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import * as Location from "expo-location";
+import { useFocusEffect } from "@react-navigation/native";
 import SiteCard from "../components/SiteCard";
-import { fetchNearbySites, fetchAllSites, fetchMyAssignedSites } from "../utils/api";
+import { fetchMyAssignedSites, fetchVendorSites } from "../utils/api";
 import { clearUser } from "../utils/storage";
+import { LangToggle, useLang } from "../utils/i18n";
+import { clearAll, discardDraft, flush, subscribe } from "../utils/outbox";
+import { unregisterFromPush } from "../utils/push";
 
 const BG = "#070C1A";
 const NAV = "#0B1120";
 const BLUE = "#2563EB";
 const RED = "#DC143C";
+const AMBER = "#F59E0B";
 const BORDER = "rgba(255,255,255,0.08)";
 const GRAY = "#6B7280";
 const GRAY2 = "#9CA3AF";
 
 export default function HomeScreen({ navigation, route }) {
   const user = route.params?.user || {};
-  const isField = user.role === "FIELD";
+  const { t } = useLang();
 
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [city, setCity] = useState(null);
-  const [state, setState] = useState(null);
-  const [locStatus, setLocStatus] = useState("detecting"); // "detecting"|"found"|"denied"|"error"
-  const [filterAvail, setFilterAvail] = useState("ALL"); // ALL|AVAILABLE|OCCUPIED
-  // Field workers default to their assigned sites; can switch to browse all
-  const [mode, setMode] = useState(isField ? "assigned" : "all"); // "assigned" | "all"
+  const [mode, setMode] = useState("assigned"); // "assigned" | "all"
+  const [queue, setQueue] = useState({ outbox: [], drafts: [], uploading: false });
 
-  const detectLocation = useCallback(async () => {
-    setLocStatus("detecting");
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setLocStatus("denied");
-        loadSites(null, null);
-        return;
-      }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const [geo] = await Location.reverseGeocodeAsync({
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
-      });
-      const detectedCity = geo?.city || geo?.subregion || null;
-      const detectedState = geo?.region || null;
-      setCity(detectedCity);
-      setState(detectedState);
-      setLocStatus("found");
-      loadSites("all", detectedCity, detectedState);
-    } catch (e) {
-      setLocStatus("error");
-      loadSites("all", null, null);
-    }
-  }, []);
+  useEffect(() => subscribe(setQueue), []);
 
-  const loadSites = async (modeArg, cityName, stateName) => {
-    setLoading(true);
+  const loadSites = useCallback(async (m) => {
     try {
-      let data;
-      if (isField && modeArg === "assigned") {
-        // Sites assigned to this field worker for monitoring
-        data = await fetchMyAssignedSites(user.workerName);
-        if (!Array.isArray(data)) data = [];
-      } else if (isField && user.vendorId) {
-        // Browse all of the vendor's sites
-        const res = await fetch(`https://traqooh-backend-python.onrender.com/api/sites?owner_id=${user.vendorId}`);
-        data = res.ok ? await res.json() : [];
-        if (!Array.isArray(data)) data = [];
-      } else if (cityName) {
-        data = await fetchNearbySites(cityName, stateName);
-        if (data.length === 0) data = await fetchAllSites();
-      } else {
-        data = await fetchAllSites();
-      }
+      const data = m === "assigned" ? await fetchMyAssignedSites() : await fetchVendorSites(user.vendorId);
       setSites(data);
+      setError("");
     } catch (e) {
-      setSites([]);
+      setError(e.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user.vendorId]);
+
+  // Reload when coming back from a site, so retakes and photo counts are current
+  useFocusEffect(useCallback(() => { loadSites(mode); }, [loadSites, mode]));
 
   const switchMode = (m) => {
+    if (m === mode) return;
     setMode(m);
-    loadSites(m, city, state);
+    setLoading(true);
+    setSites([]);
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadSites(mode, city, state);
+    flush({ force: true });
+    await loadSites(mode);
     setRefreshing(false);
   };
 
-  useEffect(() => {
-    if (isField) loadSites("assigned");
-    else detectLocation();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const filtered = sites.filter(s => {
-    const matchSearch = !search ||
-      s.name?.toLowerCase().includes(search.toLowerCase()) ||
-      s.city?.toLowerCase().includes(search.toLowerCase()) ||
-      s.areaLocality?.toLowerCase().includes(search.toLowerCase());
-    const matchAvail = filterAvail === "ALL" || s.availabilityStatus === filterAvail;
-    return matchSearch && matchAvail;
-  });
+  const mine = queue.outbox.filter(v => !v.workerName || v.workerName === user.workerName);
+  const others = queue.outbox.filter(v => v.workerName && v.workerName !== user.workerName);
+  const lastError = mine.find(v => v.error)?.error;
 
   const handleSignOut = () => {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
+    const pending = queue.outbox.length + queue.drafts.length;
+    Alert.alert(t("sign_out_q"), pending ? t("sign_out_pending", { n: pending }) : undefined, [
+      { text: t("cancel"), style: "cancel" },
       {
-        text: "Sign Out", style: "destructive",
-        onPress: async () => { await clearUser(); navigation.replace("Login"); }
+        text: t("sign_out"), style: "destructive",
+        onPress: async () => {
+          await unregisterFromPush();
+          await clearAll();
+          await clearUser();
+          navigation.replace("Login");
+        },
       },
     ]);
   };
 
+  const continueDraft = (d) => {
+    navigation.navigate("Capture", { site: d.site, activityKey: d.activityKey, user, draft: d, retakeReason: d.retakeReason });
+  };
+
+  const askDiscardDraft = (d) => {
+    Alert.alert(t("draft_discard_q"), undefined, [
+      { text: t("cancel"), style: "cancel" },
+      { text: t("draft_discard"), style: "destructive", onPress: () => discardDraft(d.clientVisitId) },
+    ]);
+  };
+
+  const filtered = sites.filter(s => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return s.name?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q)
+      || s.areaLocality?.toLowerCase().includes(q) || s.campaignName?.toLowerCase().includes(q);
+  });
+
   const renderHeader = () => (
     <View>
-      {/* Field-worker mode toggle: assigned sites vs browse all */}
-      {isField && (
-        <View style={s.modeRow}>
-          {[
-            { k: "assigned", label: "📋 My Assigned Sites" },
-            { k: "all", label: "🗺️ All Sites" },
-          ].map(t => (
-            <TouchableOpacity
-              key={t.k}
-              style={[s.modeChip, mode === t.k && s.modeChipActive]}
-              onPress={() => mode !== t.k && switchMode(t.k)}
-            >
-              <Text style={[s.modeText, mode === t.k && s.modeTextActive]}>{t.label}</Text>
-            </TouchableOpacity>
-          ))}
+      {/* Visits saved on the phone, not yet on the server */}
+      {mine.length > 0 && (
+        <View style={s.outbox}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.outboxText}>
+              ⏫ {queue.uploading ? t("outbox_uploading", { n: mine.length }) : t("outbox_waiting", { n: mine.length })}
+            </Text>
+            {lastError && !queue.uploading ? <Text style={s.outboxErr}>{t("outbox_error", { error: lastError })}</Text> : null}
+          </View>
+          {queue.uploading
+            ? <ActivityIndicator size="small" color={AMBER} />
+            : <TouchableOpacity onPress={() => flush({ force: true })} style={s.outboxBtn}>
+                <Text style={s.outboxBtnText}>{t("outbox_retry")}</Text>
+              </TouchableOpacity>}
         </View>
       )}
-
-      {/* Location banner (hidden for field workers viewing their assignments) */}
-      {!(isField && mode === "assigned") && (
-      <View style={s.locBanner}>
-        {locStatus === "detecting" && (
-          <><ActivityIndicator size="small" color={BLUE} style={{ marginRight: 8 }} />
-          <Text style={s.locText}>Detecting your location…</Text></>
-        )}
-        {locStatus === "found" && city && (
-          <><Text style={s.locIcon}>📍</Text>
-          <Text style={s.locText}>Showing sites near <Text style={{ color: BLUE, fontWeight: "700" }}>{city}</Text></Text></>
-        )}
-        {locStatus === "denied" && (
-          <><Text style={s.locIcon}>⚠️</Text>
-          <Text style={s.locText}>Location denied — showing all sites</Text>
-          <TouchableOpacity onPress={detectLocation} style={s.retryBtn}>
-            <Text style={s.retryText}>Retry</Text>
-          </TouchableOpacity></>
-        )}
-        {locStatus === "error" && (
-          <><Text style={s.locIcon}>⚠️</Text>
-          <Text style={s.locText}>Location unavailable — showing all sites</Text></>
-        )}
-      </View>
+      {others.length > 0 && (
+        <Text style={s.othersText}>{t("outbox_other_worker", { n: others.length, name: others[0].workerName })}</Text>
       )}
 
-      {/* Search */}
+      {/* Visits started but not saved (e.g. the app was closed mid-visit) */}
+      {queue.drafts.filter(d => !d.workerName || d.workerName === user.workerName).map(d => (
+        <View key={d.clientVisitId} style={s.draft}>
+          <Text style={s.draftText}>
+            📝 {t("draft_unfinished", { activity: t(`act_${d.activityKey}`), site: d.site?.name || "" })}
+          </Text>
+          <View style={s.draftBtns}>
+            <TouchableOpacity onPress={() => continueDraft(d)} style={s.draftBtn}>
+              <Text style={s.draftBtnText}>{t("draft_continue")}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => askDiscardDraft(d)} style={[s.draftBtn, s.draftBtnGhost]}>
+              <Text style={[s.draftBtnText, { color: GRAY2 }]}>{t("draft_discard")}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ))}
+
+      <View style={s.modeRow}>
+        {[{ k: "assigned", label: t("mode_assigned") }, { k: "all", label: t("mode_all") }].map(m => (
+          <TouchableOpacity key={m.k} style={[s.modeChip, mode === m.k && s.modeChipActive]} onPress={() => switchMode(m.k)}>
+            <Text style={[s.modeText, mode === m.k && s.modeTextActive]}>{m.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <View style={s.searchWrap}>
         <Text style={s.searchIcon}>🔍</Text>
         <TextInput
           style={s.searchInput}
           value={search}
           onChangeText={setSearch}
-          placeholder="Search sites, areas…"
+          placeholder={t("search")}
           placeholderTextColor={GRAY}
         />
         {search ? (
@@ -183,25 +165,8 @@ export default function HomeScreen({ navigation, route }) {
         ) : null}
       </View>
 
-      {/* Filter chips */}
-      <View style={s.filterRow}>
-        {["ALL", "AVAILABLE", "OCCUPIED"].map(f => (
-          <TouchableOpacity
-            key={f}
-            style={[s.filterChip, filterAvail === f && s.filterChipActive]}
-            onPress={() => setFilterAvail(f)}
-          >
-            <Text style={[s.filterText, filterAvail === f && s.filterTextActive]}>
-              {f === "ALL" ? `All (${sites.length})` : f === "AVAILABLE" ? `Available (${sites.filter(s => s.availabilityStatus === "AVAILABLE").length})` : `Occupied (${sites.filter(s => s.availabilityStatus === "OCCUPIED").length})`}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Results count */}
-      <Text style={s.resultsText}>
-        {filtered.length} site{filtered.length !== 1 ? "s" : ""} found
-      </Text>
+      {error ? <Text style={s.errorText}>{t("load_failed", { error })}</Text> : null}
+      <Text style={s.resultsText}>{t("sites_count", { n: filtered.length })}</Text>
     </View>
   );
 
@@ -209,53 +174,48 @@ export default function HomeScreen({ navigation, route }) {
     <View style={s.root}>
       <StatusBar style="light" />
 
-      {/* Header */}
       <View style={s.header}>
-        <View>
+        <View style={{ flex: 1 }}>
           <View style={{ flexDirection: "row", alignItems: "baseline" }}>
             <Text style={[s.headerBrand, { color: BLUE }]}>traq</Text>
             <Text style={[s.headerBrand, { color: RED }]}>OOH</Text>
           </View>
-          <Text style={s.headerSub}>Hi, {user.workerName || user.displayName || user.email?.split("@")[0]} 👋</Text>
+          <Text style={s.headerSub} numberOfLines={1}>{t("hi_name", { name: user.workerName || "" })}</Text>
         </View>
+        <LangToggle />
         <TouchableOpacity onPress={handleSignOut} style={s.signOutBtn}>
-          <Text style={s.signOutText}>Sign out</Text>
+          <Text style={s.signOutText}>{t("sign_out")}</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Content */}
       {loading ? (
         <View style={s.center}>
           <ActivityIndicator size="large" color={BLUE} />
-          <Text style={s.loadingText}>Loading sites…</Text>
+          <Text style={s.loadingText}>{t("loading_sites")}</Text>
         </View>
       ) : (
         <FlatList
           data={filtered}
-          keyExtractor={item => String(item.id)}
+          keyExtractor={item => String(item.assignmentId ?? item.id)}
           renderItem={({ item }) => (
             <SiteCard
               site={item}
+              assigned={mode === "assigned"}
               onPress={() => navigation.navigate("SiteDetail", { site: item, user })}
             />
           )}
-          ListHeaderComponent={renderHeader}
+          ListHeaderComponent={renderHeader()}
           ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyIcon}>{isField && mode === "assigned" ? "📋" : "🏙️"}</Text>
-              <Text style={s.emptyText}>
-                {isField && mode === "assigned"
-                  ? "No sites assigned to you yet"
-                  : `No sites found${city ? ` in ${city}` : ""}`}
-              </Text>
-              <Text style={s.emptySubText}>
-                {isField && mode === "assigned"
-                  ? "Your admin will assign sites for you to monitor."
-                  : "Try changing your search or filters"}
-              </Text>
-            </View>
+            error ? null : (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>{mode === "assigned" ? "📋" : "🏙️"}</Text>
+                <Text style={s.emptyText}>{mode === "assigned" ? t("no_assigned") : t("no_sites")}</Text>
+                <Text style={s.emptySubText}>{mode === "assigned" ? t("no_assigned_sub") : t("no_sites_sub")}</Text>
+              </View>
+            )
           }
           contentContainerStyle={s.list}
+          keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={BLUE} />}
         />
       )}
@@ -267,7 +227,7 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
 
   header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    flexDirection: "row", alignItems: "center", gap: 10,
     paddingHorizontal: 20, paddingTop: 52, paddingBottom: 16,
     backgroundColor: NAV,
     borderBottomWidth: 1, borderBottomColor: BORDER,
@@ -280,6 +240,27 @@ const s = StyleSheet.create({
   },
   signOutText: { color: GRAY, fontSize: 12 },
 
+  outbox: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "rgba(245,158,11,0.10)", borderWidth: 1, borderColor: "rgba(245,158,11,0.3)",
+    borderRadius: 12, padding: 12, marginBottom: 12,
+  },
+  outboxText: { color: "#FBBF24", fontSize: 13, fontWeight: "700" },
+  outboxErr: { color: GRAY2, fontSize: 11, marginTop: 3 },
+  outboxBtn: { backgroundColor: AMBER, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
+  outboxBtnText: { color: "#1A1200", fontSize: 12, fontWeight: "800" },
+  othersText: { color: GRAY2, fontSize: 12, marginBottom: 12 },
+
+  draft: {
+    backgroundColor: "rgba(37,99,235,0.08)", borderWidth: 1, borderColor: "rgba(37,99,235,0.3)",
+    borderRadius: 12, padding: 12, marginBottom: 12,
+  },
+  draftText: { color: "#93C5FD", fontSize: 13, fontWeight: "700", marginBottom: 10 },
+  draftBtns: { flexDirection: "row", gap: 8 },
+  draftBtn: { backgroundColor: BLUE, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  draftBtnGhost: { backgroundColor: "transparent", borderWidth: 1, borderColor: BORDER },
+  draftBtnText: { color: "#fff", fontSize: 12, fontWeight: "800" },
+
   modeRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   modeChip: {
     flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 12,
@@ -288,17 +269,6 @@ const s = StyleSheet.create({
   modeChipActive: { backgroundColor: "rgba(37,99,235,0.15)", borderColor: "rgba(37,99,235,0.45)" },
   modeText: { fontSize: 13, color: GRAY, fontWeight: "700" },
   modeTextActive: { color: BLUE },
-
-  locBanner: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: "rgba(37,99,235,0.07)",
-    borderRadius: 12, padding: 10, marginBottom: 14,
-    borderWidth: 1, borderColor: "rgba(37,99,235,0.15)",
-  },
-  locIcon: { marginRight: 6, fontSize: 14 },
-  locText: { fontSize: 12, color: GRAY2, flex: 1 },
-  retryBtn: { paddingHorizontal: 8, paddingVertical: 3, backgroundColor: BLUE, borderRadius: 6 },
-  retryText: { color: "#fff", fontSize: 11, fontWeight: "700" },
 
   searchWrap: {
     flexDirection: "row", alignItems: "center",
@@ -310,19 +280,7 @@ const s = StyleSheet.create({
   searchInput: { flex: 1, color: "#fff", fontSize: 14, paddingVertical: 11 },
   clearBtn: { color: GRAY, fontSize: 14, padding: 4 },
 
-  filterRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
-  filterChip: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    borderWidth: 1, borderColor: BORDER,
-  },
-  filterChipActive: {
-    backgroundColor: "rgba(37,99,235,0.15)",
-    borderColor: "rgba(37,99,235,0.4)",
-  },
-  filterText: { fontSize: 12, color: GRAY, fontWeight: "600" },
-  filterTextActive: { color: BLUE },
-
+  errorText: { color: "#F87171", fontSize: 12, marginBottom: 8 },
   resultsText: { fontSize: 12, color: GRAY, marginBottom: 8 },
 
   list: { padding: 16, paddingBottom: 32 },

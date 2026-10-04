@@ -41,6 +41,11 @@ eas build --platform android --profile preview --non-interactive --no-wait
 - Free plan: 30 builds/month. Each preview build consumes one.
 - Install on phones: open the build URL → Install button → QR code → scan from Android camera. APK installs directly (no Play Store required).
 - **Important — re-install after each new build:** Android caches the previous APK's data. Either uninstall the old app first OR Settings → Apps → TraqOOH → Storage → Clear storage.
+- **App v2 (2.0.0) needs a backend from 2026-10-03 or later** (it sends the login token on every call). It works with an older ProofLock-less backend too; the extra upload fields are simply ignored.
+- **Push notifications ("new site assigned", "retake needed") need Firebase.** Until then the app builds and runs without push and never asks for notification permission. To switch push on:
+  1. Firebase console → add an Android app with package `com.brandsculpt.traqooh` → download `google-services.json` into `traqooh-app/` (it is not a secret; commit it).
+  2. Firebase → Project settings → Service accounts → generate a private key (JSON). Upload it at expo.dev → traqooh-app → Credentials → Android → FCM V1 service account key. **Never commit this key.**
+  3. Rebuild the APK. `app.config.js` sees the file and turns push on.
 
 ---
 
@@ -59,6 +64,7 @@ Set at https://dashboard.render.com → traqooh-backend-python → Environment.
 | `R2_BUCKET` | The bucket name (current: `traqooh-media` — check R2 dashboard to confirm). |
 | `R2_ENDPOINT` | `https://<cloudflare-account-id>.r2.cloudflarestorage.com` |
 | `FRONTEND_URL` *(optional)* | Defaults to `https://app.brandsculpt.com`. Used to construct advertiser email links. |
+| `JOB_WORKER` *(optional)* | Defaults to on: a background thread runs queued jobs (photo checks). `off` disables it (tests). On the free plan jobs only run while the service is awake. |
 
 **After editing env vars,** Render auto-redeploys (~2 min). If it doesn't, click **Manual Deploy → Deploy latest commit**.
 
@@ -101,6 +107,16 @@ curl -s "https://app.brandsculpt.com/assets/index-VlGAxHPx.js" | grep -c "select
 ```
 
 ---
+
+### Photo checks (ProofLock) backlog
+```sql
+SELECT status, count(*) FROM job GROUP BY status;                 -- QUEUED / RUNNING / DONE / FAILED
+SELECT status, count(*) FROM proof_photo GROUP BY status;         -- PENDING / PASS / REVIEW / FAIL
+SELECT type, last_error, attempts FROM job WHERE status = 'FAILED' ORDER BY id DESC LIMIT 20;
+```
+- A long `QUEUED` list right after a deploy is normal: the first deploy with migration `0002` queues one check per existing photo (each photo is downloaded from R2 once; videos are skipped).
+- `PENDING` photos older than 15 minutes are re-queued every 30 minutes by the `prooflock.sweep` job.
+- Re-run the checks for a visit from the Monitoring board (open a photo → **Re-run checks**) or `POST /api/proof/activity/{id}/recheck`.
 
 ## 4. Diagnostic recipes
 
@@ -176,6 +192,9 @@ psql "postgresql://user:URLENCODEDPWD@ep-sweet-resonance-apqfv4vg.c-7.us-east-1.
 ### New APK won't open on Android — "Clear cache" prompt
 - The old TraqOOH app's data conflicts with the new build's signing/version.
 - **Fix:** Settings → Apps → TraqOOH → Storage → **Clear storage**, then re-open. Or uninstall the old APK and install the new one fresh.
+
+### Field app uploads fail with "Unsupported FormDataPart implementation"
+Expo SDK 56 replaces `fetch` with its own version, which only accepts Blob-like file parts. Attach files as `new File(uri)` from `expo-file-system`, not React Native's `{ uri, name, type }` objects (`traqooh-app/utils/api.js::uploadVisit`). The app shows the technical reason in brackets after "No internet connection" in the upload banner.
 
 ### EAS Android build fails at Prebuild
 - **Most common cause:** schema validation. SDK 56 doesn't accept top-level `splash` in `app.json`.
@@ -321,6 +340,20 @@ npx expo start --port 8082
 adb -s emulator-5554 reverse tcp:8082 tcp:8082
 # In emulator → Ctrl+M → Change Bundle Location → localhost:8082 → Apply
 ```
+Notes from testing app v2 (2026-10-04):
+- The emulator needs a few GB free on the drive that holds the AVD; with C: nearly full it refuses to start ("not enough disk space"). Keep the AVD on D: (`ANDROID_AVD_HOME`).
+- Expo Go works for v2 (no custom native code). Push can't be tested in Expo Go on Android.
+- To test against a local backend: `EXPO_PUBLIC_API_BASE=http://localhost:8000 npx expo start --port 8082` and `adb reverse tcp:8000 tcp:8000`. Never point a test build at production with a real PIN.
+- `expo start --localhost` listens on IPv6 `::1` only, while `adb reverse` connects over IPv4, so Expo Go reports "Failed to download remote update". Either run without `--localhost` or bridge 127.0.0.1 to `[::1]`.
+- Expo Go only opens the project after Metro has finished starting; if it shows "Something went wrong", reload.
+
+### Tests
+```bash
+cd traqooh-backend-python
+python tests/smoke_test.py                       # SQLite, ~2 min, 155 checks
+SMOKE_DATABASE_URL=postgresql://postgres@localhost:55432/traq_smoke python tests/smoke_test.py   # an EMPTY throwaway Postgres
+```
+GitHub Actions (`.github/workflows/ci.yml`) runs the backend tests and the web build on every push to `main`.
 
 ---
 

@@ -175,7 +175,8 @@ If `RESEND_API_KEY` is unset, the OTP/link is logged to Render console instead (
   cd traqooh-app
   eas build --platform android --profile preview --non-interactive --no-wait
   ```
-- **Latest successful build (2026-06-23):** `1cb3a574-083a-4d9e-b3bf-65275b15d730`
+- **Latest successful build (2026-06-23):** `1cb3a574-083a-4d9e-b3bf-65275b15d730` (v1; it sends no login token, so it stopped working with the 2026-10-03 API lockdown)
+- **App v2 (2.0.0, 2026-10-04):** code done and tested in Expo Go on an emulator; APK not built yet. Push stays off until `google-services.json` is added (see `OPERATIONS.md` §1).
 - **Quirk:** SDK 56 deprecated top-level `splash` in app.json. If you re-introduce it, the prebuild fails with "Field … splash … not permitted". Use the `expo-splash-screen` plugin instead, or omit.
 
 ---
@@ -198,6 +199,7 @@ If `RESEND_API_KEY` is unset, the OTP/link is logged to Render console instead (
 | `REQUIRE_FIELD_AUTH` *(optional)* | Defaults to **on**: field uploads and my-sites need the worker's login token. Set `false` only to keep a pre-October APK working (it doesn't send the token) |
 | `ALLOW_PUBLIC_SIGNUP` *(optional)* | Defaults to off. `true` lets anyone self-register a company Admin/Media Owner account |
 | `EXPO_ACCESS_TOKEN` *(optional)* | Only if Expo push security is enabled on the project |
+| `JOB_WORKER` *(optional)* | Defaults to on: background thread that runs queued jobs (ProofLock photo checks). `off` disables it |
 
 ---
 
@@ -280,7 +282,10 @@ adb -s emulator-5554 reverse tcp:8082 tcp:8082
 | Framework | Expo SDK 56 (React Native) |
 | Platform | Android (APK via EAS) |
 | Location | expo-location (GPS) |
-| Media picker | expo-image-picker 16.1.x — **uses array API `mediaTypes: ['images','videos']`** (MediaTypeOptions is deprecated in this version) |
+| Camera | expo-image-picker 56.0.x — proof photos only via `launchCameraAsync` (`mediaTypes: ['images']` / `['videos']`); no gallery picker |
+| Files | expo-file-system 56 (`File` / `Directory` / `Paths` API) — photos are copied into app storage until uploaded. **SDK 56's `fetch` only takes Blob-like files: append `new File(uri)` to FormData, never `{ uri, name, type }`** |
+| Config | expo-constants; `app.config.js` extends `app.json` and turns push on only when `google-services.json` exists |
+| Push | expo-notifications (loaded only when push is on; not available in Expo Go on Android) |
 | Build | EAS Build (cloud, no local Android SDK needed) |
 
 ### Infrastructure
@@ -334,10 +339,11 @@ Every endpoint that reads or changes data needs a login with the right role (`jw
 | SUPER_ADMIN only | `/api/admin/create-super-admin`, `/api/admin/create-admin` |
 
 - Uploads accept photos, videos and PDFs only (no HTML/SVG), 100 MB max, folder names sanitized (`utils._check_upload`).
+- `/api/proof/*` (photo-check review queue, results, re-check) is staff-only. Field PINs of kind `CHECKER` can only be created by an ADMIN / SUPER_ADMIN.
 - **Company sign-up (`POST /api/auth/register`) is invitation-only** (returns 403) until data separation exists; set `ALLOW_PUBLIC_SIGNUP=true` on Render to reopen. Even then it can only create `ADMIN` or `MEDIA_OWNER`.
 - Advertisers sign themselves up through `POST /api/auth/register-advertiser`, which creates the advertiser and its login in one step; `create-login` itself is staff-only.
 - **Still open (data separation, Phase 2):** every staff account can read every company's data. Role gates stop outsiders, not one agency seeing another's.
-- Regression test: `traqooh-backend-python/tests/smoke_test.py` (run `python tests/smoke_test.py` from that folder). Section 11 is an access matrix of about 45 endpoints x 5 caller types. Run it after any change to routes or auth, before pushing.
+- Regression test: `traqooh-backend-python/tests/smoke_test.py` (run `python tests/smoke_test.py` from that folder; 155 checks). Section 11 is an access matrix of about 45 endpoints x 5 caller types; section 12 covers ProofLock, the job queue and the migrations. Run it after any change to routes or auth, before pushing. `SMOKE_DATABASE_URL=<empty throwaway Postgres>` runs it on Postgres. GitHub Actions runs it and the web build on every push (`.github/workflows/ci.yml`).
 
 ---
 
@@ -383,8 +389,14 @@ campaign_shares                 ← Employees a campaign has been shared with
 site_audits                     ← Scheduled audits (START/MID/END/EXTRA)
 campaign_activities             ← Execution log (PRINT/MOUNTING/AUDIT/...) with photos/videos
 activity_log                    ← System-wide audit trail
-field_pins                      ← 4-digit PINs for field workers (30-day expiry)
+field_pins                      ← 4-digit PINs for field workers (30-day expiry); kind CREW | CHECKER
+job                             ← background job queue (ProofLock checks, scheduled sweeps)
+proof_photo                     ← one row per proof photo/video: hashes, per-shot GPS/time, check results
+proof_review                    ← staff verify / needs-retake decisions next to the machine verdict
+alembic_version                 ← migration state (Alembic)
 ```
+
+**Schema changes since 2026-10-04 go through Alembic** (`traqooh-backend-python/migrations/versions/`), run automatically at start-up after the legacy `run_migrations()` (`db_migrate.upgrade_to_head`). Write migrations so they work on Postgres and SQLite (check before create/add). API times are UTC and carry a `Z` (`proofs.iso`); older `str(datetime)` fields have no `T` and the web/app formatters treat them as UTC too.
 
 ### Key relationships
 ```
@@ -449,6 +461,8 @@ captured_at       -- when the phone took it (UTC); prefer over created_at everyw
 client_visit_id   -- unique; makes offline retries idempotent
 review_note, reviewed_by, reviewed_at  -- set on VERIFIED / REJECTED
 source            -- web | mobile
+verification_tier -- SELF_REPORTED (crew PIN) | INDEPENDENT (checker PIN) | STAFF_UPLOAD (web)
+prooflock_status  -- PENDING | PASS | REVIEW | FAIL: worst result of the visit's photos
 ```
 
 **Phase grouping for the Monitoring board** (`_PHASE_MAP` in routes/campaigns.py):
@@ -477,6 +491,25 @@ id, pin (4-digit), vendor_id, created_by_admin_email, worker_name, is_active, ex
 
 ---
 
+## ProofLock — automatic photo checks (phase 1 of the Accountability Ledger, D-119)
+
+Every proof photo gets a `proof_photo` row at upload (SHA-256 of the file, capture source, the shot's own GPS and time). A background job (`prooflock.check_photo`, `jobs.py` worker thread) then runs:
+
+| Check | Rule | Result |
+|---|---|---|
+| Capture method | app camera → pass; gallery or undeclared (old app) → review; web/legacy → note only | PASS / REVIEW / INFO |
+| Same file before | identical SHA-256 in an earlier visit | FAIL |
+| Copy of earlier photo | 64-bit dHash vs photos uploaded **earlier**: another site ≤ 2 bits → fail, ≤ 8 → review; same site, earlier visit ≤ 8 → review | FAIL / REVIEW |
+| Location | per-shot GPS > 250 m from the site, accuracy > 100 m, or missing (app photos) | REVIEW |
+| Capture time | in the future → fail; > 7 days before upload or outside the booking ±7 days → review | FAIL / REVIEW |
+
+- A visit's `prooflock_status` is its worst photo. Checks only flag; staff decide (Verify / Needs retake), recorded in `proof_review`.
+- Only images are downloaded for checks; videos are fingerprinted at upload only.
+- `prooflock.sweep` re-queues photos stuck in PENDING (every 30 min). Thresholds live at the top of `prooflock.py`.
+- Phase 6 adds site match and creative match. Plan: `strategy/TRAQADVT_UNIQUE_OFFER.md` §8 and decision D-125.
+
+---
+
 ## Frontend Page Map
 
 | URL | File | Roles | Notes |
@@ -499,6 +532,7 @@ id, pin (4-digit), vendor_id, created_by_admin_email, worker_name, is_active, ex
 | `/reports` | Reports.jsx | EMPLOYEE, ADMIN | Global analytics (now unscoped for employees) |
 | `/access/:token` | AccessView.jsx | public | Token-based advertiser portal — **read-only**; auto-saves shortlist on heart-toggle; evolves into Live Tracking view when campaign is FINALIZED+ |
 | `/account` | Account.jsx | all | User profile |
+| `/pricing`, `/payment` | redirect | all | → `/contact` (the fake pricing/payment pages and the chatbot were removed on 2026-10-04, D-115) |
 
 ---
 
@@ -514,6 +548,7 @@ Opens as a modal-panel from `/campaigns`. Tab order:
    - "Proof of Display Report" download: every approved site with its photos, capture time, GPS, distance and verified state
    - Photos + videos clickable into lightbox with GPS / date-time / metadata
    - Verify ✓ tick per photo (toggles DONE ↔ VERIFIED)
+   - ProofLock: "Check this" / "Check failed" badges on flagged photos, a "N visits flagged" banner with a "Show only flagged" filter; the photo viewer lists each check, who captured it (field crew / independent checker / office upload), the photo's own GPS and time, and **Re-run checks**
    - "Send live link" button → emails advertiser a `purpose=live` link
    - Pending-approval banner with "Ask advertiser to approve" → emails `purpose=update` link
    - "Finalized Cost Sheet" download (PDF with finalized rows only)
@@ -552,31 +587,31 @@ The same token works for the whole campaign lifecycle. The AccessView page reads
 
 ---
 
-## Mobile App Flows
+## Mobile App Flows (field app v2, 2.0.0)
 
-### Field worker login (PIN)
-1. Admin creates 4-digit PIN with `workerName` in `/dashboard/admin → Field PINs` (or inline `+ New` on the Monitoring board)
-2. Worker opens app → enters PIN → JWT issued with `role=FIELD`, `vendorId`, `workerName`
+### Login
+1. Admin creates a 4-digit PIN with `workerName` (Admin Dashboard → Field Access, or `+ New` on the Monitoring board). Type CREW (default) or CHECKER (admin only; visits count as independently verified).
+2. Worker enters the PIN → JWT with `role=FIELD`, `vendorId`, `workerName`, `fieldKind`. **Every API call sends it** (`utils/api.js`); a 401 sends the worker back to the PIN screen.
+3. The worker stays logged in until the PIN expires (30 days). English / Hindi switch on the login and home screens (`utils/i18n.js`).
 
-### Field worker home — two modes (toggle at top)
-- **📋 My Assigned Sites** *(default for field workers)* — `GET /api/mobile/my-sites?worker=<name>` — sites where `monitor_worker_name = worker_name`, with photo counts per phase
-- **🗺️ All Sites** — falls back to `GET /api/sites?owner_id=<vendorId>` (their company's full inventory)
+### Home
+- **My Sites** (default): `GET /api/mobile/my-sites` (worker from the token) — campaign, photo counts per phase, and a red **retake** line with the office's reason.
+- **All Sites**: the worker's vendor's sites (`/api/sites?vendorId=`; v1 sent `owner_id`, which the API ignores).
+- Banners: visits waiting to upload (with Retry and the last error), visits from another worker on a shared phone, unfinished visits (Continue / Discard).
+- Sign-out warns when visits haven't uploaded, then deletes them (a shared phone must not upload one worker's visits as another's).
 
-### Site detail — photo / video capture
-- Single picker handles both images and videos
-- Camera capture: 60-second cap on video
-- Uses SDK 56 array API: `mediaTypes: ['images', 'videos']`
-- Asset detected as video when `asset.type === 'video' || asset.duration != null`
-- Upload posts to `/api/activities/mobile/log` which auto-discovers the active campaign for the site (or accepts explicit campaignId/assignmentId from "My Assigned Sites")
+### Logging a visit (`screens/CaptureScreen.js`)
+- Install / Audit / End: three guided photos, **close-up → wide → landmark**; Print: one photo. Optional video up to 30 s. **In-app camera only**, no gallery.
+- GPS is watched while the screen is open; each photo takes the latest reading (refreshed if older than 60 s) and its own capture time.
+- Every photo is copied into app storage at once and the visit is kept as a *draft*, so closing the app or Android killing it mid-photo loses nothing (`ImagePicker.getPendingResultAsync` recovers the last photo).
+- **Save** puts the visit in the offline *outbox* (`utils/outbox.js`): it uploads now, or on app start / return to the app / every minute / pull-to-refresh. `clientVisitId` makes retries safe.
+- Upload: `POST /api/activities/mobile/log` with `files`, `shots` (label, capturedAt, latitude, longitude, accuracy per photo), `captureSource=CAMERA_INAPP`, `appVersion`.
 
-### Photo viewer — GPS detail popup
-Tap any photo → full-screen modal with:
-- Date/day/time of capture
-- GPS coordinates (lat/lng with 6 decimal precision)
-- "Open location in Google Maps →" button
-- Photographer name (`performedBy`)
-- Activity type
-- Notes
+### Site screen
+- Retake box with the reason and **Retake now** (opens the capture for that phase), "N visits waiting to upload", the site's photo gallery (videos open externally) with a photo viewer showing time, GPS and photographer.
+
+### Push (dormant)
+- `utils/push.js` registers an Expo push token (with the language) after login **only when Firebase is configured** (`google-services.json` + FCM key in EAS). Backend side: `notifications.py`, `POST/DELETE /api/mobile/push-token`.
 
 ---
 
@@ -639,6 +674,13 @@ Tap any photo → full-screen modal with:
 | `DELETE /api/activities/{id}/image` | Remove |
 | `GET /api/activities/campaign/{id}/timeline` | Chronological |
 | `POST /api/activities/mobile/log` | One-shot: create activity + auto-discover campaign + upload photo/video |
+
+### Proof checks (`routes/proof.py`, staff only)
+| Method + Path | Description |
+|---------------|-------------|
+| `GET /api/proof/review-queue?campaignId=` | Visits the checks flagged (REVIEW / FAIL) that nobody has verified or sent back |
+| `GET /api/proof/activity/{id}` | One visit with per-photo check results (`photoChecks`) |
+| `POST /api/proof/activity/{id}/recheck` | Queue the checks again (e.g. after fixing the site's GPS or dates) |
 
 ### Advertisers (`routes/advertisers.py`)
 | Method + Path | Description |
@@ -798,6 +840,9 @@ Execution
 - Image compression on uploads (canvas resize, ~5× smaller)
 - Video upload as-is (preserves playable Content-Type)
 
+### Proof checks (ProofLock v1, 2026-10-04)
+- Per-photo hashes and checks in a background job; Monitoring board badges, flagged filter, check details and re-run; two-tier labels (crew / independent checker / office)
+
 ### Web App — Advertiser Portal
 - Standalone `/dashboard/advertiser` (logged-in)
 - KPI row: campaigns, live count, sites booked, total spend
@@ -806,8 +851,9 @@ Execution
 - GPS map links per proof
 - **Public access link** `/access/:token` — read-only — multi-photo site gallery in the detail modal, video-aware lightbox, shortlist auto-saves on heart toggle, evolves into Live Tracking view when finalized
 
-### Mobile App (Android)
-- OTP login (Resend email delivery active)
+### Mobile App (Android) — v2 in code, v1 APK in the field
+- v2: token on every call, stays logged in, Hindi/English, guided in-app 3-photo capture with per-shot GPS, drafts + offline outbox, retakes, push when Firebase is set up
+- OTP login (Resend email delivery active; not reachable from the v2 UI, which is PIN-only)
 - Field PIN login (4-digit, 30-day expiry, worker-name-based assignment persistence)
 - GPS-based nearby sites discovery
 - **My Assigned Sites / All Sites toggle** (default to assigned for field workers)
@@ -837,6 +883,8 @@ Execution
 | New APK won't open ("clear cache" prompt) | Old app's data conflicts with new build's signing/version | Uninstall old TraqOOH first, then install fresh; or Settings → Apps → TraqOOH → Clear storage |
 | Emulator off-screen on multi-monitor Windows | Windows display glitch | Run `D:\Programming\fix-emulator.ps1` |
 | Metro port 8081 blocked | Apache/EDB on that port | Use `--port 8082` + `adb reverse tcp:8082 tcp:8082` |
+| Field app upload fails: "Unsupported FormDataPart implementation" | Expo SDK 56's `fetch` rejects React Native `{ uri, name, type }` file parts | Fixed in v2: append `new File(uri)` (expo-file-system). Probably also why v1 phone uploads failed on SDK 56 |
+| Emulator won't start: "not enough disk space" | C: is nearly full; the AVD lives on C: | Put a test AVD on D: (`ANDROID_AVD_HOME`), see `OPERATIONS.md` §10 |
 | Photo doesn't show after upload but no error | Was the FileList bug — verify the Inventory/Campaigns fix is in the deployed bundle by searching for `Array.from(.target.files` |
 
 ---

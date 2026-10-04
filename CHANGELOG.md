@@ -6,6 +6,35 @@ Dates are in `YYYY-MM-DD`. Each entry lists: **what changed**, **why**, and **wh
 
 ---
 
+## 2026-10-04 (later) — Field app v2, check results on the Monitoring board, trust cleanup
+
+### Field app v2 (2.0.0) — `traqooh-app/`
+- **Login token on every call** (`utils/api.js`); a 401 returns the worker to the PIN screen. v1 sent no token, so it can't load sites or upload since the 2026-10-03 lockdown.
+- **Stays logged in** until the PIN expires (v1 required an email that PIN logins don't have, so it logged workers out on every start).
+- **English / Hindi** (`utils/i18n.js`), remembered on the phone.
+- **Guided capture** (`screens/CaptureScreen.js`): close-up → wide → landmark (Print: one photo), optional 30 s video, **in-app camera only** (gallery removed), GPS watched while capturing and attached to each photo with its own time.
+- **Drafts and offline outbox** (`utils/outbox.js`): photos are copied into app storage at once; an unfinished visit can be continued; saved visits upload now or later (app start, return to app, every minute, pull to refresh, Retry), safe to retry via `clientVisitId`.
+- **Retakes**: red line on the site card and a "Retake now" box on the site with the office's reason.
+- **All Sites** now really filters to the worker's vendor (v1 sent `owner_id`, which the API ignores).
+- **Push** code is in place but stays off until `google-services.json` is added (`app.config.js`, `utils/push.js`; steps in `OPERATIONS.md` §1).
+- **Upload bug found in testing:** Expo SDK 56's `fetch` rejects React Native `{ uri, name, type }` file parts ("Unsupported FormDataPart implementation"). Files are now attached as expo-file-system `File` objects. v1 phone uploads probably failed the same way on SDK 56.
+- Packages aligned with SDK 56 (`expo-image-picker` 16.1 → 56.0, and patch updates); added `expo-file-system`, `expo-constants`, `expo-notifications`.
+- Tested in Expo Go on an emulator against a local test backend: PIN login, Hindi, My Sites with counts, retake shown → retaken with three in-app photos (each ±5 m, own capture time) → saved offline → uploaded on reconnect → all checks PASS, tier SELF_REPORTED; unfinished visit continued after leaving. Not tested: video capture, recovery after Android kills the app mid-photo, push.
+
+### Web
+- Monitoring board: "Check this" / "Check failed" badges, "N visits flagged" banner with a "Show only flagged" filter, check details in the photo viewer (who captured it, the photo's own GPS and time), **Re-run checks**.
+- Admin Field Access: crew or independent-checker PINs; "30 days" wording; expiry in days.
+- Trust cleanup (D-115): removed the fake payment and pricing pages (old links go to `/contact`), the chatbot with invented claims and a demo login, and the unused landing page; feature lists describe what the product does.
+
+### Backend fixes found by testing on a throwaway Postgres
+- Checks compare only against photos uploaded earlier (an original was blamed for a later copy when checked after the fact).
+- Older videos aren't downloaded just to fingerprint them.
+- Backfilled photos keep their original upload time; backfilled jobs are stamped in UTC (Postgres `CURRENT_TIMESTAMP` follows the server's time zone).
+- API times now carry `Z` (UTC). Capture times and field PIN times were shown 5h30m early in India.
+- `smoke_test.py` can run on Postgres (`SMOKE_DATABASE_URL`): 155/155 on SQLite and Postgres.
+
+---
+
 ## 2026-10-04 — Accountability Ledger phase 0/1: foundations + ProofLock backend
 
 Plan: `C:\Users\lenovo\.claude\plans\jazzy-hopping-flute.md` (Proved · Fair price · Legal badge · Customers; build in phases with pilots running alongside).

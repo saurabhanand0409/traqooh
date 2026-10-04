@@ -2,7 +2,7 @@
   "expo": {
     "name": "TraqOOH",
     "slug": "traqooh-app",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -43,7 +43,8 @@
         "expo-image-picker",
         {
           "photosPermission": "TraqOOH needs photo access to attach site activity photos.",
-          "cameraPermission": "TraqOOH needs camera access to take site activity photos."
+          "cameraPermission": "TraqOOH needs the camera to take proof photos of sites.",
+          "microphonePermission": "TraqOOH records sound with site videos."
         }
       ],
       "expo-font"

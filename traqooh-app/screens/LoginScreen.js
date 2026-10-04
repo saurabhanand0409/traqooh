@@ -9,6 +9,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { fieldLogin } from "../utils/api";
 import { saveUser } from "../utils/storage";
+import { LangToggle, useLang } from "../utils/i18n";
+import { flush } from "../utils/outbox";
+import { registerForPush } from "../utils/push";
 
 const BG = "#070C1A";
 const CARD = "#0D1428";
@@ -18,7 +21,8 @@ const BORDER = "rgba(255,255,255,0.10)";
 const GRAY = "#6B7280";
 const GRAY2 = "#9CA3AF";
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen({ navigation, route }) {
+  const { t, lang } = useLang();
   const [fontsLoaded] = useFonts({
     Syne_800ExtraBold, Syne_700Bold,
     Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold,
@@ -26,7 +30,7 @@ export default function LoginScreen({ navigation }) {
 
   const [pin, setPin] = useState(["", "", "", ""]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(route?.params?.expired ? "session_expired" : "");
   const pinRefs = useRef([]);
 
   if (!fontsLoaded) return (
@@ -55,12 +59,14 @@ export default function LoginScreen({ navigation }) {
 
   const handleLogin = async () => {
     const code = pin.join("");
-    if (code.length !== 4) return setError("Please enter your 4-digit PIN.");
+    if (code.length !== 4) return setError("login_need_pin");
     setError("");
     setLoading(true);
     try {
       const user = await fieldLogin(code);
       await saveUser(user);
+      registerForPush(lang);   // best-effort, in the background
+      flush();                 // send any visits saved while logged out
       navigation.replace("Home", { user });
     } catch (e) {
       setError(e.message);
@@ -102,12 +108,16 @@ export default function LoginScreen({ navigation }) {
 
         {/* Card */}
         <View style={s.card}>
-          <Text style={s.cardTitle}>Field Login</Text>
-          <Text style={s.cardSub}>Enter the 4-digit PIN provided by your admin</Text>
+          <View style={s.cardHead}>
+            <Text style={s.cardTitle}>{t("login_title")}</Text>
+            <LangToggle />
+          </View>
+          <Text style={s.cardSub}>{t("login_sub")}</Text>
 
           {error ? (
             <View style={s.errBox}>
-              <Text style={s.errText}>{error}</Text>
+              {/* Our own messages are keys; server messages are shown as they are */}
+              <Text style={s.errText}>{t(error)}</Text>
             </View>
           ) : null}
 
@@ -141,11 +151,11 @@ export default function LoginScreen({ navigation }) {
           >
             {loading
               ? <ActivityIndicator color="#fff" size="small" />
-              : <Text style={s.btnText}>Enter →</Text>
+              : <Text style={s.btnText}>{t("login_button")}</Text>
             }
           </TouchableOpacity>
 
-          <Text style={s.hint}>Don't have a PIN? Contact your site admin.</Text>
+          <Text style={s.hint}>{t("login_hint")}</Text>
         </View>
 
         <Text style={s.footer}>TraqOOH · Outdoor Intelligence Platform</Text>
@@ -178,7 +188,8 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
   },
-  cardTitle: { fontSize: 22, fontWeight: "800", color: "#fff", marginBottom: 6 },
+  cardHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  cardTitle: { fontSize: 22, fontWeight: "800", color: "#fff" },
   cardSub: { fontSize: 13, color: GRAY2, marginBottom: 28, lineHeight: 20 },
 
   errBox: {

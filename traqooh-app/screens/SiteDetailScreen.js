@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Image, Linking, Alert, ActivityIndicator, Modal,
-  TextInput, FlatList,
+  Image, Linking, ActivityIndicator, Modal,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
-import { uploadActivity, fetchSiteGallery } from "../utils/api";
+import { useFocusEffect } from "@react-navigation/native";
+import { fetchSiteGallery, fetchMyAssignedSites } from "../utils/api";
+import { useLang } from "../utils/i18n";
+import { subscribe } from "../utils/outbox";
 
 const BG = "#070C1A";
 const CARD = "#0D1428";
@@ -22,55 +22,66 @@ const GRAY2 = "#9CA3AF";
 const AVAIL_COLOR = { AVAILABLE: GREEN, OCCUPIED: RED, MAINTENANCE: AMBER };
 
 const ACTIVITY_TYPES = [
-  { key: "MOUNTING", label: "Install",  icon: "🔧", color: BLUE },
-  { key: "AUDIT",    label: "Monitor",  icon: "📸", color: "#8B5CF6" },
-  { key: "END",      label: "End",      icon: "✅", color: GREEN },
-  { key: "PRINT",    label: "Print",    icon: "🖨️", color: AMBER },
+  { key: "MOUNTING", icon: "🔧", color: BLUE },
+  { key: "AUDIT", icon: "📸", color: "#8B5CF6" },
+  { key: "END", icon: "✅", color: GREEN },
+  { key: "PRINT", icon: "🖨️", color: AMBER },
 ];
 
-const GALLERY_GROUP_LABEL = {
-  MOUNTING: "Install", START: "Install",
-  AUDIT: "Monitor", MAINTENANCE: "Monitor",
-  END: "End", TAKEDOWN: "End",
-  PRINT: "Print", REPRINT: "Print",
-};
+// Which button a retake belongs to (the backend reports retakes by phase)
+const PHASE_ACTIVITY = { START: "MOUNTING", MID: "AUDIT", END: "END" };
+
+const isVideoUrl = (url) => /\.(mp4|mov|m4v|3gp|webm)(\?|$)/i.test(url || "");
 
 export default function SiteDetailScreen({ navigation, route }) {
-  const { site, user: routeUser } = route.params;
-  const user = routeUser || {};
+  const { user = {} } = route.params;
+  const { t } = useLang();
+  const [site, setSite] = useState(route.params.site);
   const availColor = AVAIL_COLOR[site.availabilityStatus] || GRAY;
   const sizeStr = site.width && site.length ? `${site.width} × ${site.length} ft` : site.size || "N/A";
   const totalArea = site.total_area ? `${site.total_area} sq ft` : null;
 
-  // Gallery state
   const [gallery, setGallery] = useState({});
   const [galleryLoading, setGalleryLoading] = useState(true);
-
-  // Activity log modal state
-  const [logModal, setLogModal] = useState(false);
-  const [selectedType, setSelectedType] = useState(null);
-  const [pickedPhoto, setPickedPhoto] = useState(null);
-  const [pickedIsVideo, setPickedIsVideo] = useState(false);
-  const [pickedMime, setPickedMime] = useState(null);
-  const [notes, setNotes] = useState("");
-  const [uploading, setUploading] = useState(false);
-
-  // Full-screen image viewer
   const [viewImage, setViewImage] = useState(null);
+  const [queue, setQueue] = useState({ outbox: [], drafts: [] });
 
   const loadGallery = useCallback(async () => {
-    setGalleryLoading(true);
     try {
       const data = await fetchSiteGallery(site.id);
-      setGallery(data.grouped || {});
+      setGallery(data?.grouped || {});
     } catch {
-      setGallery({});
+      /* keep what we had; shown again on the next visit to this screen */
     } finally {
       setGalleryLoading(false);
     }
   }, [site.id]);
 
-  useEffect(() => { loadGallery(); }, [loadGallery]);
+  // Fresh photos, retakes and counts each time the worker comes back here (e.g. after a visit)
+  useFocusEffect(useCallback(() => {
+    loadGallery();
+    if (site.assignmentId) {
+      fetchMyAssignedSites()
+        .then(list => {
+          const fresh = list.find(x => x.assignmentId === site.assignmentId);
+          if (fresh) setSite(fresh);
+        })
+        .catch(() => {});
+    }
+  }, [loadGallery, site.assignmentId]));
+
+  useEffect(() => subscribe(setQueue), []);
+
+  const pendingHere = queue.outbox.filter(v => v.siteId === site.id).length;
+  const draftFor = (key) => queue.drafts.find(d => d.site?.id === site.id && d.activityKey === key);
+
+  const startVisit = (activityKey, retakeReason) => {
+    navigation.navigate("Capture", {
+      site, activityKey, user,
+      draft: draftFor(activityKey) || null,
+      retakeReason: retakeReason || null,
+    });
+  };
 
   const openMaps = () => {
     if (site.latitude && site.longitude) {
@@ -80,108 +91,13 @@ export default function SiteDetailScreen({ navigation, route }) {
     }
   };
 
-  const openLogModal = (type) => {
-    setSelectedType(type);
-    setPickedPhoto(null);
-    setPickedIsVideo(false);
-    setPickedMime(null);
-    setNotes("");
-    setLogModal(true);
-  };
-
-  const applyPicked = (asset) => {
-    if (!asset) return;
-    const isVid = asset.type === "video" || asset.duration != null;
-    setPickedPhoto(asset.uri);
-    setPickedIsVideo(isVid);
-    setPickedMime(asset.mimeType || null);
-  };
-
-  const pickPhoto = () => {
-    Alert.alert("Add Photo / Video", "Choose source", [
-      {
-        text: "Take Photo / Video",
-        onPress: async () => {
-          const { status } = await ImagePicker.requestCameraPermissionsAsync();
-          if (status !== "granted") {
-            Alert.alert("Permission needed", "Camera access is required.");
-            return;
-          }
-          const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ["images", "videos"],
-            quality: 0.7,
-            videoMaxDuration: 60,
-            allowsEditing: false,
-          });
-          if (!result.canceled && result.assets?.[0]) applyPicked(result.assets[0]);
-        },
-      },
-      {
-        text: "Choose from Gallery",
-        onPress: async () => {
-          // The system photo picker needs no storage permission, so there's no
-          // permission prompt here (Play Store restricts broad photo access).
-          const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images", "videos"],
-            quality: 0.7,
-            videoMaxDuration: 60,
-            allowsEditing: false,
-          });
-          if (!result.canceled && result.assets?.[0]) applyPicked(result.assets[0]);
-        },
-      },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
-
-  const submitActivity = async () => {
-    if (!pickedPhoto) {
-      Alert.alert("Media required", "Please take or pick a photo or video first.");
-      return;
-    }
-    setUploading(true);
-    try {
-      let lat = null, lng = null;
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
-          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          lat = pos.coords.latitude;
-          lng = pos.coords.longitude;
-        }
-      } catch {}
-
-      await uploadActivity({
-        siteId: site.id,
-        activityType: selectedType.key,
-        photoUri: pickedPhoto,
-        mimeType: pickedMime,
-        performedBy: user.workerName || user.displayName || "Field Worker",
-        notes: notes.trim() || null,
-        latitude: lat,
-        longitude: lng,
-        // Present on assigned sites — pins the media to the right campaign's monitoring board
-        campaignId: site.campaignId ?? null,
-        assignmentId: site.assignmentId ?? null,
-      });
-
-      setLogModal(false);
-      Alert.alert("Done!", `${selectedType.label} ${pickedIsVideo ? "video" : "photo"} logged successfully.`);
-      loadGallery();
-    } catch (e) {
-      Alert.alert("Upload failed", e.message || "Please check your connection and try again.");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const totalPhotos = Object.values(gallery).reduce((s, a) => s + a.length, 0);
+  const totalPhotos = Object.values(gallery).reduce((n, a) => n + a.length, 0);
+  const retakes = site.retakes || [];
 
   return (
     <View style={s.root}>
       <StatusBar style="light" />
 
-      {/* Back header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
           <Text style={s.backIcon}>←</Text>
@@ -191,7 +107,6 @@ export default function SiteDetailScreen({ navigation, route }) {
       </View>
 
       <ScrollView style={s.scroll} contentContainerStyle={s.content}>
-        {/* Image */}
         {site.imageUrl ? (
           <TouchableOpacity onPress={() => setViewImage({ url: site.imageUrl })}>
             <Image source={{ uri: site.imageUrl }} style={s.image} resizeMode="cover" />
@@ -202,7 +117,6 @@ export default function SiteDetailScreen({ navigation, route }) {
           </View>
         )}
 
-        {/* Title + availability */}
         <View style={s.titleRow}>
           <Text style={s.title}>{site.name}</Text>
           <View style={[s.availBadge, { backgroundColor: `${availColor}18`, borderColor: `${availColor}40` }]}>
@@ -211,70 +125,86 @@ export default function SiteDetailScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Location */}
         <TouchableOpacity onPress={openMaps} style={s.locationRow}>
           <Text style={s.locationIcon}>📍</Text>
           <Text style={s.locationText}>
             {[site.areaLocality, site.address, site.city, site.state].filter(Boolean).join(", ")}
           </Text>
-          <Text style={s.mapsLink}>Map →</Text>
+          <Text style={s.mapsLink}>{t("map")}</Text>
         </TouchableOpacity>
 
-        {/* Rate */}
+        {/* Visits the office sent back */}
+        {retakes.map(r => (
+          <View key={r.activityId} style={s.retakeBox}>
+            <Text style={s.retakeTitle}>↺ {t("retake_needed")}</Text>
+            <Text style={s.retakeText}>
+              {t("retake_line", { phase: t(`phase_${r.phase}`), reason: r.reason || t("retake_no_reason") })}
+            </Text>
+            <TouchableOpacity style={s.retakeBtn} onPress={() => startVisit(PHASE_ACTIVITY[r.phase] || "AUDIT", r.reason)}>
+              <Text style={s.retakeBtnText}>{t("retake_now")}</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+
+        {pendingHere > 0 && (
+          <View style={s.pendingBox}>
+            <Text style={s.pendingText}>⏫ {t("pending_here", { n: pendingHere })}</Text>
+          </View>
+        )}
+
+        <Text style={s.sectionTitle}>{t("log_visit")}</Text>
+        <View style={s.activityRow}>
+          {ACTIVITY_TYPES.map(a => {
+            const hasDraft = !!draftFor(a.key);
+            return (
+              <TouchableOpacity
+                key={a.key}
+                style={[s.actBtn, { borderColor: a.color + "50" }, hasDraft && { borderColor: AMBER }]}
+                onPress={() => startVisit(a.key)}
+                activeOpacity={0.7}
+              >
+                <Text style={s.actIcon}>{a.icon}</Text>
+                <Text style={[s.actLabel, { color: a.color }]}>{t(`act_${a.key}`)}</Text>
+                {hasDraft && <Text style={s.actDraft}>●</Text>}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
         {site.potentialMonthly ? (
           <View style={s.rateCard}>
-            <Text style={s.rateLabel}>Monthly Rate</Text>
+            <Text style={s.rateLabel}>{t("monthly_rate")}</Text>
             <Text style={s.rateValue}>₹{Number(site.potentialMonthly).toLocaleString("en-IN")}</Text>
           </View>
         ) : null}
 
-        {/* Details grid */}
-        <Text style={s.sectionTitle}>Site Details</Text>
+        <Text style={s.sectionTitle}>{t("site_details")}</Text>
         <View style={s.grid}>
-          <DetailCell label="Type" value={site.type || "—"} />
-          <DetailCell label="Size" value={sizeStr} />
-          {totalArea && <DetailCell label="Total Area" value={totalArea} />}
-          <DetailCell label="Lighting" value={site.lightingType || "—"} />
-          <DetailCell label="Facing" value={site.facing || "—"} />
-          <DetailCell label="City" value={site.city || "—"} />
-          {site.owner?.name && <DetailCell label="Owner" value={site.owner.name} fullWidth />}
-          {site.remarks && <DetailCell label="Remarks" value={site.remarks} fullWidth />}
+          <DetailCell label={t("d_type")} value={site.type || "—"} />
+          <DetailCell label={t("d_size")} value={sizeStr} />
+          {totalArea && <DetailCell label={t("d_area")} value={totalArea} />}
+          <DetailCell label={t("d_lighting")} value={site.lightingType || "—"} />
+          <DetailCell label={t("d_facing")} value={site.facing || "—"} />
+          <DetailCell label={t("d_city")} value={site.city || "—"} />
+          {site.owner?.name && <DetailCell label={t("d_owner")} value={site.owner.name} fullWidth />}
+          {site.remarks && <DetailCell label={t("d_remarks")} value={site.remarks} fullWidth />}
         </View>
 
-        {/* ─── LOG ACTIVITY ─── */}
-        <Text style={s.sectionTitle}>Log Activity</Text>
-        <View style={s.activityRow}>
-          {ACTIVITY_TYPES.map(t => (
-            <TouchableOpacity
-              key={t.key}
-              style={[s.actBtn, { borderColor: t.color + "50" }]}
-              onPress={() => openLogModal(t)}
-              activeOpacity={0.7}
-            >
-              <Text style={s.actIcon}>{t.icon}</Text>
-              <Text style={[s.actLabel, { color: t.color }]}>{t.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* ─── PHOTO GALLERY ─── */}
         <View style={s.galleryHeader}>
-          <Text style={s.sectionTitle}>Site Photos</Text>
-          {totalPhotos > 0 && (
-            <Text style={s.galleryCount}>{totalPhotos} photo{totalPhotos !== 1 ? "s" : ""}</Text>
-          )}
+          <Text style={s.sectionTitle}>{t("site_photos")}</Text>
+          {totalPhotos > 0 && <Text style={s.galleryCount}>{t("photos_count", { n: totalPhotos })}</Text>}
         </View>
 
         {galleryLoading ? (
           <View style={s.galleryLoading}>
             <ActivityIndicator size="small" color={BLUE} />
-            <Text style={{ color: GRAY2, fontSize: 12, marginLeft: 8 }}>Loading photos…</Text>
+            <Text style={{ color: GRAY2, fontSize: 12, marginLeft: 8 }}>{t("loading_photos")}</Text>
           </View>
         ) : totalPhotos === 0 ? (
           <View style={s.emptyGallery}>
             <Text style={s.emptyGalleryIcon}>📷</Text>
-            <Text style={s.emptyGalleryText}>No photos yet</Text>
-            <Text style={s.emptyGallerySubText}>Log an activity above to add the first photo</Text>
+            <Text style={s.emptyGalleryText}>{t("no_photos")}</Text>
+            <Text style={s.emptyGallerySubText}>{t("no_photos_sub")}</Text>
           </View>
         ) : (
           Object.entries(gallery).map(([label, photos]) => (
@@ -283,11 +213,13 @@ export default function SiteDetailScreen({ navigation, route }) {
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={s.galleryRow}>
                   {photos.map((p, i) => (
-                    <TouchableOpacity key={i} onPress={() => setViewImage(p)}>
-                      <Image source={{ uri: p.url }} style={s.thumb} />
-                      {p.performedBy && (
-                        <Text style={s.thumbBy} numberOfLines={1}>{p.performedBy}</Text>
+                    <TouchableOpacity key={i} onPress={() => (isVideoUrl(p.url) ? Linking.openURL(p.url) : setViewImage(p))}>
+                      {isVideoUrl(p.url) ? (
+                        <View style={[s.thumb, s.videoThumb]}><Text style={{ fontSize: 28 }}>🎥</Text></View>
+                      ) : (
+                        <Image source={{ uri: p.url }} style={s.thumb} />
                       )}
+                      {p.performedBy && <Text style={s.thumbBy} numberOfLines={1}>{p.performedBy}</Text>}
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -299,72 +231,8 @@ export default function SiteDetailScreen({ navigation, route }) {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* ─── LOG ACTIVITY MODAL ─── */}
-      <Modal visible={logModal} animationType="slide" transparent>
-        <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
-            <View style={s.modalHeader}>
-              <Text style={s.modalTitle}>
-                {selectedType?.icon} {selectedType?.label} — {site.name}
-              </Text>
-              <TouchableOpacity onPress={() => setLogModal(false)}>
-                <Text style={{ color: GRAY2, fontSize: 22 }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Photo / video picker */}
-            <TouchableOpacity style={s.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
-              {pickedPhoto ? (
-                pickedIsVideo ? (
-                  <View style={[s.photoPreview, { alignItems: "center", justifyContent: "center", backgroundColor: "#000" }]}>
-                    <Text style={{ fontSize: 40 }}>🎥</Text>
-                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700", marginTop: 6 }}>Video ready to upload</Text>
-                  </View>
-                ) : (
-                  <Image source={{ uri: pickedPhoto }} style={s.photoPreview} resizeMode="cover" />
-                )
-              ) : (
-                <View style={s.photoPickerInner}>
-                  <Text style={{ fontSize: 36 }}>📷</Text>
-                  <Text style={s.photoPickerText}>Tap to take or pick a photo / video</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            {pickedPhoto && (
-              <TouchableOpacity onPress={pickPhoto} style={s.retakeBtn}>
-                <Text style={s.retakeText}>{pickedIsVideo ? "Choose different media" : "Retake photo"}</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Notes */}
-            <TextInput
-              style={s.notesInput}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Add a note (optional)…"
-              placeholderTextColor={GRAY}
-              multiline
-              numberOfLines={2}
-            />
-
-            {/* Submit */}
-            <TouchableOpacity
-              style={[s.submitBtn, uploading && s.submitBtnDisabled]}
-              onPress={submitActivity}
-              disabled={uploading}
-              activeOpacity={0.85}
-            >
-              {uploading
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={s.submitText}>Submit Photo →</Text>
-              }
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ─── FULL SCREEN IMAGE VIEWER (with GPS + timestamp) ─── */}
-      <Modal visible={!!viewImage} animationType="fade" transparent>
+      {/* Full-screen photo with its time and GPS */}
+      <Modal visible={!!viewImage} animationType="fade" transparent onRequestClose={() => setViewImage(null)}>
         <View style={s.imageViewerOverlay}>
           <TouchableOpacity style={s.imageViewerClose} onPress={() => setViewImage(null)}>
             <Text style={{ color: "#fff", fontSize: 28 }}>✕</Text>
@@ -372,31 +240,26 @@ export default function SiteDetailScreen({ navigation, route }) {
           {viewImage && (
             <>
               <Image source={{ uri: viewImage.url }} style={s.imageViewerImg} resizeMode="contain" />
-              {(viewImage.createdAt || viewImage.latitude != null || viewImage.performedBy || viewImage.activityType) && (
+              {(viewImage.capturedAt || viewImage.latitude != null || viewImage.performedBy || viewImage.activityType) && (
                 <View style={s.metaPanel}>
-                  {viewImage.activityType && (
-                    <MetaRow icon="🏷️" label="Activity" value={viewImage.label || viewImage.activityType} />
-                  )}
-                  {viewImage.performedBy && (
-                    <MetaRow icon="👷" label="Logged by" value={viewImage.performedBy} />
-                  )}
-                  {viewImage.createdAt && (
-                    <MetaRow icon="🕒" label="Date & Time" value={fmtDateTime(viewImage.createdAt)} />
+                  {viewImage.activityType && <MetaRow icon="🏷️" label={t("m_activity")} value={viewImage.label || viewImage.activityType} />}
+                  {viewImage.shot && <MetaRow icon="📷" label={t("m_shot")} value={viewImage.shot} />}
+                  {viewImage.performedBy && <MetaRow icon="👷" label={t("m_by")} value={viewImage.performedBy} />}
+                  {(viewImage.capturedAt || viewImage.createdAt) && (
+                    <MetaRow icon="🕒" label={t("m_time")} value={fmtDateTime(viewImage.capturedAt || viewImage.createdAt)} />
                   )}
                   {viewImage.latitude != null && viewImage.longitude != null && (
                     <>
-                      <MetaRow
-                        icon="📍" label="GPS"
-                        value={`${Number(viewImage.latitude).toFixed(6)}, ${Number(viewImage.longitude).toFixed(6)}`}
-                      />
+                      <MetaRow icon="📍" label={t("m_gps")}
+                        value={`${Number(viewImage.latitude).toFixed(6)}, ${Number(viewImage.longitude).toFixed(6)}`} />
                       <TouchableOpacity
                         onPress={() => Linking.openURL(`https://www.google.com/maps?q=${viewImage.latitude},${viewImage.longitude}`)}
                         style={s.metaMapBtn}>
-                        <Text style={s.metaMapText}>Open location in Google Maps →</Text>
+                        <Text style={s.metaMapText}>{t("m_open_maps")}</Text>
                       </TouchableOpacity>
                     </>
                   )}
-                  {viewImage.notes ? <MetaRow icon="📝" label="Notes" value={viewImage.notes} /> : null}
+                  {viewImage.notes ? <MetaRow icon="📝" label={t("m_notes")} value={viewImage.notes} /> : null}
                 </View>
               )}
             </>
@@ -482,6 +345,21 @@ const s = StyleSheet.create({
   locationText: { fontSize: 13, color: GRAY2, flex: 1 },
   mapsLink: { color: BLUE, fontSize: 12, fontWeight: "700" },
 
+  retakeBox: {
+    marginHorizontal: 16, marginBottom: 12, padding: 14, borderRadius: 14,
+    backgroundColor: "rgba(220,20,60,0.12)", borderWidth: 1, borderColor: "rgba(220,20,60,0.35)",
+  },
+  retakeTitle: { color: "#F87171", fontSize: 14, fontWeight: "800", marginBottom: 4 },
+  retakeText: { color: "#FCA5A5", fontSize: 13, marginBottom: 10 },
+  retakeBtn: { backgroundColor: RED, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
+  retakeBtnText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+
+  pendingBox: {
+    marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 12,
+    backgroundColor: "rgba(245,158,11,0.10)", borderWidth: 1, borderColor: "rgba(245,158,11,0.3)",
+  },
+  pendingText: { color: "#FBBF24", fontSize: 13, fontWeight: "700" },
+
   rateCard: {
     marginHorizontal: 16, marginBottom: 20,
     backgroundColor: "rgba(37,99,235,0.08)",
@@ -511,19 +389,18 @@ const s = StyleSheet.create({
   cellLabel: { color: GRAY, fontSize: 10, fontWeight: "700", letterSpacing: 1, marginBottom: 4 },
   cellValue: { color: "#fff", fontSize: 13, fontWeight: "600" },
 
-  // Activity buttons
   activityRow: {
     flexDirection: "row", paddingHorizontal: 12, gap: 8, marginBottom: 20,
   },
   actBtn: {
-    flex: 1, alignItems: "center", paddingVertical: 12,
+    flex: 1, alignItems: "center", paddingVertical: 14,
     backgroundColor: "rgba(255,255,255,0.04)",
     borderRadius: 14, borderWidth: 1,
   },
-  actIcon: { fontSize: 20, marginBottom: 4 },
-  actLabel: { fontSize: 11, fontWeight: "700" },
+  actIcon: { fontSize: 22, marginBottom: 4 },
+  actLabel: { fontSize: 12, fontWeight: "700" },
+  actDraft: { position: "absolute", top: 4, right: 8, color: AMBER, fontSize: 12 },
 
-  // Gallery
   galleryHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingRight: 16,
@@ -546,52 +423,9 @@ const s = StyleSheet.create({
   },
   galleryRow: { flexDirection: "row", gap: 8, paddingRight: 16 },
   thumb: { width: 100, height: 100, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.05)" },
+  videoThumb: { alignItems: "center", justifyContent: "center", backgroundColor: "#000" },
   thumbBy: { color: GRAY, fontSize: 9, marginTop: 3, width: 100, textAlign: "center" },
 
-  // Modal
-  modalOverlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end",
-  },
-  modalCard: {
-    backgroundColor: "#0D1428",
-    borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    padding: 24, paddingBottom: 36,
-    borderTopWidth: 1, borderColor: BORDER,
-  },
-  modalHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20,
-  },
-  modalTitle: { color: "#fff", fontSize: 16, fontWeight: "800", flex: 1 },
-
-  photoPicker: {
-    height: 180, borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 2, borderColor: BORDER, borderStyle: "dashed",
-    overflow: "hidden", marginBottom: 8,
-    alignItems: "center", justifyContent: "center",
-  },
-  photoPickerInner: { alignItems: "center" },
-  photoPickerText: { color: GRAY2, fontSize: 13, marginTop: 8 },
-  photoPreview: { width: "100%", height: "100%" },
-  retakeBtn: { alignItems: "center", marginBottom: 12 },
-  retakeText: { color: BLUE, fontSize: 13, fontWeight: "600" },
-
-  notesInput: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1, borderColor: BORDER,
-    borderRadius: 14, padding: 12,
-    color: "#fff", fontSize: 14,
-    marginBottom: 16, textAlignVertical: "top",
-  },
-
-  submitBtn: {
-    backgroundColor: BLUE, borderRadius: 14, padding: 16, alignItems: "center",
-    shadowColor: BLUE, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12,
-  },
-  submitBtnDisabled: { opacity: 0.6 },
-  submitText: { color: "#fff", fontSize: 15, fontWeight: "800" },
-
-  // Full-screen image viewer
   imageViewerOverlay: {
     flex: 1, backgroundColor: "rgba(0,0,0,0.95)",
     alignItems: "center", justifyContent: "center",
@@ -602,7 +436,6 @@ const s = StyleSheet.create({
   },
   imageViewerImg: { width: "100%", height: "62%" },
 
-  // Photo metadata panel (GPS + timestamp)
   metaPanel: {
     position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: "#0D1428",

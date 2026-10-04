@@ -84,7 +84,7 @@
 ### D-114 — Outcome data defaults to counts; lead-level data is opt-in · PROPOSED
 **Why:** DPDP Act obligations, and education leads often involve minors (needing verifiable parental consent).
 
-### D-115 — Remove fabricated and fake content before any customer sees it · PROPOSED
+### D-115 — Remove fabricated and fake content before any customer sees it · ACCEPTED (plan approved 2026-10-04), built 2026-10-04
 **Scope:** the fake payment page, the chatbot's invented claims and non-existent demo login, the invented landing stats and stock testimonials, and the pricing page's contradictory plans.
 
 ### D-116 — Verifiable reports · PROPOSED
@@ -95,11 +95,11 @@
 **Decision:** lead with "Every offline rupee — proved, fairly priced, and counted" and the Campaign Accountability Report. See `TRAQADVT_UNIQUE_OFFER.md`. (Originally listed "legal" as a fourth claim; trimmed by the founder on 2026-10-04, see D-124.)
 **Supersedes:** the "GPS-verified photos" positioning in the strategy doc.
 
-### D-118 — Two-tier verification labels · PROPOSED
+### D-118 — Two-tier verification labels · ACCEPTED (plan approved 2026-10-04), v1 built: crew PIN = self-reported, admin-only checker PIN = independent, web = office upload
 **Decision:** every proof visit is labelled *self-reported* (vendor/agency crew, passed ProofLock checks) or *independently verified* (TraqAdvt or partner auditor). Reports show the split.
 **Why:** a vendor's own crew is not independent; pretending otherwise would repeat the industry's trust problem.
 
-### D-119 — ProofLock defences against the five 2026 trust failures · PROPOSED
+### D-119 — ProofLock defences against the five 2026 trust failures · ACCEPTED (plan approved 2026-10-04), v1 built: in-app-only capture, file hash, recycled-photo check, per-shot GPS and time; site/creative match in phase 6
 **Decision:** in-app-only capture for proof, upload hash + server time, network-wide recycled-photo detection, site fingerprint, creative match, display-day ledger. Borderline cases go to human review.
 
 ### D-120 — Integrate with CRMs and call-tracking; don't build a CRM · PROPOSED
@@ -119,6 +119,11 @@
 **Out of scope:** RERA and CCPA ad checks, reading QR codes or registration numbers from photos, a municipal paperwork/export service, any "compliant" or "legal" claim in marketing or reports.
 **Why:** compliance work is open-ended, creates liability if we get it wrong, and isn't needed to prove the core promise.
 **Supersedes:** D-121 and the "legal" part of D-117.
+
+### D-125 — Build in phases, with 2–3 pilots running from phase 1 · ACCEPTED (founder, 2026-10-04)
+**Decision:** build the Accountability Ledger in phases: 0 foundations; 1 field app v2 + ProofLock v1; 2 Customers; 3 Display-Day Ledger; 4 Fair price + badge; 5 Accountability Report; 6 ProofLock v2; 7 integrations. Start 2–3 pilot campaigns from phase 1 and do the parts not built yet by hand.
+**Why:** enquiries must be captured from the day a campaign starts and can't be recovered later; pilot data tunes the ProofLock thresholds and tests whether advertisers will pay.
+**Status:** phases 0 and 1 built on 2026-10-04 (see `CHANGELOG.md`); pilots start once the backend is pushed and the v2 APK is on the crews' phones.
 
 ## Open (the founder will decide)
 
