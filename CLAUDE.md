@@ -138,9 +138,9 @@ def health_check():
 - **Deploy command:**
   ```bash
   cd traqooh-frontend
-  npm run build
-  npx wrangler pages deploy dist --project-name traqooh-frontend --branch main
+  npm run deploy        # = vite build + npx wrangler pages deploy dist --project-name traqooh-frontend --branch main
   ```
+  Run it from `traqooh-frontend` (wrangler looks for `dist` in the current folder).
 - Wrangler auths via `wrangler login` (browser OAuth)
 
 ### 4. Cloudflare R2 — Photo, Video & Media Storage
