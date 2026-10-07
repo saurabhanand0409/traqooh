@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { apiFetch } from "../utils/apiFetch";
-import { compressImage } from "../utils/imageCompress";
+import { distanceM } from "../utils/photoUpload";
+import ProofUploader from "../components/ProofUploader";
 import { sizeRowsFor, formatSize } from "../utils/sizeFormat";
 import { openProofReport, fmtDistance, shotLabel, OFFSITE_LIMIT_M } from "../utils/proofReport";
 import { Link, useSearchParams } from "react-router-dom";
@@ -97,7 +98,11 @@ export default function Campaigns() {
   const [lightbox, setLightbox] = useState(null); // { url, meta }
   const [zipping, setZipping] = useState(false);   // photo zip download in progress
   const [review, setReview] = useState(null);       // needs-retake form: { activityId, reason, other }
-  const [flaggedOnly, setFlaggedOnly] = useState(false); // show only sites with visits the automatic checks flagged
+  const [boardFilter, setBoardFilter] = useState("all"); // Monitoring board filter: all | finalized | booked | needPhotos | flagged | notSelected
+  const [uploader, setUploader] = useState(null);        // { site, phase, files } while the photo uploader is open
+  const [focusSite, setFocusSite] = useState(null);      // assignmentId to scroll to on the Monitoring board
+  const [toast, setToast] = useState("");                // short confirmation shown at the bottom of the screen
+  const toastTimer = useRef(null);
   const [sendingLink, setSendingLink] = useState(false);
   const [linkMsg, setLinkMsg] = useState("");
   const [linkWa, setLinkWa] = useState(""); // WhatsApp click-to-chat URL for the link just sent
@@ -124,7 +129,7 @@ export default function Campaigns() {
 
   // Inline cost table — row selection + bulk apply
   const [selectedRows, setSelectedRows] = useState(new Set());
-  const [bulkForm, setBulkForm] = useState({ printingType: "Flex", mediaCost: "", printingCost: "", mountingCost: "", otherCost: "" });
+  const [bulkForm, setBulkForm] = useState({ printingType: "Flex", mediaCost: "", printingCost: "", mountingCost: "", otherCost: "", bookedFrom: "", bookedTill: "" });
   const [bulkApplying, setBulkApplying] = useState(false);
 
   const [form, setForm] = useState({
@@ -175,6 +180,9 @@ export default function Campaigns() {
     setDetailLoading(true);
     setPanelCampaign(c);
     setActiveTab("sites");
+    setMonitoring(null);
+    setBoardFilter("all");
+    setFocusSite(null);
     setPickerSites([]);
     setPickerSearched(false);
     setSelectedIds(new Set());
@@ -238,11 +246,26 @@ export default function Campaigns() {
     finally { setMonitoringLoading(false); }
   };
 
-  // Load the monitoring board whenever its tab opens
+  // Load the monitoring board with the campaign and refresh it whenever Linked Sites or Monitoring
+  // opens: it also feeds the Tracking column on Linked Sites.
   useEffect(() => {
-    if (activeTab === "monitoring" && detail) loadMonitoring();
+    if (detail && (activeTab === "monitoring" || activeTab === "sites")) loadMonitoring();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, detail?.id]);
+
+  // "Track" on a Linked Sites row: scroll the Monitoring board to that site and highlight it
+  useEffect(() => {
+    if (activeTab !== "monitoring" || !focusSite || !monitoring) return;
+    document.getElementById(`monitor-site-${focusSite}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const t = setTimeout(() => setFocusSite(null), 2500);
+    return () => clearTimeout(t);
+  }, [activeTab, focusSite, monitoring]);
+
+  const showToast = (msg, ms = 5000) => {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), ms);
+  };
 
   // Assign / clear which field worker monitors a site
   const setSiteMonitor = async (assignmentId, pinId, workerName) => {
@@ -325,64 +348,39 @@ export default function Campaigns() {
     await setSiteMonitor(assignmentId, pin.id, pin.workerName);
   };
 
-  // Team uploads execution photos from the web for a phase (START / MID / END). Multiple files allowed.
-  const uploadPhasePhotos = async (site, phaseKey, files) => {
-    const activityType = phaseKey === "END" ? "END" : phaseKey === "MID" ? "AUDIT" : "START";
+  // Photo uploader (components/ProofUploader.jsx), opened from a Monitoring card or a Linked Sites row
+  const openUploader = (site, phase = "START", files = null) => setUploader({ site, phase, files });
+  const onPhotosUploaded = ({ count, phase }) => {
+    showToast(`✓ ${count} ${count === 1 ? "file" : "files"} added to ${phase.label}. The location and time checks run in the background.`);
+    loadMonitoring();
+  };
+
+  // Change one site's booking dates (Linked Sites row or Monitoring card).
+  // Returns the problem as a message, or "" when saved.
+  const saveBookingDates = async (assignmentId, bookedFrom, bookedTill) => {
     try {
-      // One activity holds all photos uploaded in this batch
-      const res = await apiFetch(`/api/activities`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          campaignId: detail.id,
-          siteId: site.siteId,
-          assignmentId: site.assignmentId,
-          activityType,
-          status: "DONE",
-          source: "web",
-          performedBy: user.displayName || user.email || "Team",
-          activityDate: new Date().toISOString().slice(0, 10),
-          createdByUserId: user.userId || null,
-        }),
+      const res = await apiFetch(`/api/campaigns/${detail.id}/assignment/${assignmentId}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookedFrom: bookedFrom || null, bookedTill: bookedTill || null }),
       });
-      if (!res.ok) { alert("Could not create the activity. Please try again."); return; }
-      const created = await res.json();
-
-      let uploadedCount = 0;
-      const failures = [];
-      for (const f of Array.from(files)) {
-        const isVid = (f.type || "").startsWith("video/");
-        if (isVid && f.size > 80 * 1024 * 1024) {
-          failures.push(`"${f.name}" is over 80 MB`);
-          continue;
-        }
-        try {
-          // Photos get canvas-compressed; videos upload as-is (preserve playable format)
-          const payload = isVid ? f : await compressImage(f);
-          const fd = new FormData();
-          fd.append("file", payload, f.name);
-          const upRes = await apiFetch(`/api/activities/${created.id}/upload-image`, { method: "POST", body: fd });
-          if (!upRes.ok) {
-            const errText = await upRes.text().catch(() => "");
-            failures.push(`"${f.name}" — server returned ${upRes.status}${errText ? ` (${errText.slice(0,120)})` : ""}`);
-          } else {
-            uploadedCount += 1;
-          }
-        } catch (err) {
-          failures.push(`"${f.name}" — ${err.message || "network error"}`);
-        }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return typeof body.detail === "string" ? body.detail : `Couldn't save (error ${res.status})`;
       }
-
-      if (failures.length) {
-        alert(`Uploaded ${uploadedCount} of ${files.length} file${files.length !== 1 ? "s" : ""}.\n\nIssues:\n• ${failures.join("\n• ")}`);
-      } else if (uploadedCount > 0) {
-        // Brief inline confirmation so the team knows the photos are in.
-        setLinkMsg(`✓ ${uploadedCount} ${activityType === "END" ? "End" : "Start"} ${uploadedCount === 1 ? "photo/video" : "photos/videos"} added — refreshing…`);
-        setTimeout(() => setLinkMsg(""), 4000);
-      }
-      await loadMonitoring();
-    } catch (err) {
-      alert(`Upload failed: ${err.message || "Please check your connection and try again."}`);
+    } catch {
+      return "Couldn't save. Check your connection and try again.";
     }
+    const patch = x => x.assignmentId === assignmentId ? { ...x, bookedFrom: bookedFrom || null, bookedTill: bookedTill || null } : x;
+    setDetail(prev => prev ? { ...prev, assignments: prev.assignments.map(patch) } : prev);
+    setMonitoring(m => m ? { ...m, sites: m.sites.map(patch) } : m);
+    return "";
+  };
+
+  // "Track" on a Linked Sites row
+  const trackSite = (assignmentId) => {
+    setBoardFilter("all");
+    setFocusSite(assignmentId);
+    setActiveTab("monitoring");
   };
 
   // Remove a single photo/video from an activity (live campaigns, admin/employee only).
@@ -612,7 +610,12 @@ export default function Campaigns() {
 
   const handleBulkApply = async () => {
     if (selectedRows.size === 0) return;
+    if ((bulkForm.bookedFrom === "") !== (bulkForm.bookedTill === "")) {
+      showToast("Set both booking dates (from and till), or leave both empty.");
+      return;
+    }
     setBulkApplying(true);
+    const problems = [];
     for (const aid of selectedRows) {
       const assignment = (detail.assignments || []).find(a => a.assignmentId === aid);
       const sqft = parseSqft(assignment?.siteSize);
@@ -621,16 +624,32 @@ export default function Campaigns() {
       if (bulkForm.printingCost !== "") payload.printingCost = Math.round(Number(bulkForm.printingCost) * (sqft || 1));
       if (bulkForm.mountingCost !== "") payload.mountingCost = Math.round(Number(bulkForm.mountingCost) * (sqft || 1));
       if (bulkForm.otherCost !== "") payload.otherCost = Number(bulkForm.otherCost);
-      await apiFetch(`/api/campaigns/${detail.id}/assignment/${aid}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      if (bulkForm.bookedFrom && bulkForm.bookedTill) {
+        payload.bookedFrom = bulkForm.bookedFrom;
+        payload.bookedTill = bulkForm.bookedTill;
+      }
+      try {
+        const res = await apiFetch(`/api/campaigns/${detail.id}/assignment/${aid}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          problems.push(`${assignment?.siteName || `Site #${assignment?.siteId}`}: ${typeof body.detail === "string" ? body.detail : `error ${res.status}`}`);
+        }
+      } catch {
+        problems.push(`${assignment?.siteName || "A site"}: no connection`);
+      }
     }
+    const total = selectedRows.size;
     // Refresh to sync all rows
     await refreshDetail();
+    loadMonitoring();
     setSelectedRows(new Set());
     setBulkApplying(false);
+    if (problems.length) showToast(`${total - problems.length} of ${total} sites updated. Not changed: ${problems.join(" · ")}`, 15000);
+    else showToast(`✓ ${total} site${total !== 1 ? "s" : ""} updated`);
   };
 
   const downloadCostSheet = () => {
@@ -876,21 +895,31 @@ export default function Campaigns() {
   // Visits sent back for a retake are left out.
   const downloadProofOfDisplay = () => {
     if (!detail || !monitoring || !monitoring.sites.length) return;
-    const sites = monitoring.sites.filter(s => !s.pendingApproval);
-    if (!sites.length) return;
+    // The advertiser's selection (the same sites as the photo zip)
+    const sites = monitoring.sites.filter(s => s.inReport ?? !s.pendingApproval);
+    if (!sites.length) { showToast("No finalized sites to report on yet."); return; }
+    // Each photo's own location and time where it has them (app shots, office uploads with GPS in the file)
     const photosOf = (s, key) => (s.phases?.[key] || [])
       .filter(act => act.status !== "REJECTED")
-      .flatMap(act => (act.imageUrls || []).map(url => ({
-        url,
-        label: act.imageLabels?.[url],
-        status: act.status,
-        when: act.capturedAt || act.createdAt,
-        latitude: act.latitude,
-        longitude: act.longitude,
-        distanceM: act.distanceM,
-        performedBy: act.performedBy,
-        notes: act.notes,
-      })));
+      .flatMap(act => (act.imageUrls || []).map(url => {
+        const shot = photoCheckFor(act, url);
+        const own = shot?.latitude != null && shot?.longitude != null;
+        const lat = own ? shot.latitude : act.latitude;
+        const lng = own ? shot.longitude : act.longitude;
+        const dist = own ? distanceM(lat, lng, s.latitude, s.longitude) : act.distanceM;
+        return {
+          url,
+          label: act.imageLabels?.[url],
+          status: act.status,
+          when: shot?.capturedAt || act.capturedAt || act.createdAt,
+          latitude: lat,
+          longitude: lng,
+          distanceM: dist != null ? Math.round(dist) : null,
+          fromFile: act.source === "web",
+          performedBy: act.performedBy,
+          notes: act.notes,
+        };
+      }));
     openProofReport({
       campaign: {
         name: detail.name, advertiserName: detail.advertiserName,
@@ -1285,6 +1314,16 @@ export default function Campaigns() {
                                     style={{ width: 90 }}
                                   />
                                 ))}
+                                <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>
+                                  Booked
+                                  <input type="date" value={bulkForm.bookedFrom} title="Booked from"
+                                    onChange={e => setBulkForm(prev => ({ ...prev, bookedFrom: e.target.value }))}
+                                    className="tq-input py-1 text-xs" style={{ width: 128 }} />
+                                  →
+                                  <input type="date" value={bulkForm.bookedTill} min={bulkForm.bookedFrom || undefined} title="Booked till"
+                                    onChange={e => setBulkForm(prev => ({ ...prev, bookedTill: e.target.value }))}
+                                    className="tq-input py-1 text-xs" style={{ width: 128 }} />
+                                </span>
                                 <button
                                   onClick={handleBulkApply}
                                   disabled={bulkApplying}
@@ -1299,7 +1338,7 @@ export default function Campaigns() {
 
                             {/* Table */}
                             <div className="flex-1 overflow-auto">
-                              <table className="w-full text-left" style={{ borderCollapse: "collapse", minWidth: 860 }}>
+                              <table className="w-full text-left" style={{ borderCollapse: "collapse", minWidth: 1040 }}>
                                 <thead>
                                   <tr style={{ background: "rgba(255,255,255,0.04)", borderBottom: "1px solid var(--border)" }}>
                                     <th className="px-3 py-2.5 w-8">
@@ -1317,7 +1356,8 @@ export default function Campaigns() {
                                     <th className="px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>#</th>
                                     <th className="px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>Site</th>
                                     <th className="px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>Type / Size</th>
-                                    <th className="px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>Period</th>
+                                    <th className="px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>Booked dates</th>
+                                    <th className="px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>Tracking</th>
                                     <th className="px-2 py-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--gray2)" }}>
                                       Media Cost <span style={{ color: "var(--gray3)", fontSize: 9 }}>(₹/sqft)</span>
                                     </th>
@@ -1341,6 +1381,10 @@ export default function Campaigns() {
                                       isSelected={selectedRows.has(a.assignmentId)}
                                       onToggleSelect={() => toggleRowSelect(a.assignmentId)}
                                       onRemove={() => handleRemoveSite(a.assignmentId)}
+                                      track={monitoring?.sites?.find(m => m.assignmentId === a.assignmentId)}
+                                      onSaveDates={saveBookingDates}
+                                      onAddPhotos={(site) => openUploader(site, phaseCounts(site).START ? "MID" : "START")}
+                                      onTrack={() => trackSite(a.assignmentId)}
                                       onCostUpdate={handleCostUpdate}
                                       campaignStartDate={detail.startDate}
                                       campaignEndDate={detail.endDate}
@@ -1349,7 +1393,7 @@ export default function Campaigns() {
                                 </tbody>
                                 <tfoot>
                                   <tr style={{ background: "rgba(37,99,235,0.08)", borderTop: "2px solid rgba(37,99,235,0.25)" }}>
-                                    <td colSpan={5} className="px-3 py-2.5 text-xs font-bold uppercase tracking-wider" style={{ color: "#60A5FA" }}>
+                                    <td colSpan={6} className="px-3 py-2.5 text-xs font-bold uppercase tracking-wider" style={{ color: "#60A5FA" }}>
                                       Grand Total — {asgn.length} sites
                                     </td>
                                     <td className="px-2 py-2.5 text-xs font-bold text-white">₹{fmt(tSpace)}</td>
@@ -1545,23 +1589,35 @@ export default function Campaigns() {
                       ) : !monitoring || monitoring.sites.length === 0 ? (
                         <div className="py-16 flex flex-col items-center text-center">
                           <Camera className="w-10 h-10 mb-3" style={{ color: "var(--gray3)" }} />
-                          <p className="font-semibold text-sm text-white">No finalized sites yet.</p>
-                          <p className="text-xs mt-1" style={{ color: "var(--gray2)" }}>Once the advertiser finalizes their shortlist, sites appear here for execution & monitoring.</p>
+                          <p className="font-semibold text-sm text-white">No sites booked yet.</p>
+                          <p className="text-xs mt-1" style={{ color: "var(--gray2)" }}>Add sites to the campaign; each one shows up here for photos and tracking.</p>
                         </div>
                       ) : (() => {
-                        const pendingCount = monitoring.sites.filter(s => s.pendingApproval).length;
-                        const approvedCount = monitoring.sites.length - pendingCount;
+                        const allSites = monitoring.sites;
+                        const pendingCount = allSites.filter(s => s.pendingApproval).length;
                         const siteVisits = (s) => Object.values(s.phases || {}).flat();
-                        const flaggedCount = monitoring.sites.reduce((n, s) => n + siteVisits(s).filter(isFlaggedVisit).length, 0);
-                        const shownSites = flaggedOnly && flaggedCount > 0
-                          ? monitoring.sites.filter(s => siteVisits(s).some(isFlaggedVisit))
-                          : monitoring.sites;
+                        const flaggedCount = allSites.reduce((n, s) => n + siteVisits(s).filter(isFlaggedVisit).length, 0);
+                        const activeSites = allSites.filter(s => siteStage(s) !== "NOT_SELECTED");
+                        const doneIn = (key) => activeSites.filter(s => phaseCounts(s)[key] > 0).length;
+                        const filterKey = BOARD_FILTERS[boardFilter] ? boardFilter : "all";
+                        const filterCount = (key) => allSites.filter(BOARD_FILTERS[key].test).length;
+                        const shownSites = allSites.filter(BOARD_FILTERS[filterKey].test);
                         return (
                         <div className="space-y-3">
                           <div className="flex items-start justify-between gap-3 flex-wrap">
-                            <p className="text-xs flex-1 min-w-[180px]" style={{ color: "var(--gray2)" }}>
-                              {approvedCount} approved site{approvedCount !== 1 ? "s" : ""} · assign a field worker and track installation, audit and takedown photos. Tap the ✓ to verify a visit, or open a photo to send it back for a retake.
-                            </p>
+                            <div className="flex-1 min-w-[200px]">
+                              <div className="flex items-center gap-3 flex-wrap text-xs font-semibold">
+                                {[["START", "Installed", "#2563EB"], ["MID", "Audited", "#F59E0B"], ["END", "Taken down", "#22C55E"]].map(([key, label, color]) => (
+                                  <span key={key} className="flex items-center gap-1.5" style={{ color: "var(--gray)" }}>
+                                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+                                    {label} <b className="text-white">{doneIn(key)}/{activeSites.length}</b>
+                                  </span>
+                                ))}
+                              </div>
+                              <p className="text-[11px] mt-1" style={{ color: "var(--gray2)" }}>
+                                Every booked site is here, finalized or not. Drop photos on a stage to add them, tap ✓ to verify a visit, or open a photo to send it back for a retake.
+                              </p>
+                            </div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <button onClick={() => sendAdvertiserLink("live")} disabled={sendingLink}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-60"
@@ -1619,11 +1675,35 @@ export default function Campaigns() {
                               <span className="text-xs font-semibold" style={{ color: "#FBBF24" }}>
                                 ⚑ {flaggedCount} visit{flaggedCount !== 1 ? "s" : ""} flagged by the automatic photo checks. Open a flagged photo to see why, then verify it or send it back.
                               </span>
-                              <button onClick={() => setFlaggedOnly(f => !f)}
+                              <button onClick={() => setBoardFilter(filterKey === "flagged" ? "all" : "flagged")}
                                 className="px-3 py-1.5 rounded-lg text-xs font-bold transition"
                                 style={{ background: "rgba(245,158,11,0.2)", color: "#FBBF24", border: "1px solid rgba(245,158,11,0.4)" }}>
-                                {flaggedOnly ? "Show all sites" : "Show only flagged"}
+                                {filterKey === "flagged" ? "Show all sites" : "Show only flagged"}
                               </button>
+                            </div>
+                          )}
+
+                          {/* Filters */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {Object.entries(BOARD_FILTERS).map(([key, f]) => {
+                              const n = filterCount(key);
+                              if (!n && key !== "all" && key !== filterKey && f.hideWhenEmpty) return null;
+                              const on = key === filterKey;
+                              return (
+                                <button key={key} onClick={() => setBoardFilter(key)}
+                                  className="px-3 py-1.5 rounded-full text-xs font-bold transition"
+                                  style={on
+                                    ? { background: "rgba(37,99,235,0.2)", color: "#fff", border: "1px solid #3B82F6" }
+                                    : { background: "rgba(255,255,255,0.04)", color: "var(--gray)", border: "1px solid var(--border)" }}>
+                                  {f.label} <span style={{ color: on ? "#93C5FD" : "var(--gray3)" }}>{n}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {shownSites.length === 0 && (
+                            <div className="py-10 text-center text-xs rounded-xl" style={{ color: "var(--gray2)", border: "1px dashed var(--border)" }}>
+                              No sites match this filter.
                             </div>
                           )}
 
@@ -1631,12 +1711,15 @@ export default function Campaigns() {
                             <MonitorSiteCard
                               key={site.assignmentId}
                               site={site}
+                              campaign={detail}
+                              highlight={focusSite === site.assignmentId}
                               workers={monitoring.workers}
                               onAssign={setSiteMonitor}
                               onVerify={toggleVerify}
                               onPhoto={setLightbox}
                               onCreateFieldAccess={createFieldAccess}
-                              onUpload={uploadPhasePhotos}
+                              onOpenUploader={openUploader}
+                              onSaveDates={saveBookingDates}
                               onDeleteMedia={deletePhaseMedia}
                             />
                           ))}
@@ -1649,6 +1732,26 @@ export default function Campaigns() {
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {uploader && detail && (
+        <ProofUploader
+          site={uploader.site}
+          campaignId={detail.id}
+          user={user}
+          initialPhase={uploader.phase}
+          initialFiles={uploader.files}
+          onClose={() => setUploader(null)}
+          onUploaded={onPhotosUploaded}
+        />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[140] max-w-xl w-[calc(100%-32px)] flex items-start gap-3 px-4 py-3 rounded-xl text-sm shadow-2xl"
+          style={{ background: "#111A33", border: "1px solid rgba(59,130,246,0.4)", color: "#DBEAFE" }}>
+          <span className="flex-1">{toast}</span>
+          <button onClick={() => setToast("")} className="flex-shrink-0" style={{ color: "var(--gray2)" }}><X className="w-4 h-4" /></button>
         </div>
       )}
 
@@ -1856,7 +1959,8 @@ export default function Campaigns() {
   );
 }
 
-function SiteTableRow({ a, idx, isSelected, onToggleSelect, onRemove, onCostUpdate, campaignStartDate, campaignEndDate }) {
+function SiteTableRow({ a, idx, isSelected, onToggleSelect, onRemove, onCostUpdate, campaignStartDate, campaignEndDate,
+                       track, onSaveDates, onAddPhotos, onTrack }) {
   const sqft = parseSqft(a.siteSize);
 
   const rateFromCost = (cost) => sqft > 0 ? (Number(cost || 0) / sqft) : Number(cost || 0);
@@ -1903,9 +2007,6 @@ function SiteTableRow({ a, idx, isSelected, onToggleSelect, onRemove, onCostUpda
       otherCost: Number(costs.otherCost)||0,
     });
   };
-
-  const startDate = a.bookedFrom || campaignStartDate || "—";
-  const endDate   = a.bookedTill || campaignEndDate || "—";
 
   const inputCls = {
     width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)",
@@ -1983,10 +2084,17 @@ function SiteTableRow({ a, idx, isSelected, onToggleSelect, onRemove, onCostUpda
         })()}
       </td>
 
-      {/* Period */}
-      <td className="px-2 py-2.5 text-[10px]" style={{ color: "var(--gray)", whiteSpace: "nowrap" }}>
-        <div>{startDate}</div>
-        <div style={{ color: "var(--gray2)" }}>→ {endDate}</div>
+      {/* Booked dates: editable per site */}
+      <td className="px-2 py-2.5 align-top">
+        <BookingDates from={a.bookedFrom} till={a.bookedTill}
+          campaignFrom={campaignStartDate} campaignTill={campaignEndDate}
+          finalFrom={a.finalStartDate} finalTill={a.finalEndDate}
+          onSave={(f, t) => onSaveDates(a.assignmentId, f, t)} />
+      </td>
+
+      {/* Tracking: stage, photos per stage, field worker, shortcuts */}
+      <td className="px-2 py-2.5 align-top">
+        <TrackingCell track={track} onAddPhotos={onAddPhotos} onTrack={onTrack} />
       </td>
 
       {/* Media Cost */}
@@ -2169,6 +2277,132 @@ const TIER_LABELS = {
   STAFF_UPLOAD: "Office upload",
 };
 const photoCheckFor = (act, url) => act?.photoChecks?.[url] || null;
+
+// Photos per stage for one site, leaving out visits sent back for a retake
+const phaseCounts = (site) => Object.fromEntries(["START", "MID", "END"].map(k => [k,
+  (site?.phases?.[k] || []).filter(a => a.status !== "REJECTED").reduce((n, a) => n + (a.imageUrls || []).length, 0)]));
+
+// Where a booked site is in the advertiser's approval (backend: campaign_monitoring)
+const siteStage = (s) => s?.stage || (s?.pendingApproval ? "AWAITING_APPROVAL" : "FINALIZED");
+const STAGES = {
+  FINALIZED:         { label: "Finalized", color: "#4ADE80", bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.3)" },
+  SHORTLISTED:       { label: "Shortlisted by advertiser", color: "#93C5FD", bg: "rgba(37,99,235,0.14)", border: "rgba(59,130,246,0.35)" },
+  AWAITING_APPROVAL: { label: "Awaiting approval", color: "#FBBF24", bg: "rgba(245,158,11,0.14)", border: "rgba(245,158,11,0.35)" },
+  BOOKED:            { label: "Booked · not finalized", color: "#C4B5FD", bg: "rgba(139,92,246,0.14)", border: "rgba(139,92,246,0.35)" },
+  NOT_SELECTED:      { label: "Not selected by advertiser", color: "var(--gray2)", bg: "rgba(255,255,255,0.05)", border: "var(--border)" },
+};
+function StageBadge({ stage }) {
+  const st = STAGES[stage] || STAGES.FINALIZED;
+  return (
+    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide whitespace-nowrap inline-block"
+      style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>
+      {st.label}
+    </span>
+  );
+}
+
+// Monitoring board filters
+const BOARD_FILTERS = {
+  all:         { label: "All sites", test: () => true },
+  finalized:   { label: "Finalized", test: s => siteStage(s) === "FINALIZED" },
+  booked:      { label: "Booked, not finalized", test: s => ["BOOKED", "SHORTLISTED", "AWAITING_APPROVAL"].includes(siteStage(s)) },
+  needPhotos:  { label: "No install photos", test: s => siteStage(s) !== "NOT_SELECTED" && phaseCounts(s).START === 0 },
+  flagged:     { label: "Flagged", hideWhenEmpty: true, test: s => Object.values(s.phases || {}).flat().some(isFlaggedVisit) },
+  notSelected: { label: "Not selected", hideWhenEmpty: true, test: s => siteStage(s) === "NOT_SELECTED" },
+};
+
+const fmtDay = (d) => {
+  if (!d) return "—";
+  const dt = new Date(`${String(d).slice(0, 10)}T00:00:00`);
+  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" });
+};
+
+// One site's booking dates. Saved when a date box loses focus; empty means the site follows the
+// campaign's dates. The advertiser's chosen dates, when different, are shown underneath.
+function BookingDates({ from, till, campaignFrom, campaignTill, finalFrom, finalTill, onSave, inline = false }) {
+  const [vals, setVals] = useState({ from: from || "", till: till || "" });
+  const [state, setState] = useState({ saving: false, error: "", hint: "", saved: false });
+  useEffect(() => { setVals({ from: from || "", till: till || "" }); }, [from, till]);
+
+  const commit = async (next) => {
+    if (next.from === (from || "") && next.till === (till || "")) { setState(st => ({ ...st, hint: "", error: "" })); return; }
+    if (!next.from !== !next.till) { setState({ saving: false, error: "", hint: next.from ? "Now pick the end date" : "Now pick the start date", saved: false }); return; }
+    if (next.from && next.till && next.from > next.till) { setState({ saving: false, error: "The end date is before the start", hint: "", saved: false }); return; }
+    setState({ saving: true, error: "", hint: "", saved: false });
+    const err = await onSave(next.from, next.till);
+    if (err) { setState({ saving: false, error: err, hint: "", saved: false }); return; }
+    setState({ saving: false, error: "", hint: "", saved: true });
+    setTimeout(() => setState(st => ({ ...st, saved: false })), 2000);
+  };
+
+  const box = { width: 128, colorScheme: "dark" };
+  const showFinal = (finalFrom || finalTill) && (finalFrom !== vals.from || finalTill !== vals.till);
+  return (
+    <div style={{ maxWidth: inline ? 420 : 170 }}>
+      <div className={inline ? "flex items-center gap-1.5 flex-wrap" : "flex flex-col gap-1"}>
+        <input type="date" value={vals.from} max={vals.till || undefined} title="Booked from" disabled={state.saving}
+          onChange={e => setVals(v => ({ ...v, from: e.target.value }))} onBlur={() => commit(vals)}
+          className="tq-input py-1 text-xs" style={box} />
+        {inline && <span className="text-xs" style={{ color: "var(--gray2)" }}>→</span>}
+        <input type="date" value={vals.till} min={vals.from || undefined} title="Booked till" disabled={state.saving}
+          onChange={e => setVals(v => ({ ...v, till: e.target.value }))} onBlur={() => commit(vals)}
+          className="tq-input py-1 text-xs" style={box} />
+      </div>
+      <div className="text-[10px] mt-1 leading-snug" style={{ whiteSpace: "normal" }}>
+        {state.saving ? <span style={{ color: "var(--gray)" }}>Saving…</span>
+          : state.saved ? <span style={{ color: "#4ADE80" }}>Saved ✓</span>
+          : state.error ? <span style={{ color: "#F87171" }}>{state.error}</span>
+          : state.hint ? <span style={{ color: "#FBBF24" }}>{state.hint}</span>
+          : !vals.from && !vals.till ? <span style={{ color: "var(--gray2)" }}>Follows campaign: {fmtDay(campaignFrom)} → {fmtDay(campaignTill)}</span>
+          : null}
+      </div>
+      {showFinal && (
+        <div className="text-[10px] leading-snug" style={{ color: "#93C5FD", whiteSpace: "normal" }}>
+          Advertiser chose {fmtDay(finalFrom)} → {fmtDay(finalTill)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Compact tracking status on a Linked Sites row, with shortcuts to add photos or open the board
+function TrackingCell({ track, onAddPhotos, onTrack }) {
+  if (!track) return <span className="text-[10px]" style={{ color: "var(--gray3)" }}>Loading…</span>;
+  const counts = phaseCounts(track);
+  const flagged = Object.values(track.phases || {}).flat().filter(isFlaggedVisit).length;
+  return (
+    <div className="flex flex-col gap-1.5" style={{ minWidth: 168 }}>
+      <div><StageBadge stage={siteStage(track)} /></div>
+      <div className="flex items-center gap-1">
+        {[["START", "Install", "#2563EB"], ["MID", "Audit", "#F59E0B"], ["END", "End", "#22C55E"]].map(([key, label, color]) => (
+          <span key={key} title={`${label}: ${counts[key]} photo${counts[key] === 1 ? "" : "s"}`}
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+            style={counts[key]
+              ? { background: `${color}26`, color: "#fff", border: `1px solid ${color}` }
+              : { background: "rgba(255,255,255,0.03)", color: "var(--gray3)", border: "1px solid var(--border)" }}>
+            {label} {counts[key] || "–"}
+          </span>
+        ))}
+        {flagged > 0 && <span title={`${flagged} visit${flagged !== 1 ? "s" : ""} flagged by the photo checks`} className="text-[9px] font-bold" style={{ color: "#FBBF24" }}>⚑{flagged}</span>}
+      </div>
+      <div className="text-[10px] truncate" style={{ color: track.monitorWorkerName ? "var(--gray)" : "var(--gray3)", maxWidth: 168 }}>
+        {track.monitorWorkerName ? `Field: ${track.monitorWorkerName}` : "No field worker yet"}
+      </div>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onAddPhotos(track)}
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold text-white"
+          style={{ background: "#2563EB" }}>
+          <Camera className="w-3 h-3" /> Photos
+        </button>
+        <button onClick={onTrack}
+          className="flex items-center gap-0.5 px-2 py-1 rounded-md text-[10px] font-bold"
+          style={{ background: "rgba(255,255,255,0.06)", color: "#93C5FD", border: "1px solid var(--border)" }}>
+          Track <ChevronRight className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
 // A visit the checks flagged that nobody has verified or sent back yet
 const isFlaggedVisit = (act) =>
   ["REVIEW", "FAIL"].includes(act?.prooflockStatus) && !["VERIFIED", "REJECTED"].includes(act?.status);
@@ -2304,16 +2538,19 @@ const MONITOR_PHASES = [
   { key: "END",   label: "End / Takedown", color: "#22C55E" },
 ];
 
-function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateFieldAccess, onUpload, onDeleteMedia }) {
+function MonitorSiteCard({ site, campaign, highlight, workers, onAssign, onVerify, onPhoto, onCreateFieldAccess,
+                          onOpenUploader, onSaveDates, onDeleteMedia }) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
-  const [uploadingPhase, setUploadingPhase] = useState(null);
+  const [dropPhase, setDropPhase] = useState(null); // stage column that files are being dragged over
 
-  const handleUpload = async (phaseKey, files) => {
-    setUploadingPhase(phaseKey);
-    try { await onUpload(site, phaseKey, files); }
-    finally { setUploadingPhase(null); }
+  // Files dropped on a stage column open the uploader with them
+  const dropFiles = (e, phaseKey) => {
+    e.preventDefault();
+    setDropPhase(null);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) onOpenUploader(site, phaseKey, files);
   };
   // Build dropdown options; keep the assigned worker visible even if its PIN expired
   const opts = [...(workers || [])];
@@ -2321,7 +2558,15 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
     opts.unshift({ pinId: site.monitorFieldPinId, workerName: site.monitorWorkerName, pin: "expired" });
   }
   const location = [site.siteCity, site.siteState].filter(Boolean).join(", ");
-  const pending = !!site.pendingApproval;
+  const stage = siteStage(site);
+  const counts = phaseCounts(site);
+  const steps = [
+    ["Booked", true],
+    ["Field worker", !!site.monitorWorkerName],
+    ["Installed", counts.START > 0],
+    ["Audited", counts.MID > 0],
+    ["Taken down", counts.END > 0],
+  ];
 
   const submitNew = async () => {
     if (!newName.trim() || busy) return;
@@ -2331,7 +2576,14 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
   };
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${pending ? "rgba(245,158,11,0.35)" : "var(--border)"}` }}>
+    <div id={`monitor-site-${site.assignmentId}`} className="rounded-2xl overflow-hidden transition-shadow"
+      style={{
+        background: "rgba(255,255,255,0.03)",
+        border: `1px solid ${highlight ? "#3B82F6" : stage === "AWAITING_APPROVAL" ? "rgba(245,158,11,0.35)" : "var(--border)"}`,
+        boxShadow: highlight ? "0 0 0 3px rgba(59,130,246,0.35)" : "none",
+        opacity: stage === "NOT_SELECTED" ? 0.75 : 1,
+        scrollMarginTop: 12,
+      }}>
       {/* Header */}
       <div className="flex items-start gap-3 p-3" style={{ borderBottom: "1px solid var(--border)" }}>
         {site.imageUrl
@@ -2340,12 +2592,7 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <div className="font-bold text-sm text-white truncate">{site.siteName || "—"}</div>
-            {pending && (
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0"
-                style={{ background: "rgba(245,158,11,0.15)", color: "#FBBF24", border: "1px solid rgba(245,158,11,0.3)" }}>
-                Awaiting approval
-              </span>
-            )}
+            <span className="flex-shrink-0"><StageBadge stage={stage} /></span>
           </div>
           <div className="flex items-center gap-2 text-xs mt-0.5" style={{ color: "var(--gray2)" }}>
             <span className="truncate">{location || "—"}</span>
@@ -2357,7 +2604,31 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
             )}
           </div>
           <div className="text-[11px] mt-0.5" style={{ color: "var(--gray3)" }}>{[site.siteType, formatSize({ size: site.siteSize }) === "—" ? null : formatSize({ size: site.siteSize })].filter(Boolean).join(" · ")}</div>
+          {/* Progress */}
+          <div className="flex items-center gap-1 mt-2 flex-wrap">
+            {steps.map(([label, done], i) => (
+              <React.Fragment key={label}>
+                {i > 0 && <span className="w-2.5 h-px" style={{ background: done ? "#22C55E" : "var(--border)" }} />}
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                  style={done
+                    ? { background: "rgba(34,197,94,0.12)", color: "#4ADE80" }
+                    : { background: "rgba(255,255,255,0.04)", color: "var(--gray3)" }}>
+                  {done ? <Check className="w-2.5 h-2.5" /> : <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--gray3)" }} />}
+                  {label}
+                </span>
+              </React.Fragment>
+            ))}
+          </div>
         </div>
+      </div>
+
+      {/* Booking dates */}
+      <div className="px-3 py-2.5 flex items-start gap-2 flex-wrap" style={{ borderBottom: "1px solid var(--border)", background: "rgba(255,255,255,0.02)" }}>
+        <span className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap pt-1.5" style={{ color: "var(--gray2)", minWidth: 84 }}>Booked dates</span>
+        <BookingDates inline from={site.bookedFrom} till={site.bookedTill}
+          campaignFrom={campaign?.startDate} campaignTill={campaign?.endDate}
+          finalFrom={site.finalStartDate} finalTill={site.finalEndDate}
+          onSave={(f, t) => onSaveDates(site.assignmentId, f, t)} />
       </div>
 
       {/* Field-worker assignment */}
@@ -2413,34 +2684,30 @@ function MonitorSiteCard({ site, workers, onAssign, onVerify, onPhoto, onCreateF
             (act.imageUrls || []).map(url => ({ url, act }))
           );
           return (
-            <div key={phase.key} className="p-2.5" style={{ background: "#0B1120" }}>
+            <div key={phase.key} className="p-2.5 transition-colors"
+              style={{
+                background: dropPhase === phase.key ? "rgba(37,99,235,0.14)" : "#0B1120",
+                outline: dropPhase === phase.key ? "2px dashed #3B82F6" : "none", outlineOffset: -4,
+              }}
+              onDragOver={e => { if (Array.from(e.dataTransfer?.types || []).includes("Files")) { e.preventDefault(); setDropPhase(phase.key); } }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDropPhase(null); }}
+              onDrop={e => dropFiles(e, phase.key)}>
               <div className="flex items-center gap-1 mb-2">
                 <span className="w-1.5 h-1.5 rounded-full" style={{ background: phase.color }} />
                 <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--gray)" }}>{phase.label}</span>
                 {photos.length > 0 && <span className="text-[10px]" style={{ color: "var(--gray3)" }}>· {photos.length}</span>}
-                <label className="ml-auto flex items-center gap-1 text-[10px] font-bold cursor-pointer transition px-2 py-1 rounded"
-                  style={{ color: "#fff", background: uploadingPhase === phase.key ? "rgba(96,165,250,0.4)" : "#2563EB" }}>
-                  {uploadingPhase === phase.key ? "Uploading…" : <><Upload className="w-3 h-3" /> Add Photo</>}
-                  <input type="file" accept="image/*,video/*" multiple className="hidden"
-                    disabled={uploadingPhase === phase.key}
-                    onChange={e => {
-                      // CRITICAL: copy the FileList into a real array BEFORE clearing the input.
-                      // Setting input.value = "" empties the FileList object too — if we kept
-                      // the reference, the async upload would iterate over zero files.
-                      if (e.target.files?.length) {
-                        const filesCopy = Array.from(e.target.files);
-                        e.target.value = "";
-                        handleUpload(phase.key, filesCopy);
-                      } else {
-                        e.target.value = "";
-                      }
-                    }} />
-                </label>
+                <button onClick={() => onOpenUploader(site, phase.key)}
+                  className="ml-auto flex items-center gap-1 text-[10px] font-bold transition px-2 py-1 rounded"
+                  style={{ color: "#fff", background: "#2563EB" }}>
+                  <Upload className="w-3 h-3" /> Add photos
+                </button>
               </div>
               {photos.length === 0 ? (
-                <div className="rounded-lg py-4 text-center text-[10px]" style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", color: "var(--gray3)" }}>
-                  Awaiting photos
-                </div>
+                <button onClick={() => onOpenUploader(site, phase.key)}
+                  className="w-full rounded-lg py-4 text-center text-[10px] transition"
+                  style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed var(--border)", color: dropPhase === phase.key ? "#93C5FD" : "var(--gray3)" }}>
+                  {dropPhase === phase.key ? `Drop to add to ${phase.label}` : "Drop photos here or click to add"}
+                </button>
               ) : (
                 <div className="grid grid-cols-2 gap-1.5">
                   {photos.map(({ url, act }, i) => {

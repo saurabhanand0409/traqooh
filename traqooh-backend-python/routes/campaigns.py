@@ -15,6 +15,7 @@ import prooflock
 import notifications
 
 STAFF_ROLES = ("SUPER_ADMIN", "ADMIN", "EMPLOYEE", "TEAM_MEMBER", "MEDIA_OWNER")
+FINAL_STATUSES = ("FINALIZED", "RUNNING", "COMPLETE", "LIVE", "COMPLETED")
 
 router = APIRouter(prefix="/api/campaigns", tags=["Campaigns"])
 
@@ -107,6 +108,8 @@ def assignment_to_dict(a, site):
         "vendorName": site.owner.name if site and site.owner else None,
         "bookedFrom": str(a.booked_from) if a.booked_from else None,
         "bookedTill": str(a.booked_till) if a.booked_till else None,
+        "finalStartDate": str(a.final_start_date) if a.final_start_date else None,
+        "finalEndDate": str(a.final_end_date) if a.final_end_date else None,
         "agreedCost": float(a.agreed_cost or 0),
         "unitCost": float(a.unit_cost or 0),
         "printingType": a.printing_type,
@@ -276,10 +279,12 @@ def campaign_photos_zip(campaign_id: int, db: Session = Depends(get_db),
 
 @router.get("/{campaign_id}/monitoring")
 def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
-    """Execution/monitoring board for a finalized campaign.
-    Returns each finalized (shortlisted) site with its Start / Mid / End photos
-    pulled from campaign_activities, the assigned field worker, and the list of
+    """Execution/monitoring board: every site booked on the campaign, finalized or not,
+    with its Start / Mid / End photos, booking dates, the assigned field worker, and the
     available field PINs for the assignment dropdown.
+
+    `stage` says where the site is in the advertiser's approval; `inReport` marks the sites
+    the Proof of Display report and the photo zip include (the advertiser's selection).
     """
     c = db.query(models.Campaign).options(
         joinedload(models.Campaign.advertiser),
@@ -289,13 +294,23 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Campaign not found")
     auto_advance_status(c, db)
 
-    # Finalized sites = shortlisted assignments + any pending re-approval (newly added).
-    # If the advertiser never explicitly shortlisted (older campaigns), fall back to all.
     assigns = list(c.site_assignments)
-    shortlisted = [a for a in assigns if a.is_shortlisted or a.pending_approval]
-    finalized = shortlisted if shortlisted else assigns
+    campaign_final = (c.status or "").upper() in FINAL_STATUSES
+    any_selection = any(a.is_shortlisted or a.pending_approval for a in assigns)
+    in_report = {a.id for a in photo_zip.select_assignments(assigns, include_pending=False)}
 
-    site_ids = [a.site_id for a in finalized]
+    def stage_of(a):
+        if a.pending_approval:
+            return "AWAITING_APPROVAL"          # added after finalizing; the advertiser hasn't approved it yet
+        if a.is_shortlisted:
+            return "FINALIZED" if campaign_final else "SHORTLISTED"
+        if campaign_final:
+            return "NOT_SELECTED" if any_selection else "FINALIZED"   # older campaigns had no shortlist
+        return "BOOKED"                          # booked, waiting for the advertiser to finalize
+    stage_order = {"FINALIZED": 0, "SHORTLISTED": 1, "AWAITING_APPROVAL": 2, "BOOKED": 3, "NOT_SELECTED": 4}
+    ordered = sorted(assigns, key=lambda a: (stage_order[stage_of(a)], a.id))
+
+    site_ids = [a.site_id for a in ordered]
     sites_by_id = {}
     if site_ids:
         for s in db.query(models.Site).options(joinedload(models.Site.owner)).filter(
@@ -313,7 +328,7 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
     photos_by_act = prooflock.photos_by_activity(db, [a.id for a in acts])
 
     sites_out = []
-    for a in finalized:
+    for a in ordered:
         site = sites_by_id.get(a.site_id)
         size_str = None
         if site:
@@ -347,6 +362,12 @@ def campaign_monitoring(campaign_id: int, db: Session = Depends(get_db)):
             "monitorWorkerName": a.monitor_worker_name,
             "monitorFieldPinId": a.monitor_field_pin_id,
             "pendingApproval": bool(getattr(a, "pending_approval", False)),
+            "stage": stage_of(a),
+            "inReport": a.id in in_report,
+            "bookedFrom": str(a.booked_from) if a.booked_from else None,
+            "bookedTill": str(a.booked_till) if a.booked_till else None,
+            "finalStartDate": str(a.final_start_date) if a.final_start_date else None,
+            "finalEndDate": str(a.final_end_date) if a.final_end_date else None,
             "phases": phases,
         })
 
@@ -556,11 +577,60 @@ class UpdateAssignmentRequest(BaseModel):
     executionRemarks: Optional[str] = None
     monitorWorkerName: Optional[str] = None
     monitorFieldPinId: Optional[int] = None
+    bookedFrom: Optional[str] = None   # ISO date; "" or null clears it (the site then follows the campaign dates)
+    bookedTill: Optional[str] = None
+
+
+def _parse_day(value, what):
+    from datetime import date
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise HTTPException(400, f"{what} is not a valid date")
+
+
+def _set_booking_dates(db, a, sent, req):
+    """Change one site's booking dates, refusing dates that overlap another campaign's booking."""
+    bk_from = _parse_day(req.bookedFrom, "Booked from") if "bookedFrom" in sent else a.booked_from
+    bk_till = _parse_day(req.bookedTill, "Booked till") if "bookedTill" in sent else a.booked_till
+    if bk_from and bk_till and bk_from > bk_till:
+        raise HTTPException(400, "The booking can't end before it starts")
+    if bk_from and bk_till:
+        clash = (db.query(models.CampaignSiteAssignment, models.Campaign)
+                 .join(models.Campaign, models.Campaign.id == models.CampaignSiteAssignment.campaign_id)
+                 .filter(models.CampaignSiteAssignment.site_id == a.site_id,
+                         models.CampaignSiteAssignment.id != a.id,
+                         models.CampaignSiteAssignment.campaign_id != a.campaign_id,
+                         models.CampaignSiteAssignment.status.in_(["PLANNED", "ACTIVE"]),
+                         func.upper(func.coalesce(models.Campaign.status, "")) != "CANCELLED",
+                         models.CampaignSiteAssignment.booked_from <= bk_till,
+                         models.CampaignSiteAssignment.booked_till >= bk_from)
+                 .first())
+        if clash:
+            other, camp = clash
+            day = lambda d: f"{d.day} {d:%b %Y}"
+            raise HTTPException(409, f"This site is already booked {day(other.booked_from)} to {day(other.booked_till)} "
+                                     f"for campaign \"{camp.name}\". Pick dates that don't overlap.")
+    a.booked_from, a.booked_till = bk_from, bk_till
+    site = db.query(models.Site).filter(models.Site.id == a.site_id).first()
+    if not site:
+        return
+    if bk_from and bk_till:
+        site.availability_status = "BOOKED"
+        site.current_campaign_id = a.campaign_id
+        site.occupied_from, site.occupied_till = bk_from, bk_till
+    elif site.current_campaign_id == a.campaign_id:
+        site.availability_status = "AVAILABLE"
+        site.current_campaign_id = None
+        site.occupied_from = site.occupied_till = None
+
 
 @router.put("/{campaign_id}/assignment/{assignment_id}")
 def update_assignment(campaign_id: int, assignment_id: int, req: UpdateAssignmentRequest,
                       background: BackgroundTasks, db: Session = Depends(get_db)):
-    """Update cost breakdown for a site assignment."""
+    """Update one site's booking: costs, booking dates, and who monitors it."""
     a = db.query(models.CampaignSiteAssignment).filter(
         models.CampaignSiteAssignment.id == assignment_id,
         models.CampaignSiteAssignment.campaign_id == campaign_id,
@@ -573,6 +643,9 @@ def update_assignment(campaign_id: int, assignment_id: int, req: UpdateAssignmen
     if req.mountingCost is not None: a.mounting_cost = req.mountingCost
     if req.otherCost is not None: a.other_cost = req.otherCost
     if req.executionRemarks is not None: a.execution_remarks = req.executionRemarks
+    sent = getattr(req, "model_fields_set", None) or getattr(req, "__fields_set__", set())
+    if "bookedFrom" in sent or "bookedTill" in sent:
+        _set_booking_dates(db, a, sent, req)
     newly_assigned = None
     if req.monitorWorkerName is not None:
         previous = (a.monitor_worker_name or "").strip().lower()

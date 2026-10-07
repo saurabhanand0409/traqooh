@@ -709,6 +709,140 @@ check("Migration labels old visits (app = self-reported, web = staff upload) and
       tiers == {1: "SELF_REPORTED", 2: "STAFF_UPLOAD"} and "kind" in pin_cols, (tiers, pin_cols))
 os.remove("mig_test.db")
 
+# ---------- 13. Office uploads with photo location, per-site booking dates, board stages ----------
+# 13a. The web uploader sends each photo's own label, time and GPS (read from the file's EXIF)
+db = SessionLocal()
+site5 = models.Site(name="Kankarbagh Unipole", city="Patna", type="Unipole", latitude=25.6100, longitude=85.0900)
+db.add(site5); db.commit()
+IDS["site2"] = site5.id   # the earlier site2 was deleted in 12h
+db.add(models.CampaignSiteAssignment(campaign_id=IDS["live"], site_id=site5.id, is_shortlisted=True)); db.commit(); db.close()
+taken = (dt.datetime.utcnow() - dt.timedelta(hours=2)).replace(microsecond=0)
+act = client.post("/api/activities", json={"campaignId": IDS["live"], "siteId": IDS["site2"], "activityType": "AUDIT",
+                                           "source": "web"}, headers=staff).json()
+r = client.post(f"/api/activities/{act['id']}/upload-image", headers=staff,
+                data={"label": "wide", "capturedAt": taken.isoformat() + "Z", "latitude": "25.6102", "longitude": "85.0901"},
+                files={"file": ("office-gps.jpg", io.BytesIO(jpeg(scene(51))), "image/jpeg")})
+# SQLite reuses the id of a photo deleted in 12h, and the check job for that id already ran, so queue
+# the checks again (Postgres never reuses ids)
+client.post(f"/api/proof/activity/{act['id']}/recheck", headers=staff)
+jobs.run_pending()
+d = client.get(f"/api/proof/activity/{act['id']}", headers=staff).json()
+visit_row = client.get(f"/api/activities/{act['id']}", headers=staff).json()
+shot = next(iter(d.get("photoChecks", {}).values()), {})
+loc = next((c for c in shot.get("checks", []) if c["check"] == "location"), {})
+check("Office upload keeps the photo's own label, time and GPS",
+      r.status_code == 200 and shot.get("label") == "wide" and (shot.get("capturedAt") or "").startswith(taken.isoformat()[:16])
+      and shot.get("latitude") == 25.6102, (r.status_code, shot))
+check("Office upload with GPS in the file gets a real location check, labelled as from the file",
+      loc.get("result") == pl.PASS and "photo file" in loc.get("detail", ""), loc)
+check("The visit takes the photo's location and label, so boards and reports show them",
+      visit_row.get("latitude") == 25.6102 and visit_row.get("imageLabels", {}).get(r.json().get("imageUrl")) == "wide", visit_row)
+
+act_far = client.post("/api/activities", json={"campaignId": IDS["live"], "siteId": IDS["site2"], "activityType": "AUDIT",
+                                               "source": "web"}, headers=staff).json()
+client.post(f"/api/activities/{act_far['id']}/upload-image", headers=staff,
+            data={"latitude": "25.6250", "longitude": "85.0900"},
+            files={"file": ("office-far.jpg", io.BytesIO(jpeg(scene(52))), "image/jpeg")})
+jobs.run_pending()
+st, tier, why = verdict(act_far["id"])
+check("An office photo taken 1.5 km away is flagged for review", st == pl.REVIEW and why.get("location") == pl.REVIEW, (st, why))
+
+act_plain = client.post("/api/activities", json={"campaignId": IDS["live"], "siteId": IDS["site2"], "activityType": "AUDIT",
+                                                 "source": "web"}, headers=staff).json()
+client.post(f"/api/activities/{act_plain['id']}/upload-image", headers=staff,
+            data={"latitude": "0", "longitude": "0"},
+            files={"file": ("whatsapp.jpg", io.BytesIO(jpeg(scene(53))), "image/jpeg")})
+jobs.run_pending()
+st, tier, why = verdict(act_plain["id"])
+check("An office photo without location (e.g. via WhatsApp) is only noted, not flagged",
+      st == pl.PASS and why.get("location") == pl.INFO, (st, why))
+
+# 13b. Booking dates per site
+db = SessionLocal()
+site3 = models.Site(name="Boring Road Gantry", city="Patna", type="Gantry", latitude=25.62, longitude=85.12,
+                    availability_status="AVAILABLE")
+book_a = models.Campaign(name="Booking A", advertiser_id=IDS["adv"], status="PLANNED",
+                         start_date=today, end_date=today + dt.timedelta(days=30))
+book_b = models.Campaign(name="Booking B", advertiser_id=IDS["adv"], status="PLANNED")
+book_c = models.Campaign(name="Booking Cancelled", advertiser_id=IDS["adv"], status="CANCELLED")
+db.add_all([site3, book_a, book_b, book_c]); db.commit()
+asg_a = models.CampaignSiteAssignment(campaign_id=book_a.id, site_id=site3.id, status="PLANNED")
+asg_b = models.CampaignSiteAssignment(campaign_id=book_b.id, site_id=site3.id, status="PLANNED")
+asg_c = models.CampaignSiteAssignment(campaign_id=book_c.id, site_id=site3.id, status="PLANNED",
+                                      booked_from=today + dt.timedelta(days=60), booked_till=today + dt.timedelta(days=90))
+db.add_all([asg_a, asg_b, asg_c]); db.commit()
+B = dict(site=site3.id, a=book_a.id, b=book_b.id, asg_a=asg_a.id, asg_b=asg_b.id)
+db.close()
+
+
+def book(camp, asg, body):
+    return client.put(f"/api/campaigns/{camp}/assignment/{asg}", json=body, headers=staff)
+
+
+d1, d2 = today + dt.timedelta(days=5), today + dt.timedelta(days=35)
+r = book(B["a"], B["asg_a"], {"bookedFrom": d1.isoformat(), "bookedTill": d2.isoformat()})
+row = next(x for x in client.get(f"/api/campaigns/{B['a']}", headers=staff).json()["assignments"] if x["assignmentId"] == B["asg_a"])
+db = SessionLocal(); s3 = db.get(models.Site, B["site"]); occ = (s3.availability_status, s3.current_campaign_id); db.close()
+check("Booking dates can be set for one site", r.status_code == 200 and row["bookedFrom"] == d1.isoformat()
+      and row["bookedTill"] == d2.isoformat(), (r.status_code, r.text[:200], row))
+check("Setting booking dates marks the site booked for that campaign", occ == ("BOOKED", B["a"]), occ)
+
+r = book(B["b"], B["asg_b"], {"bookedFrom": (d1 + dt.timedelta(days=10)).isoformat(), "bookedTill": (d2 + dt.timedelta(days=10)).isoformat()})
+check("Overlapping another campaign's booking is refused with its name", r.status_code == 409 and "Booking A" in r.text,
+      (r.status_code, r.text[:200]))
+r = book(B["b"], B["asg_b"], {"bookedFrom": (today + dt.timedelta(days=65)).isoformat(), "bookedTill": (today + dt.timedelta(days=70)).isoformat()})
+check("A cancelled campaign's old booking doesn't block the dates", r.status_code == 200, (r.status_code, r.text[:200]))
+r = book(B["a"], B["asg_a"], {"bookedFrom": d2.isoformat(), "bookedTill": d1.isoformat()})
+check("An end date before the start is refused", r.status_code == 400, r.status_code)
+r = book(B["a"], B["asg_a"], {"bookedFrom": "next tuesday", "bookedTill": d2.isoformat()})
+check("A badly formed date is refused", r.status_code == 400, r.status_code)
+r = book(B["a"], B["asg_a"], {"otherCost": 500})
+row = next(x for x in client.get(f"/api/campaigns/{B['a']}", headers=staff).json()["assignments"] if x["assignmentId"] == B["asg_a"])
+check("Saving costs leaves the booking dates alone", row["bookedFrom"] == d1.isoformat() and row["otherCost"] == 500, row)
+r = book(B["a"], B["asg_a"], {"bookedFrom": None, "bookedTill": None})
+row = next(x for x in client.get(f"/api/campaigns/{B['a']}", headers=staff).json()["assignments"] if x["assignmentId"] == B["asg_a"])
+db = SessionLocal(); s3 = db.get(models.Site, B["site"]); occ = (s3.availability_status, s3.current_campaign_id); db.close()
+check("Clearing the dates returns the site to the campaign dates and frees it",
+      r.status_code == 200 and row["bookedFrom"] is None and occ[1] != B["a"], (row, occ))
+check("Booking dates can't be changed by a field worker or advertiser",
+      book(B["a"], B["asg_a"], {"bookedFrom": d1.isoformat(), "bookedTill": d2.isoformat()}).status_code == 200
+      and client.put(f"/api/campaigns/{B['a']}/assignment/{B['asg_a']}", json={"bookedFrom": None}, headers=field).status_code == 403
+      and client.put(f"/api/campaigns/{B['a']}/assignment/{B['asg_a']}", json={"bookedFrom": None}, headers=advtok).status_code == 403)
+
+# 13c. The monitoring board lists every booked site with where it stands
+db = SessionLocal()
+site4 = models.Site(name="Gandhi Maidan Wall", city="Patna", type="Wall Wrap")
+stage_c = models.Campaign(name="Stage Test", advertiser_id=IDS["adv"], status="PLANNED",
+                          start_date=today + dt.timedelta(days=10), end_date=today + dt.timedelta(days=40))
+db.add_all([site4, stage_c]); db.commit()
+s_one = models.CampaignSiteAssignment(campaign_id=stage_c.id, site_id=IDS["site"])
+s_two = models.CampaignSiteAssignment(campaign_id=stage_c.id, site_id=site4.id)
+db.add_all([s_one, s_two]); db.commit()
+SC = dict(c=stage_c.id, one=s_one.id, two=s_two.id)
+db.close()
+
+
+def board():
+    out = client.get(f"/api/campaigns/{SC['c']}/monitoring", headers=staff).json()
+    return {x["assignmentId"]: (x["stage"], x["inReport"]) for x in out["sites"]}, [x["assignmentId"] for x in out["sites"]]
+
+
+b, _ = board()
+check("Before the advertiser chooses, every site shows as booked and goes in the report",
+      b == {SC["one"]: ("BOOKED", True), SC["two"]: ("BOOKED", True)}, b)
+db = SessionLocal(); db.get(models.CampaignSiteAssignment, SC["one"]).is_shortlisted = True; db.commit(); db.close()
+b, _ = board()
+check("A shortlisted site shows as shortlisted; the other stays on the board as booked",
+      b == {SC["one"]: ("SHORTLISTED", True), SC["two"]: ("BOOKED", False)}, b)
+db = SessionLocal(); db.get(models.Campaign, SC["c"]).status = "FINALIZED"; db.commit(); db.close()
+b, order = board()
+check("After finalizing: chosen site finalized, the other 'not selected' and out of the report, finalized first",
+      b == {SC["one"]: ("FINALIZED", True), SC["two"]: ("NOT_SELECTED", False)} and order == [SC["one"], SC["two"]], (b, order))
+db = SessionLocal(); a2 = db.get(models.CampaignSiteAssignment, SC["two"]); a2.pending_approval = True; db.commit(); db.close()
+b, _ = board()
+check("A site added after finalizing waits for approval and stays out of the report",
+      b[SC["two"]] == ("AWAITING_APPROVAL", False), b)
+
 failed = [n for n, ok in results if not ok]
 print(f"\n{len(results) - len(failed)}/{len(results)} passed")
 sys.exit(1 if failed else 0)

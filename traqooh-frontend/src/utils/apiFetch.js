@@ -4,7 +4,8 @@
  * and attaches it as an Authorization: Bearer header on every request.
  */
 
-const API = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
+export const API_BASE = import.meta.env.VITE_API_BASE || "https://traqooh-backend-python.onrender.com";
+const API = API_BASE;
 
 export function getToken() {
   try {

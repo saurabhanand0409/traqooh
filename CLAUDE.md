@@ -260,7 +260,9 @@ adb -s emulator-5554 reverse tcp:8082 tcp:8082
 | Fonts | Syne 800 (headings), Inter 400/500/600 (body) — Google Fonts |
 | Auth | JWT in `localStorage` as `tq_user.token` |
 | API client | `src/utils/apiFetch.js` — auto-injects Bearer token; *skips* Content-Type when body is FormData |
-| Image compression | `src/utils/imageCompress.js` — canvas resize 1280 px / JPEG 0.75 |
+| Image compression | `src/utils/imageCompress.js` — canvas resize 1280 px / JPEG 0.75 (site photos); proof photos: `src/utils/photoUpload.js` `shrinkPhoto` — 2048 px long side / JPEG 0.82 |
+| Proof uploader | `src/components/ProofUploader.jsx` — drag & drop / paste / browse, EXIF time + GPS (`exifr`), HEIC → JPEG (`heic2any`), both loaded on demand; 3 uploads at a time with progress (XHR) and per-file retry |
+| npm | `.npmrc` sets `legacy-peer-deps=true` (react-leaflet 5 declares React 19; the app runs 18). Without it `npm ci` fails with ERESOLVE |
 
 ### Backend (`traqooh-backend-python`)
 | Layer | Technology |
@@ -343,7 +345,7 @@ Every endpoint that reads or changes data needs a login with the right role (`jw
 - **Company sign-up (`POST /api/auth/register`) is invitation-only** (returns 403) until data separation exists; set `ALLOW_PUBLIC_SIGNUP=true` on Render to reopen. Even then it can only create `ADMIN` or `MEDIA_OWNER`.
 - Advertisers sign themselves up through `POST /api/auth/register-advertiser`, which creates the advertiser and its login in one step; `create-login` itself is staff-only.
 - **Still open (data separation, Phase 2):** every staff account can read every company's data. Role gates stop outsiders, not one agency seeing another's.
-- Regression test: `traqooh-backend-python/tests/smoke_test.py` (run `python tests/smoke_test.py` from that folder; 155 checks). Section 11 is an access matrix of about 45 endpoints x 5 caller types; section 12 covers ProofLock, the job queue and the migrations. Run it after any change to routes or auth, before pushing. `SMOKE_DATABASE_URL=<empty throwaway Postgres>` runs it on Postgres. GitHub Actions runs it and the web build on every push (`.github/workflows/ci.yml`).
+- Regression test: `traqooh-backend-python/tests/smoke_test.py` (run `python tests/smoke_test.py` from that folder; 173 checks). Section 11 is an access matrix of about 45 endpoints x 5 caller types; section 12 covers ProofLock, the job queue and the migrations; section 13 office uploads with photo GPS, per-site booking dates and board stages. Run it after any change to routes or auth, before pushing. `SMOKE_DATABASE_URL=<empty throwaway Postgres>` runs it on Postgres. GitHub Actions runs it and the web build on every push (`.github/workflows/ci.yml`).
 
 ---
 
@@ -500,7 +502,7 @@ Every proof photo gets a `proof_photo` row at upload (SHA-256 of the file, captu
 | Capture method | app camera → pass; gallery or undeclared (old app) → review; web/legacy → note only | PASS / REVIEW / INFO |
 | Same file before | identical SHA-256 in an earlier visit | FAIL |
 | Copy of earlier photo | 64-bit dHash vs photos uploaded **earlier**: another site ≤ 2 bits → fail, ≤ 8 → review; same site, earlier visit ≤ 8 → review | FAIL / REVIEW |
-| Location | per-shot GPS > 250 m from the site, accuracy > 100 m, or missing (app photos) | REVIEW |
+| Location | per-shot GPS > 250 m from the site, accuracy > 100 m, or missing (app photos). Office uploads: GPS read from the photo file by the browser is checked the same way; none → note only | REVIEW |
 | Capture time | in the future → fail; > 7 days before upload or outside the booking ±7 days → review | FAIL / REVIEW |
 
 - A visit's `prooflock_status` is its worst photo. Checks only flag; staff decide (Verify / Needs retake), recorded in `proof_review`.
@@ -540,12 +542,15 @@ Every proof photo gets a `proof_photo` row at upload (SHA-256 of the file, captu
 
 Opens as a modal-panel from `/campaigns`. Tab order:
 1. **Linked Sites** — current assignments + inline cost editing (per-sqft for Media / Printing / Mounting)
+   - **Booked dates** per site, editable (saved on blur; empty = campaign dates; advertiser's chosen dates shown when different); overlap with another campaign's booking shows the API's message. The bulk bar can set dates for the selected rows too
+   - **Tracking** column: stage badge, photos per stage, flags, field worker, **Photos** (opens the uploader) and **Track** (switches to Monitoring, scrolls to and highlights that site)
 2. **Add Sites** — picker with vendor/state/city/type filters
 3. **Monitoring** — shown whenever the campaign has ≥1 assignment (NOT gated on status anymore)
+   - **Every booked site**, finalized or not (since 2026-10-07). Stage badge per card (`stage` from the API: FINALIZED / SHORTLISTED / BOOKED / AWAITING_APPROVAL / NOT_SELECTED), progress chips (Booked → Field worker → Installed → Audited → Taken down), editable booking dates. Filter chips: All / Finalized / Booked not finalized / No install photos / Flagged / Not selected; summary of installed / audited / taken down
    - Per-site card with header, GPS map link, "Field access" dropdown + inline "+ New" PIN creation
-   - **Start / Install**, **Audit** and **End / Takedown** columns; web uploads to Audit are logged as `AUDIT`
+   - **Start / Install**, **Audit** and **End / Takedown** columns; web uploads to Audit are logged as `AUDIT`. **Add photos** opens the uploader (`components/ProofUploader.jsx`); files can be dropped straight onto a column
    - Photos captured more than 250 m from the site's GPS get an amber "off-site" badge (`distanceM` / `offSite` from the monitoring endpoint)
-   - "Proof of Display Report" download: every approved site with its photos, capture time, GPS, distance and verified state
+   - "Proof of Display Report" download: the `inReport` sites (advertiser's selection) with their photos, each photo's own capture time, GPS (marked "from the photo file" for office uploads), distance and verified state
    - Photos + videos clickable into lightbox with GPS / date-time / metadata
    - Verify ✓ tick per photo (toggles DONE ↔ VERIFIED)
    - ProofLock: "Check this" / "Check failed" badges on flagged photos, a "N visits flagged" banner with a "Show only flagged" filter; the photo viewer lists each check, who captured it (field crew / independent checker / office upload), the photo's own GPS and time, and **Re-run checks**
@@ -656,8 +661,8 @@ The same token works for the whole campaign lifecycle. The AccessView page reads
 | `POST /api/campaigns/{id}/assign-site` | Single site — flags `pending_approval` if campaign is FINALIZED+ |
 | `POST /api/campaigns/{id}/assign-sites-bulk` | Bulk — same pending logic |
 | `DELETE /api/campaigns/{id}/remove-site/{aid}` | Unlink |
-| `PUT /api/campaigns/{id}/assignment/{aid}` | Update assignment (costs, dates, monitor worker, **monitor_field_pin_id**) |
-| `GET /api/campaigns/{id}/monitoring` | **New** — finalized sites + Start/Mid/End photos + available workers |
+| `PUT /api/campaigns/{id}/assignment/{aid}` | Update assignment (costs, monitor worker, **monitor_field_pin_id**, `bookedFrom` / `bookedTill` — null clears; 409 when another non-cancelled campaign has the site booked on overlapping dates; updates the site's availability) |
+| `GET /api/campaigns/{id}/monitoring` | Every assigned site with `stage`, `inReport`, booking dates, Start/Mid/End photos + available workers |
 | `POST /api/campaigns/{id}/share` | Now open to **all roles** |
 | `DELETE /api/campaigns/{id}/share/{user_id}` | Remove share |
 | `GET /api/campaigns/{id}/shares` | List shares |
@@ -670,7 +675,7 @@ The same token works for the whole campaign lifecycle. The AccessView page reads
 | `POST /api/activities` | Create (no auth required) |
 | `PUT /api/activities/{id}` | Update (used to flip status to VERIFIED) |
 | `DELETE /api/activities/{id}` | Delete |
-| `POST /api/activities/{id}/upload-image` | Attach photo/video to R2 (preserves Content-Type) |
+| `POST /api/activities/{id}/upload-image` | Attach photo/video to R2 (preserves Content-Type). Optional form fields `label`, `capturedAt`, `latitude`, `longitude` (read from the file's EXIF by the web uploader) go on the proof photo; the visit takes the first location and earliest time |
 | `DELETE /api/activities/{id}/image` | Remove |
 | `GET /api/activities/campaign/{id}/timeline` | Chronological |
 | `POST /api/activities/mobile/log` | One-shot: create activity + auto-discover campaign + upload photo/video |
@@ -830,7 +835,8 @@ Execution
 - **Inventory** with site CRUD, **per-site photo gallery with cover selection**, multi-image upload; expanded **branding types** (Billboard, Hoarding, Unipole, LED, Digital Screen, Wall Wrap, Pole Kiosk, Gantry, Transit, Bus Shelter, Mall Media + "Other (specify)…")
 - List + Leaflet Map view with color-coded pins
 - **Campaigns** with hybrid status workflow (DRAFT→PLANNED→FINALIZED→RUNNING→COMPLETE, +CANCELLED)
-- **Monitoring board** (per-site Start/End photo columns, field-worker assignment + inline PIN creation, photo+video upload, verify-tick, lightbox with GPS detail)
+- **Monitoring board** (every booked site with stage + progress, per-site Start/Audit/End photo columns, field-worker assignment + inline PIN creation, booking dates, verify-tick, lightbox with GPS detail)
+- **Proof uploader** (drag & drop / paste, previews, shot labels, photo's own time + distance from site from EXIF, HEIC conversion, parallel uploads with progress and retry)
 - **Finalized Cost Sheet** PDF download
 - **Per-sqft cost editing** for Media / Printing / Mounting (explicit column labels)
 - **Re-approval flow** for sites added after finalize (with optional advertiser email)
@@ -885,6 +891,8 @@ Execution
 | Metro port 8081 blocked | Apache/EDB on that port | Use `--port 8082` + `adb reverse tcp:8082 tcp:8082` |
 | Field app upload fails: "Unsupported FormDataPart implementation" | Expo SDK 56's `fetch` rejects React Native `{ uri, name, type }` file parts | Fixed in v2: append `new File(uri)` (expo-file-system). Probably also why v1 phone uploads failed on SDK 56 |
 | Emulator won't start: "not enough disk space" | C: is nearly full; the AVD lives on C: | Put a test AVD on D: (`ANDROID_AVD_HOME`), see `OPERATIONS.md` §10 |
+| `npm ci` / `npm install` fails with ERESOLVE (react-leaflet wants React 19) | Peer-dependency mismatch; the app works on React 18 | `traqooh-frontend/.npmrc` has `legacy-peer-deps=true`; keep it |
+| Office photos show "No location in the photo file" | WhatsApp (and some editors) strip EXIF | Ask the crew to send photos as a WhatsApp **Document**, or use the field app |
 | Photo doesn't show after upload but no error | Was the FileList bug — verify the Inventory/Campaigns fix is in the deployed bundle by searching for `Array.from(.target.files` |
 
 ---

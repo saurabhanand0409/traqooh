@@ -253,7 +253,15 @@ def delete_activity(activity_id: int, db: Session = Depends(get_db)):
 
 # ---------- Photo upload ----------
 @router.post("/{activity_id}/upload-image", dependencies=[Depends(require_staff)])
-async def upload_activity_image(activity_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_activity_image(
+    activity_id: int,
+    file: UploadFile = File(...),
+    label: Optional[str] = Form(None),        # close-up / wide / landmark / video / other
+    capturedAt: Optional[str] = Form(None),   # when the photo was taken, read from the file's EXIF by the browser
+    latitude: Optional[float] = Form(None),   # GPS from the file's EXIF
+    longitude: Optional[float] = Form(None),
+    db: Session = Depends(get_db),
+):
     a = db.query(models.CampaignActivity).filter(models.CampaignActivity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Activity not found")
@@ -262,8 +270,24 @@ async def upload_activity_image(activity_id: int, file: UploadFile = File(...), 
     current = json.loads(a.image_urls) if a.image_urls else []
     current.append(url)
     a.image_urls = json.dumps(current)
+    label = (label or "").strip()[:30] or None
+    if label:
+        labels = image_labels(a)
+        labels[url] = label
+        a.image_labels = json.dumps(labels)
+    captured = parse_client_datetime(capturedAt)
+    located = latitude is not None and longitude is not None and not (latitude == 0 and longitude == 0)
+    if not located:
+        latitude = longitude = None
+    # The visit takes the first photo location and the earliest capture time, so boards and
+    # reports that read one value per visit show them for office uploads too.
+    if located and a.latitude is None and a.longitude is None:
+        a.latitude, a.longitude = latitude, longitude
+    if captured and (a.captured_at is None or captured < a.captured_at):
+        a.captured_at = captured
     a.verification_tier = a.verification_tier or "STAFF_UPLOAD"
-    photo = prooflock.new_photo(a, url, sha256=sha, capture_source="WEB")
+    photo = prooflock.new_photo(a, url, label=label, sha256=sha, capture_source="WEB",
+                                captured_at=captured, latitude=latitude, longitude=longitude)
     db.add(photo)
     a.prooflock_status = "PENDING"
     db.commit()

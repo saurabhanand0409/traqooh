@@ -6,6 +6,34 @@ Dates are in `YYYY-MM-DD`. Each entry lists: **what changed**, **why**, and **wh
 
 ---
 
+## 2026-10-07 — Office photo uploader, per-site booking dates, every booked site on the Monitoring board
+
+### Photo uploader (web) — `traqooh-frontend/src/components/ProofUploader.jsx`, `src/utils/photoUpload.js`
+- Replaces the bare "Add Photo" file picker. Opens from a stage on a Monitoring card or the **Photos** button on a Linked Sites row; files can also be **dropped straight onto a stage** of a card, or pasted (Ctrl+V).
+- Before uploading it shows each file with a preview, a shot label (close-up / wide / landmark / other), **when it was taken and how far from the site**, read from the photo's own EXIF (`exifr`, loaded only when needed). Far-away photos are marked; photos without location (WhatsApp strips it) get a tip to send them as a Document or use the field app.
+- iPhone **HEIC** photos are converted to JPEG in the browser (`heic2any`, loaded only when a HEIC file appears).
+- Photos are resized to 2048 px on the long side (was 1280 px on the width, so portrait photos came out small); a file is never made bigger.
+- Uploads run 3 at a time with a progress bar per file; a failed file shows **Retry** and the uploader stays open; nothing is lost on a partial failure. The visit date follows the photos' own date. Closing with files not yet uploaded asks first.
+- Backend: `POST /api/activities/{id}/upload-image` accepts `label`, `capturedAt`, `latitude`, `longitude` per file and stores them on the proof photo; the visit takes the first location and earliest time. ProofLock now checks the location of office uploads that carry GPS ("… m from the site (location saved in the photo file)").
+- Proof of Display report uses each photo's own location and says when it came from the photo file.
+
+### Booking per site
+- **Booked dates** are editable on every Linked Sites row and on each Monitoring card (saved when the date box loses focus). Empty = follows the campaign dates; the advertiser's chosen dates are shown when different.
+- The bulk bar can set the same dates for all selected sites, with a summary of any that couldn't change.
+- Backend: `PUT /api/campaigns/{id}/assignment/{aid}` accepts `bookedFrom` / `bookedTill` (null clears). Dates that overlap another live campaign's booking of the same site are refused (409, names the campaign); cancelled campaigns don't block. The site's availability follows, as when assigning.
+
+### Tracking per site
+- The Monitoring board lists **every booked site, finalized or not**. Each card shows its stage (Finalized / Shortlisted / Booked · not finalized / Awaiting approval / Not selected by advertiser), progress (Booked → Field worker → Installed → Audited → Taken down) and booking dates. Filters: All, Finalized, Booked not finalized, No install photos, Flagged, Not selected. Summary line: installed / audited / taken down counts.
+- Linked Sites has a **Tracking** column: stage, photo counts per stage, flags, field worker, **Photos** and **Track** (jumps to that site on the Monitoring board).
+- Backend: `GET /api/campaigns/{id}/monitoring` returns all assignments with `stage`, `inReport` (the advertiser's selection, same as the photo zip) and booking dates. The Proof of Display report still covers only `inReport` sites.
+
+### Other
+- `traqooh-frontend/.npmrc` (`legacy-peer-deps=true`): `npm ci` failed with ERESOLVE (react-leaflet 5 declares React 19; the app runs React 18), so the web job in GitHub CI had been failing since it was added on 2026-10-04.
+- `smoke_test.py` section 13: office uploads with/without GPS, booking dates (overlap, cancelled campaign, bad dates, costs-only save, clearing, roles), board stages. 173/173 on SQLite and Postgres.
+- Tested in the browser against a local backend: drop/paste/browse, EXIF time and distance, labels, partial failure + retry, Track jump, overlap message, phone-width layout. Not tested: a real HEIC file, very large videos on a slow connection.
+
+---
+
 ## 2026-10-04 (later) — Field app v2, check results on the Monitoring board, trust cleanup
 
 ### Field app v2 (2.0.0) — `traqooh-app/`

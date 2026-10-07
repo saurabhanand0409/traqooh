@@ -176,12 +176,14 @@ def check_location(lat, lng, accuracy_m, site_lat, site_lng, capture_source=None
     if not proofs.has_gps(site_lat, site_lng):
         return _r("location", INFO, "Site has no GPS saved, so distance wasn't checked")
     dist = proofs.distance_m(lat, lng, site_lat, site_lng)
+    # Office uploads carry the location saved inside the photo file, not a live GPS reading
+    from_file = " (location saved in the photo file)" if office_upload else ""
     if dist is not None and dist > proofs.OFFSITE_LIMIT_M:
-        return _r("location", REVIEW, f"Taken {round(dist)} m from the site", distance_m=round(dist))
+        return _r("location", REVIEW, f"Taken {round(dist)} m from the site{from_file}", distance_m=round(dist))
     if accuracy_m is not None and accuracy_m > GPS_ACCURACY_MAX_M:
         return _r("location", REVIEW, f"Weak GPS (±{round(accuracy_m)} m)", distance_m=round(dist or 0))
     acc = f" (±{round(accuracy_m)} m)" if accuracy_m is not None else ""
-    return _r("location", PASS, f"{round(dist or 0)} m from the site{acc}", distance_m=round(dist or 0))
+    return _r("location", PASS, f"{round(dist or 0)} m from the site{acc}{from_file}", distance_m=round(dist or 0))
 
 
 def check_time(captured_at, uploaded_at, window_start=None, window_end=None, capture_source=None):
